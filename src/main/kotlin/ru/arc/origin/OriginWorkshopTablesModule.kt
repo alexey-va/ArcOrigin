@@ -1055,7 +1055,7 @@ internal object OriginWorkshopTablesModule : PluginModule {
             val current = activeCraftOverlays[tableId]
             val reusable = current != null && current.viewerId == viewer.uniqueId && current.control == name &&
                 current.sourceToOverlay.keys == sources.toSet() && current.sourceToOverlay.values.all(PacketDisplay::isValid)
-            val overlay = if (reusable) current!! else {
+            val overlay = if (reusable) current else {
                 removeCraftOverlay(tableId)
                 val copies = linkedMapOf<PacketDisplay, PacketDisplay>()
                 val owner = displays ?: return

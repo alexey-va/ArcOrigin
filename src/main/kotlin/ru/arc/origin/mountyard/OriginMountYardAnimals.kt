@@ -391,6 +391,8 @@ class OriginMountYardAnimals(
         }
     }
 
+    // Preserve the Bukkit enum-style sound names in existing operator configuration.
+    @Suppress("DEPRECATION")
     private fun playSound(location: org.bukkit.Location, rawSound: String, volume: Float, pitch: Float) {
         runCatching { Sound.valueOf(rawSound.uppercase()) }
             .onSuccess { location.world.playSound(location, it, volume, pitch) }
