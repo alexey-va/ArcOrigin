@@ -1,0 +1,1377 @@
+# Kotlin-owned ambient NPC choreography for Origin. Denizen must not own these
+# actors' background movement at the same time.
+world: rc_origin_spawn
+tick-ticks: 20
+
+speech:
+  duration-ticks: 100
+  height: 2.65
+  view-range: 1.0
+  scale: 0.95
+
+# Kotlin owns NPC 364, the hit combo and Bran's timed challenge. The previous
+# Denizen owner is deliberately removed so one attack has exactly one counter.
+training-dummy:
+  dummy-npc-id: 364
+  trainer-npc-id: 355
+  position: "71.63546148860222,70.0,72.61048723499574"
+  yaw: 129.2892
+  pitch: -4.75167
+  strong-charge: 0.9
+  ambient-max-health: 1024.0
+  combo-timeout-seconds: 15
+  challenge-hits: 8
+  challenge-duration-seconds: 18
+  cooldown-hours: 20
+  partial-reward: 20
+  full-reward: 60
+
+scene-ids: [forge, mount-yard]
+
+scenes:
+  forge:
+    anchor: "75.5,70.0,72.5"
+    audience-range: 80.0
+    retry-seconds: 6
+    max-concurrent-cycles: 7
+    actor-ids: ["349", "350", "351", "354", "355", "358", "362"]
+    actors:
+      349:
+        home: "76.5,70.0,70.5,0,25"
+        denied-denizen-flags: [rc_origin_forge_service_busy]
+      350:
+        home: "70.8895,70.0,62.2651,60.9,0"
+        denied-denizen-flags: [rc_origin_forge_service_busy]
+      351:
+        home: "69.5,70.0,63.5,116.6,5.0"
+        denied-denizen-flags: [rc_origin_forge_service_busy]
+      354:
+        home: "79.6839,70.0,66.8583,-126.2,0"
+        denied-denizen-flags: [rc_origin_forge_service_busy]
+      355:
+        home: "66.687,70.0,73.9092,-69.1,0"
+        denied-denizen-flags: [rc_origin_forge_service_busy]
+      358:
+        home: "76.6215,70.0,79.2315,-145.5,-9.1"
+        denied-denizen-flags: [rc_origin_forge_service_busy]
+      362:
+        home: "80.7,70.0,78.4458,65.1,0"
+        denied-denizen-flags: [rc_origin_forge_service_busy]
+
+    anchor-ids: [master-anvil, master-anvil-stand, master-assistant-stand, ledger-desk, stock-stand, stock-chest, apprentice-stand, apprentice-anvil, ore-cart-stand, ore-cart, ore-chest-stand, ore-chest, dummy-stage, dummy, hammer-anvil, furnace-stand, furnace-fire, quench-stand, quench-cauldron, ore-load-stand, ore-load-cart, ore-route-entry, ore-route-turn, ore-passage, ore-park-stand, ore-park-cart, ore-unload-side, ore-return-side, ore-return-grip, ore-return-load]
+    anchors:
+      master-anvil: "76.5,70.65,69.5"
+      master-anvil-stand: "76.5,70.0,70.5"
+      master-assistant-stand: "75.5,70.0,70.5"
+      ledger-desk: "70.4,70.75,61.6"
+      stock-stand: "80.7,70.0625,71.4"
+      stock-chest: "82.5,72.5,71.5"
+      apprentice-stand: "79.6839,70.0,66.8583"
+      apprentice-anvil: "79.1,70.65,67.8"
+      ore-cart-stand: "69.5,70.0,63.5"
+      ore-cart: "64.5,70.5,60.5"
+      ore-load-stand: "70.5,70.0,65.5,-90,0"
+      ore-load-cart: "71.5,70.5625,65.5,90,0"
+      ore-route-entry: "74.5,70.0,65.5"
+      ore-route-turn: "74.5,70.0,69.5"
+      ore-passage: "78.5,70.0,69.5"
+      ore-park-stand: "79.5,70.0,69.5,-90,0"
+      ore-park-cart: "80.5,70.5625,69.5,90,0"
+      ore-unload-side: "79.5,70.0625,70.5"
+      ore-return-side: "81.5,70.0625,70.5"
+      ore-return-grip: "81.5,70.0,69.5,90,0"
+      ore-return-load: "72.5,70.0,65.5,90,0"
+      ore-chest-stand: "69.11,70.0,76.21"
+      ore-chest: "69.5,70.5,77.5"
+      dummy-stage: "70.0,70.0,71.4"
+      dummy: "71.6355,71.1,72.6105"
+      hammer-anvil: "75.7,70.65,78.4"
+      furnace-stand: "80.5,70.0,79.5"
+      furnace-fire: "81.5,71.0,80.5"
+      quench-stand: "81.5,70.0,75.5"
+      quench-cauldron: "82.5,70.8,76.5"
+
+    # Props resolve against real workstation blocks. If a build moves or loses
+    # its anvil, the cycle aborts and cleans up instead of drawing on the floor.
+    prop-surface-ids: [apprentice-work-surface, master-work-surface]
+    prop-surfaces:
+      apprentice-work-surface:
+        near: "79.1,70.65,67.8"
+        material-ids: [ANVIL, CHIPPED_ANVIL, DAMAGED_ANVIL]
+        search-radius: 2
+        top-offset: 1.04
+        look-target-offset-y: -1.15
+      master-work-surface:
+        near: "76.5,70.65,69.5"
+        material-ids: [ANVIL, CHIPPED_ANVIL, DAMAGED_ANVIL]
+        search-radius: 2
+        top-offset: 1.04
+        look-target-offset-y: -1.15
+
+    route-profile-ids: [floor, ore-haul]
+    route-profiles:
+      floor:
+        floor-y: 70
+        min-block: "64,60"
+        max-block: "84,82"
+        forbidden-areas: []
+        preferred-areas: ["68,70,82,80"]
+        max-visited: 1024
+        snap-radius: 3
+        poll-ticks: 2
+        stall-polls: 24
+        speed-modifier: 0.68
+        distance-margin: 0.35
+        path-distance-margin: 0.35
+        maximum-step-height: 0.125
+
+      # Savva's load and empty return both stay north of Bran and the dog chest.
+      ore-haul:
+        floor-y: 70
+        min-block: "68,62"
+        max-block: "81,71"
+        forbidden-areas: ["68,70,75,71", "76,70,77,71", "79,66,80,67", "70,62,71,62"]
+        preferred-areas: ["69,64,75,66", "74,65,75,69", "74,69,81,69"]
+        max-visited: 512
+        snap-radius: 2
+        poll-ticks: 2
+        stall-polls: 30
+        speed-modifier: 0.55
+        distance-margin: 0.20
+        path-distance-margin: 0.20
+        heading-look-ahead-cells: 1
+        heading-max-turn-degrees-per-tick: 8
+        corner-smoothing-distance: 0.45
+        corner-smoothing-lead: 0.18
+        maximum-step-height: 0.125
+
+    cycle-ids: [master-anvil, master-spear, master-shield, master-horseshoe, master-forging-showcase, ledger-orders, apprentice-engraving, apprentice-engraving-jopa, ore-inspection, blade-practice, hammer-rhythm, furnace-check]
+    cycles:
+      # Generated solo silhouettes: scripts/forge_figures.py (ARC).
+      master-anvil:
+        actor-ids: ['349']
+        initial-delay-seconds: 1
+        cooldown-min-seconds: 1
+        cooldown-max-seconds: 2
+        step-ids: [face, billet, place, tool, draw-billet, forge-m, consume-0, part-00, part-02, part-03, part-06, part-09, forge-e, consume-1, part-01, part-04, part-07, part-10, forge-w, consume-2, part-08, part-12, part-14, forge-c, consume-blank, part-05, part-11, part-13, part-15, part-16, part-17, finish, inspect, collect-0, collect-1, collect-2, collect-3, collect-4, collect-5, collect-6, collect-7, collect-8, collect-9, collect-10, collect-11, collect-12, collect-13, collect-14, collect-15, collect-16, collect-17, result, remark, handoff]
+        steps:
+          face: {type: LOOK_AT_SURFACE, actor-id: 349, surface: master-work-surface}
+          billet: {type: EQUIP, actor-id: 349, material: RAW_IRON}
+          place: {type: BLOCK_DISPLAY, key: edgar-axe-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.2200,0.0700,0.2500', interpolation-ticks: 8}
+          tool: {type: EQUIP, actor-id: 349, material: MACE}
+          draw-billet: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: LAVA, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 0.88}
+          forge-m: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 0.96}
+          consume-0: {type: BLOCK_DISPLAY, key: edgar-axe-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.1800,0.0400,0.1800', interpolation-ticks: 8}
+          part-00: {type: BLOCK_DISPLAY, key: edgar-axe-part-00, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.0225,0.0000,-0.2475', scale: '0.0900,0.0750,0.2700', interpolation-ticks: 8}
+          part-02: {type: BLOCK_DISPLAY, key: edgar-axe-part-02, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.1125,0.0000,-0.2475', scale: '0.0900,0.0750,0.1800', interpolation-ticks: 8}
+          part-03: {type: BLOCK_DISPLAY, key: edgar-axe-part-03, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.0450,0.0000,-0.2025', scale: '0.0450,0.0750,0.2700', interpolation-ticks: 8}
+          part-06: {type: BLOCK_DISPLAY, key: edgar-axe-part-06, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,-0.2475', scale: '0.0450,0.0750,0.0900', interpolation-ticks: 8}
+          part-09: {type: BLOCK_DISPLAY, key: edgar-axe-part-09, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,-0.0900', scale: '0.0450,0.0750,0.0450', interpolation-ticks: 8}
+          forge-e: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.08}
+          consume-1: {type: BLOCK_DISPLAY, key: edgar-axe-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.0900,0.0400,0.0900', interpolation-ticks: 8}
+          part-01: {type: BLOCK_DISPLAY, key: edgar-axe-part-01, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.0675,0.0000,-0.3600', scale: '0.0900,0.0500,0.0450', interpolation-ticks: 8}
+          part-04: {type: BLOCK_DISPLAY, key: edgar-axe-part-04, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.1125,0.0000,-0.2025', scale: '0.0900,0.0500,0.2700', interpolation-ticks: 8}
+          part-07: {type: BLOCK_DISPLAY, key: edgar-axe-part-07, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.1800,0.0000,-0.2025', scale: '0.0450,0.0500,0.1800', interpolation-ticks: 8}
+          part-10: {type: BLOCK_DISPLAY, key: edgar-axe-part-10, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.0675,0.0000,-0.0450', scale: '0.0900,0.0500,0.0450', interpolation-ticks: 8}
+          forge-w: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.2}
+          consume-2: {type: BLOCK_DISPLAY, key: edgar-axe-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.0600,0.0400,0.0600', interpolation-ticks: 8}
+          part-08: {type: BLOCK_DISPLAY, key: edgar-axe-part-08, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,-0.0900', scale: '0.0450,0.0500,0.2250', interpolation-ticks: 8}
+          part-12: {type: BLOCK_DISPLAY, key: edgar-axe-part-12, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,0.1125', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          part-14: {type: BLOCK_DISPLAY, key: edgar-axe-part-14, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,0.2475', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          forge-c: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.3199999999999998}
+          consume-blank: {type: REMOVE_DISPLAY, key: edgar-axe-blank}
+          part-05: {type: BLOCK_DISPLAY, key: edgar-axe-part-05, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '-0.2250,0.0000,-0.2250', scale: '0.0450,0.0500,0.1350', interpolation-ticks: 8}
+          part-11: {type: BLOCK_DISPLAY, key: edgar-axe-part-11, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,0.0450', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-13: {type: BLOCK_DISPLAY, key: edgar-axe-part-13, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,0.1800', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-15: {type: BLOCK_DISPLAY, key: edgar-axe-part-15, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,0.3375', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          part-16: {type: BLOCK_DISPLAY, key: edgar-axe-part-16, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '-0.2250,0.0000,0.3600', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-17: {type: BLOCK_DISPLAY, key: edgar-axe-part-17, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '-0.1350,0.0000,0.3600', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          finish: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.48}
+          inspect: {type: WAIT, ticks: 60}
+          collect-0: {type: REMOVE_DISPLAY, key: edgar-axe-part-00}
+          collect-1: {type: REMOVE_DISPLAY, key: edgar-axe-part-02}
+          collect-2: {type: REMOVE_DISPLAY, key: edgar-axe-part-03}
+          collect-3: {type: REMOVE_DISPLAY, key: edgar-axe-part-06}
+          collect-4: {type: REMOVE_DISPLAY, key: edgar-axe-part-09}
+          collect-5: {type: REMOVE_DISPLAY, key: edgar-axe-part-01}
+          collect-6: {type: REMOVE_DISPLAY, key: edgar-axe-part-04}
+          collect-7: {type: REMOVE_DISPLAY, key: edgar-axe-part-07}
+          collect-8: {type: REMOVE_DISPLAY, key: edgar-axe-part-10}
+          collect-9: {type: REMOVE_DISPLAY, key: edgar-axe-part-08}
+          collect-10: {type: REMOVE_DISPLAY, key: edgar-axe-part-12}
+          collect-11: {type: REMOVE_DISPLAY, key: edgar-axe-part-14}
+          collect-12: {type: REMOVE_DISPLAY, key: edgar-axe-part-05}
+          collect-13: {type: REMOVE_DISPLAY, key: edgar-axe-part-11}
+          collect-14: {type: REMOVE_DISPLAY, key: edgar-axe-part-13}
+          collect-15: {type: REMOVE_DISPLAY, key: edgar-axe-part-15}
+          collect-16: {type: REMOVE_DISPLAY, key: edgar-axe-part-16}
+          collect-17: {type: REMOVE_DISPLAY, key: edgar-axe-part-17}
+          result: {type: EQUIP, actor-id: 349, material: IRON_AXE}
+          remark: {type: SPEECH, actor-id: 349, text: 'Лезвие вытянуто, борода подрезана. Теперь топор готов.'}
+          handoff: {type: WAIT, ticks: 10}
+      master-spear:
+        actor-ids: ['349']
+        initial-delay-seconds: 1
+        cooldown-min-seconds: 1
+        cooldown-max-seconds: 2
+        step-ids: [face, billet, place, tool, draw-billet, forge-m, consume-0, part-02, part-05, part-06, part-09, part-10, part-16, part-17, forge-e, consume-1, part-00, part-01, part-03, part-04, part-07, part-08, part-11, part-12, part-13, part-14, part-15, forge-w, consume-2, part-19, part-21, part-23, forge-c, consume-blank, part-18, part-20, part-22, part-24, finish, inspect, collect-0, collect-1, collect-2, collect-3, collect-4, collect-5, collect-6, collect-7, collect-8, collect-9, collect-10, collect-11, collect-12, collect-13, collect-14, collect-15, collect-16, collect-17, collect-18, collect-19, collect-20, collect-21, collect-22, collect-23, collect-24, result, remark, handoff]
+        steps:
+          face: {type: LOOK_AT_SURFACE, actor-id: 349, surface: master-work-surface}
+          billet: {type: EQUIP, actor-id: 349, material: RAW_IRON}
+          place: {type: BLOCK_DISPLAY, key: edgar-spear-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.2200,0.0700,0.2500', interpolation-ticks: 8}
+          tool: {type: EQUIP, actor-id: 349, material: MACE}
+          draw-billet: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: LAVA, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 0.88}
+          forge-m: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 0.96}
+          consume-0: {type: BLOCK_DISPLAY, key: edgar-spear-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.1800,0.0400,0.1800', interpolation-ticks: 8}
+          part-02: {type: BLOCK_DISPLAY, key: edgar-spear-part-02, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,-0.2025', scale: '0.0450,0.0750,0.3600', interpolation-ticks: 8}
+          part-05: {type: BLOCK_DISPLAY, key: edgar-spear-part-05, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.0450,0.0000,-0.2250', scale: '0.0450,0.0750,0.2250', interpolation-ticks: 8}
+          part-06: {type: BLOCK_DISPLAY, key: edgar-spear-part-06, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.0450,0.0000,-0.2250', scale: '0.0450,0.0750,0.2250', interpolation-ticks: 8}
+          part-09: {type: BLOCK_DISPLAY, key: edgar-spear-part-09, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.0900,0.0000,-0.2025', scale: '0.0450,0.0750,0.0900', interpolation-ticks: 8}
+          part-10: {type: BLOCK_DISPLAY, key: edgar-spear-part-10, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.0900,0.0000,-0.2025', scale: '0.0450,0.0750,0.0900', interpolation-ticks: 8}
+          part-16: {type: BLOCK_DISPLAY, key: edgar-spear-part-16, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.0450,0.0000,-0.0450', scale: '0.0450,0.0750,0.0450', interpolation-ticks: 8}
+          part-17: {type: BLOCK_DISPLAY, key: edgar-spear-part-17, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.0450,0.0000,-0.0450', scale: '0.0450,0.0750,0.0450', interpolation-ticks: 8}
+          forge-e: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.08}
+          consume-1: {type: BLOCK_DISPLAY, key: edgar-spear-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.0900,0.0400,0.0900', interpolation-ticks: 8}
+          part-00: {type: BLOCK_DISPLAY, key: edgar-spear-part-00, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,-0.4050', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-01: {type: BLOCK_DISPLAY, key: edgar-spear-part-01, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.0450,0.0000,-0.3600', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-03: {type: BLOCK_DISPLAY, key: edgar-spear-part-03, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.0450,0.0000,-0.3600', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-04: {type: BLOCK_DISPLAY, key: edgar-spear-part-04, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.0900,0.0000,-0.2925', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          part-07: {type: BLOCK_DISPLAY, key: edgar-spear-part-07, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.0900,0.0000,-0.2925', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          part-08: {type: BLOCK_DISPLAY, key: edgar-spear-part-08, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.1350,0.0000,-0.2025', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          part-11: {type: BLOCK_DISPLAY, key: edgar-spear-part-11, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.1350,0.0000,-0.2025', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          part-12: {type: BLOCK_DISPLAY, key: edgar-spear-part-12, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.0900,0.0000,-0.1350', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-13: {type: BLOCK_DISPLAY, key: edgar-spear-part-13, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.0900,0.0000,-0.1350', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-14: {type: BLOCK_DISPLAY, key: edgar-spear-part-14, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.0450,0.0000,-0.0900', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-15: {type: BLOCK_DISPLAY, key: edgar-spear-part-15, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.0450,0.0000,-0.0900', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          forge-w: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.2}
+          consume-2: {type: BLOCK_DISPLAY, key: edgar-spear-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.0600,0.0400,0.0600', interpolation-ticks: 8}
+          part-19: {type: BLOCK_DISPLAY, key: edgar-spear-part-19, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0675', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          part-21: {type: BLOCK_DISPLAY, key: edgar-spear-part-21, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.2025', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          part-23: {type: BLOCK_DISPLAY, key: edgar-spear-part-23, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.3375', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          forge-c: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.3199999999999998}
+          consume-blank: {type: REMOVE_DISPLAY, key: edgar-spear-blank}
+          part-18: {type: BLOCK_DISPLAY, key: edgar-spear-part-18, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.1350,0.0500,0.0450', interpolation-ticks: 8}
+          part-20: {type: BLOCK_DISPLAY, key: edgar-spear-part-20, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.1350', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-22: {type: BLOCK_DISPLAY, key: edgar-spear-part-22, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.2700', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-24: {type: BLOCK_DISPLAY, key: edgar-spear-part-24, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.4050', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          finish: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.48}
+          inspect: {type: WAIT, ticks: 60}
+          collect-0: {type: REMOVE_DISPLAY, key: edgar-spear-part-02}
+          collect-1: {type: REMOVE_DISPLAY, key: edgar-spear-part-05}
+          collect-2: {type: REMOVE_DISPLAY, key: edgar-spear-part-06}
+          collect-3: {type: REMOVE_DISPLAY, key: edgar-spear-part-09}
+          collect-4: {type: REMOVE_DISPLAY, key: edgar-spear-part-10}
+          collect-5: {type: REMOVE_DISPLAY, key: edgar-spear-part-16}
+          collect-6: {type: REMOVE_DISPLAY, key: edgar-spear-part-17}
+          collect-7: {type: REMOVE_DISPLAY, key: edgar-spear-part-00}
+          collect-8: {type: REMOVE_DISPLAY, key: edgar-spear-part-01}
+          collect-9: {type: REMOVE_DISPLAY, key: edgar-spear-part-03}
+          collect-10: {type: REMOVE_DISPLAY, key: edgar-spear-part-04}
+          collect-11: {type: REMOVE_DISPLAY, key: edgar-spear-part-07}
+          collect-12: {type: REMOVE_DISPLAY, key: edgar-spear-part-08}
+          collect-13: {type: REMOVE_DISPLAY, key: edgar-spear-part-11}
+          collect-14: {type: REMOVE_DISPLAY, key: edgar-spear-part-12}
+          collect-15: {type: REMOVE_DISPLAY, key: edgar-spear-part-13}
+          collect-16: {type: REMOVE_DISPLAY, key: edgar-spear-part-14}
+          collect-17: {type: REMOVE_DISPLAY, key: edgar-spear-part-15}
+          collect-18: {type: REMOVE_DISPLAY, key: edgar-spear-part-19}
+          collect-19: {type: REMOVE_DISPLAY, key: edgar-spear-part-21}
+          collect-20: {type: REMOVE_DISPLAY, key: edgar-spear-part-23}
+          collect-21: {type: REMOVE_DISPLAY, key: edgar-spear-part-18}
+          collect-22: {type: REMOVE_DISPLAY, key: edgar-spear-part-20}
+          collect-23: {type: REMOVE_DISPLAY, key: edgar-spear-part-22}
+          collect-24: {type: REMOVE_DISPLAY, key: edgar-spear-part-24}
+          result: {type: EQUIP, actor-id: 349, material: TRIDENT}
+          remark: {type: SPEECH, actor-id: 349, text: 'Ровное перо, крепкая втулка. Можно насаживать на древко.'}
+          handoff: {type: WAIT, ticks: 10}
+      master-shield:
+        actor-ids: ['349']
+        initial-delay-seconds: 1
+        cooldown-min-seconds: 1
+        cooldown-max-seconds: 2
+        step-ids: [face, billet, place, tool, draw-billet, forge-m, consume-0, part-08, part-11, part-12, forge-e, consume-1, part-00, part-01, part-03, part-25, part-26, part-27, part-30, part-31, part-32, part-33, part-34, part-35, part-37, part-38, forge-w, consume-2, part-02, part-04, part-06, part-07, part-09, part-10, part-13, part-14, part-17, part-18, part-19, part-20, part-21, part-22, part-24, part-28, part-29, part-36, forge-c, consume-blank, part-05, part-15, part-16, part-23, finish, inspect, collect-0, collect-1, collect-2, collect-3, collect-4, collect-5, collect-6, collect-7, collect-8, collect-9, collect-10, collect-11, collect-12, collect-13, collect-14, collect-15, collect-16, collect-17, collect-18, collect-19, collect-20, collect-21, collect-22, collect-23, collect-24, collect-25, collect-26, collect-27, collect-28, collect-29, collect-30, collect-31, collect-32, collect-33, collect-34, collect-35, collect-36, collect-37, collect-38, result, remark, handoff]
+        steps:
+          face: {type: LOOK_AT_SURFACE, actor-id: 349, surface: master-work-surface}
+          billet: {type: EQUIP, actor-id: 349, material: RAW_IRON}
+          place: {type: BLOCK_DISPLAY, key: edgar-shield-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.2200,0.0700,0.2500', interpolation-ticks: 8}
+          tool: {type: EQUIP, actor-id: 349, material: MACE}
+          draw-billet: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: LAVA, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 0.88}
+          forge-m: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 0.96}
+          consume-0: {type: BLOCK_DISPLAY, key: edgar-shield-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.1800,0.0400,0.1800', interpolation-ticks: 8}
+          part-08: {type: BLOCK_DISPLAY, key: edgar-shield-part-08, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,-0.0900', scale: '0.1350,0.0750,0.2250', interpolation-ticks: 8}
+          part-11: {type: BLOCK_DISPLAY, key: edgar-shield-part-11, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.0900,0.0000,-0.0900', scale: '0.0450,0.0750,0.1350', interpolation-ticks: 8}
+          part-12: {type: BLOCK_DISPLAY, key: edgar-shield-part-12, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.0900,0.0000,-0.0900', scale: '0.0450,0.0750,0.1350', interpolation-ticks: 8}
+          forge-e: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.08}
+          consume-1: {type: BLOCK_DISPLAY, key: edgar-shield-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.0900,0.0400,0.0900', interpolation-ticks: 8}
+          part-00: {type: BLOCK_DISPLAY, key: edgar-shield-part-00, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,-0.4050', scale: '0.4950,0.0500,0.0450', interpolation-ticks: 8}
+          part-01: {type: BLOCK_DISPLAY, key: edgar-shield-part-01, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.2700,0.0000,-0.1575', scale: '0.0450,0.0500,0.4500', interpolation-ticks: 8}
+          part-03: {type: BLOCK_DISPLAY, key: edgar-shield-part-03, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.2700,0.0000,-0.1575', scale: '0.0450,0.0500,0.4500', interpolation-ticks: 8}
+          part-25: {type: BLOCK_DISPLAY, key: edgar-shield-part-25, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.2250,0.0000,0.1125', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          part-26: {type: BLOCK_DISPLAY, key: edgar-shield-part-26, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.2250,0.0000,0.1125', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          part-27: {type: BLOCK_DISPLAY, key: edgar-shield-part-27, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,0.1800', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-30: {type: BLOCK_DISPLAY, key: edgar-shield-part-30, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.1800,0.0000,0.1800', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-31: {type: BLOCK_DISPLAY, key: edgar-shield-part-31, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.1350,0.0000,0.2250', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-32: {type: BLOCK_DISPLAY, key: edgar-shield-part-32, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.1350,0.0000,0.2250', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-33: {type: BLOCK_DISPLAY, key: edgar-shield-part-33, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.0900,0.0000,0.2700', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-34: {type: BLOCK_DISPLAY, key: edgar-shield-part-34, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.0900,0.0000,0.2700', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-35: {type: BLOCK_DISPLAY, key: edgar-shield-part-35, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.0450,0.0000,0.3150', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-37: {type: BLOCK_DISPLAY, key: edgar-shield-part-37, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.0450,0.0000,0.3150', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-38: {type: BLOCK_DISPLAY, key: edgar-shield-part-38, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.3600', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          forge-w: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.2}
+          consume-2: {type: BLOCK_DISPLAY, key: edgar-shield-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.0600,0.0400,0.0600', interpolation-ticks: 8}
+          part-02: {type: BLOCK_DISPLAY, key: edgar-shield-part-02, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,-0.3600', scale: '0.4950,0.0500,0.0450', interpolation-ticks: 8}
+          part-04: {type: BLOCK_DISPLAY, key: edgar-shield-part-04, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '-0.1350,0.0000,-0.2700', scale: '0.2250,0.0500,0.1350', interpolation-ticks: 8}
+          part-06: {type: BLOCK_DISPLAY, key: edgar-shield-part-06, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '0.1350,0.0000,-0.2700', scale: '0.2250,0.0500,0.1350', interpolation-ticks: 8}
+          part-07: {type: BLOCK_DISPLAY, key: edgar-shield-part-07, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '-0.1575,0.0000,-0.1800', scale: '0.1800,0.0500,0.0450', interpolation-ticks: 8}
+          part-09: {type: BLOCK_DISPLAY, key: edgar-shield-part-09, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '0.1575,0.0000,-0.1800', scale: '0.1800,0.0500,0.0450', interpolation-ticks: 8}
+          part-10: {type: BLOCK_DISPLAY, key: edgar-shield-part-10, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,-0.1350', scale: '0.1350,0.0500,0.0450', interpolation-ticks: 8}
+          part-13: {type: BLOCK_DISPLAY, key: edgar-shield-part-13, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '0.1800,0.0000,-0.1350', scale: '0.1350,0.0500,0.0450', interpolation-ticks: 8}
+          part-14: {type: BLOCK_DISPLAY, key: edgar-shield-part-14, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '-0.2250,0.0000,-0.0225', scale: '0.0450,0.0500,0.1800', interpolation-ticks: 8}
+          part-17: {type: BLOCK_DISPLAY, key: edgar-shield-part-17, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '0.2250,0.0000,-0.0225', scale: '0.0450,0.0500,0.1800', interpolation-ticks: 8}
+          part-18: {type: BLOCK_DISPLAY, key: edgar-shield-part-18, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '-0.1575,0.0000,0.0450', scale: '0.0900,0.0500,0.2250', interpolation-ticks: 8}
+          part-19: {type: BLOCK_DISPLAY, key: edgar-shield-part-19, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '0.1575,0.0000,0.0450', scale: '0.0900,0.0500,0.2250', interpolation-ticks: 8}
+          part-20: {type: BLOCK_DISPLAY, key: edgar-shield-part-20, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '-0.0900,0.0000,0.1125', scale: '0.0450,0.0500,0.2700', interpolation-ticks: 8}
+          part-21: {type: BLOCK_DISPLAY, key: edgar-shield-part-21, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '0.0900,0.0000,0.1125', scale: '0.0450,0.0500,0.2700', interpolation-ticks: 8}
+          part-22: {type: BLOCK_DISPLAY, key: edgar-shield-part-22, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '-0.0450,0.0000,0.1575', scale: '0.0450,0.0500,0.2700', interpolation-ticks: 8}
+          part-24: {type: BLOCK_DISPLAY, key: edgar-shield-part-24, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '0.0450,0.0000,0.1575', scale: '0.0450,0.0500,0.2700', interpolation-ticks: 8}
+          part-28: {type: BLOCK_DISPLAY, key: edgar-shield-part-28, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '-0.1350,0.0000,0.1800', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-29: {type: BLOCK_DISPLAY, key: edgar-shield-part-29, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '0.1350,0.0000,0.1800', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-36: {type: BLOCK_DISPLAY, key: edgar-shield-part-36, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.3150', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          forge-c: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.3199999999999998}
+          consume-blank: {type: REMOVE_DISPLAY, key: edgar-shield-blank}
+          part-05: {type: BLOCK_DISPLAY, key: edgar-shield-part-05, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,-0.2700', scale: '0.0450,0.0500,0.1350', interpolation-ticks: 8}
+          part-15: {type: BLOCK_DISPLAY, key: edgar-shield-part-15, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '-0.1575,0.0000,-0.0900', scale: '0.0900,0.0500,0.0450', interpolation-ticks: 8}
+          part-16: {type: BLOCK_DISPLAY, key: edgar-shield-part-16, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '0.1575,0.0000,-0.0900', scale: '0.0900,0.0500,0.0450', interpolation-ticks: 8}
+          part-23: {type: BLOCK_DISPLAY, key: edgar-shield-part-23, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.1575', scale: '0.0450,0.0500,0.2700', interpolation-ticks: 8}
+          finish: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.48}
+          inspect: {type: WAIT, ticks: 60}
+          collect-0: {type: REMOVE_DISPLAY, key: edgar-shield-part-08}
+          collect-1: {type: REMOVE_DISPLAY, key: edgar-shield-part-11}
+          collect-2: {type: REMOVE_DISPLAY, key: edgar-shield-part-12}
+          collect-3: {type: REMOVE_DISPLAY, key: edgar-shield-part-00}
+          collect-4: {type: REMOVE_DISPLAY, key: edgar-shield-part-01}
+          collect-5: {type: REMOVE_DISPLAY, key: edgar-shield-part-03}
+          collect-6: {type: REMOVE_DISPLAY, key: edgar-shield-part-25}
+          collect-7: {type: REMOVE_DISPLAY, key: edgar-shield-part-26}
+          collect-8: {type: REMOVE_DISPLAY, key: edgar-shield-part-27}
+          collect-9: {type: REMOVE_DISPLAY, key: edgar-shield-part-30}
+          collect-10: {type: REMOVE_DISPLAY, key: edgar-shield-part-31}
+          collect-11: {type: REMOVE_DISPLAY, key: edgar-shield-part-32}
+          collect-12: {type: REMOVE_DISPLAY, key: edgar-shield-part-33}
+          collect-13: {type: REMOVE_DISPLAY, key: edgar-shield-part-34}
+          collect-14: {type: REMOVE_DISPLAY, key: edgar-shield-part-35}
+          collect-15: {type: REMOVE_DISPLAY, key: edgar-shield-part-37}
+          collect-16: {type: REMOVE_DISPLAY, key: edgar-shield-part-38}
+          collect-17: {type: REMOVE_DISPLAY, key: edgar-shield-part-02}
+          collect-18: {type: REMOVE_DISPLAY, key: edgar-shield-part-04}
+          collect-19: {type: REMOVE_DISPLAY, key: edgar-shield-part-06}
+          collect-20: {type: REMOVE_DISPLAY, key: edgar-shield-part-07}
+          collect-21: {type: REMOVE_DISPLAY, key: edgar-shield-part-09}
+          collect-22: {type: REMOVE_DISPLAY, key: edgar-shield-part-10}
+          collect-23: {type: REMOVE_DISPLAY, key: edgar-shield-part-13}
+          collect-24: {type: REMOVE_DISPLAY, key: edgar-shield-part-14}
+          collect-25: {type: REMOVE_DISPLAY, key: edgar-shield-part-17}
+          collect-26: {type: REMOVE_DISPLAY, key: edgar-shield-part-18}
+          collect-27: {type: REMOVE_DISPLAY, key: edgar-shield-part-19}
+          collect-28: {type: REMOVE_DISPLAY, key: edgar-shield-part-20}
+          collect-29: {type: REMOVE_DISPLAY, key: edgar-shield-part-21}
+          collect-30: {type: REMOVE_DISPLAY, key: edgar-shield-part-22}
+          collect-31: {type: REMOVE_DISPLAY, key: edgar-shield-part-24}
+          collect-32: {type: REMOVE_DISPLAY, key: edgar-shield-part-28}
+          collect-33: {type: REMOVE_DISPLAY, key: edgar-shield-part-29}
+          collect-34: {type: REMOVE_DISPLAY, key: edgar-shield-part-36}
+          collect-35: {type: REMOVE_DISPLAY, key: edgar-shield-part-05}
+          collect-36: {type: REMOVE_DISPLAY, key: edgar-shield-part-15}
+          collect-37: {type: REMOVE_DISPLAY, key: edgar-shield-part-16}
+          collect-38: {type: REMOVE_DISPLAY, key: edgar-shield-part-23}
+          result: {type: EQUIP, actor-id: 349, material: SHIELD}
+          remark: {type: SPEECH, actor-id: 349, text: 'Обод замкнут, умбон посажен. Этот щит выдержит удар.'}
+          handoff: {type: WAIT, ticks: 10}
+      master-horseshoe:
+        actor-ids: ['349']
+        initial-delay-seconds: 1
+        cooldown-min-seconds: 1
+        cooldown-max-seconds: 2
+        step-ids: [face, billet, place, tool, draw-billet, forge-m, consume-0, part-02, part-05, part-06, part-09, part-10, part-11, part-12, part-15, part-18, part-20, part-21, part-24, part-25, part-30, part-31, forge-e, consume-1, part-00, part-01, part-03, part-04, part-07, part-08, part-13, part-14, part-19, part-26, part-29, part-32, part-33, forge-c, consume-blank, part-16, part-17, part-22, part-23, part-27, part-28, finish, inspect, collect-0, collect-1, collect-2, collect-3, collect-4, collect-5, collect-6, collect-7, collect-8, collect-9, collect-10, collect-11, collect-12, collect-13, collect-14, collect-15, collect-16, collect-17, collect-18, collect-19, collect-20, collect-21, collect-22, collect-23, collect-24, collect-25, collect-26, collect-27, collect-28, collect-29, collect-30, collect-31, collect-32, collect-33, result, remark, handoff]
+        steps:
+          face: {type: LOOK_AT_SURFACE, actor-id: 349, surface: master-work-surface}
+          billet: {type: EQUIP, actor-id: 349, material: RAW_IRON}
+          place: {type: BLOCK_DISPLAY, key: edgar-horseshoe-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.2200,0.0700,0.2500', interpolation-ticks: 8}
+          tool: {type: EQUIP, actor-id: 349, material: MACE}
+          draw-billet: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: LAVA, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 0.88}
+          forge-m: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 0.96}
+          consume-0: {type: BLOCK_DISPLAY, key: edgar-horseshoe-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.1800,0.0400,0.1800', interpolation-ticks: 8}
+          part-02: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-02, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,-0.2925', scale: '0.3150,0.0750,0.0900', interpolation-ticks: 8}
+          part-05: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-05, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,-0.2250', scale: '0.0450,0.0750,0.1350', interpolation-ticks: 8}
+          part-06: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-06, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.1800,0.0000,-0.2250', scale: '0.0450,0.0750,0.1350', interpolation-ticks: 8}
+          part-09: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-09, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.2250,0.0000,-0.0225', scale: '0.0450,0.0750,0.4500', interpolation-ticks: 8}
+          part-10: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-10, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.1350,0.0000,-0.2250', scale: '0.0450,0.0750,0.0450', interpolation-ticks: 8}
+          part-11: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-11, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.1350,0.0000,-0.2250', scale: '0.0450,0.0750,0.0450', interpolation-ticks: 8}
+          part-12: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-12, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.2250,0.0000,-0.0225', scale: '0.0450,0.0750,0.4500', interpolation-ticks: 8}
+          part-15: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-15, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.2700,0.0000,-0.0225', scale: '0.0450,0.0750,0.2700', interpolation-ticks: 8}
+          part-18: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-18, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.2700,0.0000,-0.0225', scale: '0.0450,0.0750,0.2700', interpolation-ticks: 8}
+          part-20: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-20, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,-0.0675', scale: '0.0450,0.0750,0.0900', interpolation-ticks: 8}
+          part-21: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-21, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.1800,0.0000,-0.0675', scale: '0.0450,0.0750,0.0900', interpolation-ticks: 8}
+          part-24: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-24, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,0.0675', scale: '0.0450,0.0750,0.0900', interpolation-ticks: 8}
+          part-25: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-25, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.1800,0.0000,0.0675', scale: '0.0450,0.0750,0.0900', interpolation-ticks: 8}
+          part-30: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-30, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,0.1800', scale: '0.0450,0.0750,0.0450', interpolation-ticks: 8}
+          part-31: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-31, surface: master-work-surface, material: LIGHT_GRAY_CONCRETE, origin: BOTTOM_CENTER, offset: '0.1800,0.0000,0.1800', scale: '0.0450,0.0750,0.0450', interpolation-ticks: 8}
+          forge-e: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.08}
+          consume-1: {type: BLOCK_DISPLAY, key: edgar-horseshoe-blank, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,0.0000', scale: '0.0900,0.0400,0.0900', interpolation-ticks: 8}
+          part-00: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-00, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.0000,0.0000,-0.3600', scale: '0.3150,0.0500,0.0450', interpolation-ticks: 8}
+          part-01: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-01, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,-0.3150', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-03: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-03, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.1800,0.0000,-0.3150', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-04: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-04, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.2250,0.0000,-0.2700', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-07: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-07, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.2250,0.0000,-0.2700', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-08: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-08, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.2700,0.0000,-0.2025', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          part-13: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-13, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.2700,0.0000,-0.2025', scale: '0.0450,0.0500,0.0900', interpolation-ticks: 8}
+          part-14: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-14, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.3150,0.0000,-0.0225', scale: '0.0450,0.0500,0.2700', interpolation-ticks: 8}
+          part-19: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-19, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.3150,0.0000,-0.0225', scale: '0.0450,0.0500,0.2700', interpolation-ticks: 8}
+          part-26: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-26, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.2700,0.0000,0.1800', scale: '0.0450,0.0500,0.1350', interpolation-ticks: 8}
+          part-29: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-29, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.2700,0.0000,0.1800', scale: '0.0450,0.0500,0.1350', interpolation-ticks: 8}
+          part-32: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-32, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '-0.2025,0.0000,0.2250', scale: '0.0900,0.0500,0.0450', interpolation-ticks: 8}
+          part-33: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-33, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: '0.2025,0.0000,0.2250', scale: '0.0900,0.0500,0.0450', interpolation-ticks: 8}
+          forge-c: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.2}
+          consume-blank: {type: REMOVE_DISPLAY, key: edgar-horseshoe-blank}
+          part-16: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-16, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,-0.1350', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-17: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-17, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '0.1800,0.0000,-0.1350', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-22: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-22, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,0.0000', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-23: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-23, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '0.1800,0.0000,0.0000', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-27: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-27, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '-0.1800,0.0000,0.1350', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          part-28: {type: BLOCK_DISPLAY, key: edgar-horseshoe-part-28, surface: master-work-surface, material: CUT_COPPER, origin: BOTTOM_CENTER, offset: '0.1800,0.0000,0.1350', scale: '0.0450,0.0500,0.0450', interpolation-ticks: 8}
+          finish: {type: SWING, actor-id: 349, repetitions: 20, period-ticks: 16, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 2, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.28, sound-pitch: 1.48}
+          inspect: {type: WAIT, ticks: 60}
+          collect-0: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-02}
+          collect-1: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-05}
+          collect-2: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-06}
+          collect-3: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-09}
+          collect-4: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-10}
+          collect-5: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-11}
+          collect-6: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-12}
+          collect-7: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-15}
+          collect-8: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-18}
+          collect-9: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-20}
+          collect-10: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-21}
+          collect-11: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-24}
+          collect-12: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-25}
+          collect-13: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-30}
+          collect-14: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-31}
+          collect-15: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-00}
+          collect-16: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-01}
+          collect-17: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-03}
+          collect-18: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-04}
+          collect-19: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-07}
+          collect-20: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-08}
+          collect-21: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-13}
+          collect-22: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-14}
+          collect-23: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-19}
+          collect-24: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-26}
+          collect-25: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-29}
+          collect-26: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-32}
+          collect-27: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-33}
+          collect-28: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-16}
+          collect-29: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-17}
+          collect-30: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-22}
+          collect-31: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-23}
+          collect-32: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-27}
+          collect-33: {type: REMOVE_DISPLAY, key: edgar-horseshoe-part-28}
+          result: {type: EQUIP, actor-id: 349, material: IRON_NUGGET}
+          remark: {type: SPEECH, actor-id: 349, text: 'Дуга ровная, зацепы готовы. Такая подкова ляжет как надо.'}
+          handoff: {type: WAIT, ticks: 10}
+      master-forging-showcase:
+        actor-ids: ["349", "358"]
+        initial-delay-seconds: 42
+        cooldown-min-seconds: 72
+        cooldown-max-seconds: 104
+        step-ids: [call, stock, face-stock, open-stock, take-stock, close-stock, furnace, face-fire, heat, flame, hot, call-doran, doran-stage, edgar-stage, face-work, doran-face-work, clear-hand, place-hot, doran-tool, rough, rough-shape, edgar-tool, fine, blade-shape, forge-guard, guard, forge-grip, grip, pommel, doran-finish, bloom, ring, inspect, collect-blade, collect-guard, collect-grip, collect-pommel, carry-hot, quench, face-water, steam, splash, hiss, result, return, present, verdict]
+        steps:
+          call: {type: SPEECH, actor-id: 349, text: "Доран, большую заготовку. Покажем, как держится настоящий ритм."}
+          stock: {type: MOVE, actor-id: 349, anchor: stock-stand, route-profile: floor, timeout-ticks: 260}
+          face-stock: {type: LOOK_AT_ANCHOR, actor-id: 349, anchor: stock-chest}
+          open-stock: {type: CONTAINER_LID, actor-id: 349, anchor: stock-chest, state: OPEN}
+          take-stock: {type: EQUIP, actor-id: 349, material: RAW_IRON}
+          close-stock: {type: CONTAINER_LID, actor-id: 349, anchor: stock-chest, state: CLOSE}
+          furnace: {type: MOVE, actor-id: 349, anchor: furnace-stand, route-profile: floor, timeout-ticks: 260}
+          face-fire: {type: LOOK_AT_ANCHOR, actor-id: 349, anchor: furnace-fire}
+          heat: {type: WAIT, ticks: 38}
+          flame: {type: PARTICLE, anchor: furnace-fire, particle: SMALL_FLAME, count: 18}
+          hot: {type: EQUIP, actor-id: 349, material: MAGMA_BLOCK}
+          call-doran: {type: SPEECH, actor-id: 358, text: "Молот готов. Веди металл, мастер."}
+          doran-stage: {type: MOVE, actor-id: 358, anchor: master-assistant-stand, route-profile: floor, timeout-ticks: 300}
+          edgar-stage: {type: MOVE, actor-id: 349, anchor: master-anvil-stand, route-profile: floor, timeout-ticks: 260}
+          face-work: {type: LOOK_AT_SURFACE, actor-id: 349, surface: master-work-surface}
+          doran-face-work: {type: LOOK_AT_SURFACE, actor-id: 358, surface: master-work-surface}
+          clear-hand: {type: EQUIP, actor-id: 349, material: AIR}
+          place-hot: {type: BLOCK_DISPLAY, key: edgar-blade, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, scale: "0.22,0.15,0.32"}
+          doran-tool: {type: EQUIP, actor-id: 358, material: MACE}
+          rough: {type: SWING, actor-id: 358, repetitions: 6, period-ticks: 12, feedback-surface: master-work-surface, particle: LAVA, particle-count: 2, particle-every: 1, sound: BLOCK_ANVIL_LAND, sound-every: 1, sound-volume: 0.34, sound-pitch: 0.82}
+          rough-shape: {type: BLOCK_DISPLAY, key: edgar-blade, surface: master-work-surface, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: "0.01,0,-0.04", scale: "0.17,0.09,0.58", rotation-y-degrees: -12, interpolation-ticks: 8}
+          edgar-tool: {type: EQUIP, actor-id: 349, material: MACE}
+          fine: {type: SWING, actor-id: 349, repetitions: 8, period-ticks: 9, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 4, particle-every: 1, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.38, sound-pitch: 1.26}
+          blade-shape: {type: BLOCK_DISPLAY, key: edgar-blade, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.017,0.01,-0.08", scale: "0.12,0.055,0.72", rotation-y-degrees: -12, interpolation-ticks: 10}
+          forge-guard: {type: SWING, actor-id: 349, repetitions: 3, period-ticks: 9, feedback-surface: master-work-surface, particle: ELECTRIC_SPARK, particle-count: 5, particle-every: 1, sound: BLOCK_ANVIL_USE, sound-every: 1, sound-volume: 0.36, sound-pitch: 1.38}
+          guard: {type: BLOCK_DISPLAY, key: edgar-guard, surface: master-work-surface, material: COPPER_BLOCK, origin: BOTTOM_CENTER, offset: "-0.052,0.012,0.25", scale: "0.36,0.065,0.065", rotation-y-degrees: -12, interpolation-ticks: 6}
+          forge-grip: {type: SWING, actor-id: 358, repetitions: 3, period-ticks: 10, feedback-surface: master-work-surface, particle: CRIT, particle-count: 4, particle-every: 1, sound: BLOCK_ANVIL_LAND, sound-every: 1, sound-volume: 0.32, sound-pitch: 1.12}
+          grip: {type: BLOCK_DISPLAY, key: edgar-grip, surface: master-work-surface, material: DARK_OAK_PLANKS, origin: BOTTOM_CENTER, offset: "-0.079,0.012,0.38", scale: "0.075,0.07,0.22", rotation-y-degrees: -12, interpolation-ticks: 6}
+          pommel: {type: BLOCK_DISPLAY, key: edgar-pommel, surface: master-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "-0.108,0.012,0.52", scale: "0.14,0.08,0.075", rotation-y-degrees: -12, interpolation-ticks: 6}
+          doran-finish: {type: SWING, actor-id: 358, repetitions: 4, period-ticks: 14, feedback-surface: master-work-surface, particle: CRIT, particle-count: 5, particle-every: 1, sound: BLOCK_ANVIL_LAND, sound-every: 1, sound-volume: 0.44, sound-pitch: 0.92}
+          bloom: {type: PARTICLE, anchor: master-anvil, particle: ELECTRIC_SPARK, count: 24}
+          ring: {type: SOUND, anchor: master-anvil, sound: BLOCK_ANVIL_USE, volume: 0.62, pitch: 1.42}
+          inspect: {type: WAIT, ticks: 28}
+          collect-blade: {type: REMOVE_DISPLAY, key: edgar-blade}
+          collect-guard: {type: REMOVE_DISPLAY, key: edgar-guard}
+          collect-grip: {type: REMOVE_DISPLAY, key: edgar-grip}
+          collect-pommel: {type: REMOVE_DISPLAY, key: edgar-pommel}
+          carry-hot: {type: EQUIP, actor-id: 349, material: IRON_SWORD}
+          quench: {type: MOVE, actor-id: 349, anchor: quench-stand, route-profile: floor, timeout-ticks: 260}
+          face-water: {type: LOOK_AT_ANCHOR, actor-id: 349, anchor: quench-cauldron}
+          steam: {type: PARTICLE, anchor: quench-cauldron, particle: CLOUD, count: 28}
+          splash: {type: PARTICLE, anchor: quench-cauldron, particle: SPLASH, count: 18}
+          hiss: {type: SOUND, anchor: quench-cauldron, sound: BLOCK_FIRE_EXTINGUISH, volume: 0.68, pitch: 0.88}
+          result: {type: EQUIP, actor-id: 349, material: IRON_SWORD}
+          return: {type: MOVE, actor-id: 349, anchor: master-anvil-stand, route-profile: floor, timeout-ticks: 260}
+          present: {type: SWING, actor-id: 349, repetitions: 1, period-ticks: 12}
+          verdict: {type: SPEECH, actor-id: 349, text: "Вот теперь клинок переживёт хозяина. Запомни этот звон."}
+      ledger-orders:
+        actor-ids: ["350"]
+        initial-delay-seconds: 12
+        cooldown-min-seconds: 40
+        cooldown-max-seconds: 65
+        step-ids: [desk, paper, write, page, line, rest]
+        steps:
+          desk: {type: LOOK_AT_ANCHOR, actor-id: 350, anchor: ledger-desk}
+          paper: {type: EQUIP, actor-id: 350, material: PAPER}
+          write: {type: SWING, actor-id: 350, repetitions: 3, period-ticks: 13}
+          page: {type: SOUND, anchor: ledger-desk, sound: ITEM_BOOK_PAGE_TURN, volume: 0.34, pitch: 1.08}
+          line: {type: SPEECH, actor-id: 350, text: "Заказ записан. Савва, следующую партию — к Яру."}
+          rest: {type: WAIT, ticks: 28}
+      apprentice-engraving:
+        actor-ids: ["354"]
+        initial-delay-seconds: 5
+        cooldown-min-seconds: 12
+        cooldown-max-seconds: 20
+        step-ids: [stock, face-stock, open-stock, reach-stock, take, close-stock, bench, face-anvil, stencil, press-stencil, blank, place-blank, clear-hand, flatten, shape-blank, carve-x, consume-x, x-left, x-right, carve-u, consume-u, u-left, u-right, carve-short-i, consume-short-i, short-i-left, short-i-right, short-i-diagonal, short-i-breve, sparks, ring, inspect, collect-x-left, collect-x-right, collect-u-left, collect-u-right, collect-short-i-left, collect-short-i-right, collect-short-i-diagonal, collect-short-i-breve, result, result-stock, face-result-stock, open-result-stock, store, clear, close-result-stock, line]
+        steps:
+          stock: {type: MOVE, actor-id: 354, anchor: stock-stand, route-profile: floor, timeout-ticks: 220}
+          face-stock: {type: LOOK_AT_ANCHOR, actor-id: 354, anchor: stock-chest}
+          open-stock: {type: CONTAINER_LID, actor-id: 354, anchor: stock-chest, state: OPEN}
+          reach-stock: {type: SWING, actor-id: 354, repetitions: 2, period-ticks: 8}
+          take: {type: EQUIP, actor-id: 354, material: IRON_INGOT}
+          close-stock: {type: CONTAINER_LID, actor-id: 354, anchor: stock-chest, state: CLOSE}
+          bench: {type: MOVE, actor-id: 354, anchor: apprentice-stand, route-profile: floor, timeout-ticks: 220}
+          face-anvil: {type: LOOK_AT_SURFACE, actor-id: 354, surface: apprentice-work-surface}
+          stencil: {type: EQUIP, actor-id: 354, material: PAPER}
+          press-stencil: {type: SWING, actor-id: 354, repetitions: 2, period-ticks: 10}
+          blank: {type: EQUIP, actor-id: 354, material: IRON_INGOT}
+          place-blank: {type: BLOCK_DISPLAY, key: luka-blank, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, scale: "0.46,0.11,0.30"}
+          clear-hand: {type: EQUIP, actor-id: 354, material: AIR}
+          flatten: {type: SWING, actor-id: 354, repetitions: 6, period-ticks: 10, feedback-surface: apprentice-work-surface, particle: ELECTRIC_SPARK, particle-count: 2, particle-every: 1, sound: BLOCK_ANVIL_LAND, sound-every: 2, sound-volume: 0.22, sound-pitch: 1.42}
+          shape-blank: {type: BLOCK_DISPLAY, key: luka-blank, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, scale: "0.64,0.06,0.40", interpolation-ticks: 8}
+          carve-x: {type: SWING, actor-id: 354, repetitions: 5, period-ticks: 8, feedback-surface: apprentice-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 1, sound: BLOCK_ANVIL_LAND, sound-every: 2, sound-volume: 0.24, sound-pitch: 1.54}
+          consume-x: {type: BLOCK_DISPLAY, key: luka-blank, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.10,0,0", scale: "0.43,0.045,0.36", interpolation-ticks: 5}
+          x-left: {type: BLOCK_DISPLAY, key: luka-letter-x-left, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "-0.235,0.012,0", scale: "0.035,0.055,0.245", rotation-y-degrees: 38, interpolation-ticks: 4}
+          x-right: {type: BLOCK_DISPLAY, key: luka-letter-x-right, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "-0.235,0.012,0", scale: "0.035,0.055,0.245", rotation-y-degrees: -38, interpolation-ticks: 4}
+          carve-u: {type: SWING, actor-id: 354, repetitions: 5, period-ticks: 8, feedback-surface: apprentice-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, particle-every: 1, sound: BLOCK_ANVIL_LAND, sound-every: 2, sound-volume: 0.24, sound-pitch: 1.60}
+          consume-u: {type: BLOCK_DISPLAY, key: luka-blank, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.22,0,0", scale: "0.20,0.035,0.34", interpolation-ticks: 5}
+          u-left: {type: BLOCK_DISPLAY, key: luka-letter-u-left, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "-0.060,0.012,-0.070", scale: "0.032,0.055,0.185", rotation-y-degrees: 41, interpolation-ticks: 4}
+          u-right: {type: BLOCK_DISPLAY, key: luka-letter-u-right, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.000,0.012,0.020", scale: "0.034,0.055,0.380", rotation-y-degrees: -32, interpolation-ticks: 4}
+          carve-short-i: {type: SWING, actor-id: 354, repetitions: 6, period-ticks: 8, feedback-surface: apprentice-work-surface, particle: ELECTRIC_SPARK, particle-count: 4, particle-every: 1, sound: BLOCK_ANVIL_LAND, sound-every: 2, sound-volume: 0.25, sound-pitch: 1.66}
+          consume-short-i: {type: REMOVE_DISPLAY, key: luka-blank}
+          short-i-left: {type: BLOCK_DISPLAY, key: luka-letter-short-i-left, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.165,0.012,0.015", scale: "0.032,0.055,0.235", interpolation-ticks: 4}
+          short-i-right: {type: BLOCK_DISPLAY, key: luka-letter-short-i-right, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.295,0.012,0.015", scale: "0.032,0.055,0.235", interpolation-ticks: 4}
+          short-i-diagonal: {type: BLOCK_DISPLAY, key: luka-letter-short-i-diagonal, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.230,0.012,0.015", scale: "0.032,0.055,0.245", rotation-y-degrees: -29, interpolation-ticks: 4}
+          short-i-breve: {type: BLOCK_DISPLAY, key: luka-letter-short-i-breve, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.230,0.012,-0.145", scale: "0.105,0.055,0.026", interpolation-ticks: 4}
+          sparks: {type: PARTICLE, anchor: apprentice-anvil, particle: ELECTRIC_SPARK, count: 14}
+          ring: {type: SOUND, anchor: apprentice-anvil, sound: BLOCK_ANVIL_USE, volume: 0.34, pitch: 1.35}
+          inspect: {type: WAIT, ticks: 24}
+          collect-x-left: {type: REMOVE_DISPLAY, key: luka-letter-x-left}
+          collect-x-right: {type: REMOVE_DISPLAY, key: luka-letter-x-right}
+          collect-u-left: {type: REMOVE_DISPLAY, key: luka-letter-u-left}
+          collect-u-right: {type: REMOVE_DISPLAY, key: luka-letter-u-right}
+          collect-short-i-left: {type: REMOVE_DISPLAY, key: luka-letter-short-i-left}
+          collect-short-i-right: {type: REMOVE_DISPLAY, key: luka-letter-short-i-right}
+          collect-short-i-diagonal: {type: REMOVE_DISPLAY, key: luka-letter-short-i-diagonal}
+          collect-short-i-breve: {type: REMOVE_DISPLAY, key: luka-letter-short-i-breve}
+          result: {type: EQUIP, actor-id: 354, material: IRON_INGOT}
+          result-stock: {type: MOVE, actor-id: 354, anchor: stock-stand, route-profile: floor, timeout-ticks: 220}
+          face-result-stock: {type: LOOK_AT_ANCHOR, actor-id: 354, anchor: stock-chest}
+          open-result-stock: {type: CONTAINER_LID, actor-id: 354, anchor: stock-chest, state: OPEN}
+          store: {type: SWING, actor-id: 354, repetitions: 1, period-ticks: 8}
+          clear: {type: EQUIP, actor-id: 354, material: AIR}
+          close-result-stock: {type: CONTAINER_LID, actor-id: 354, anchor: stock-chest, state: CLOSE}
+          line: {type: SPEECH, actor-id: 354, text: "Гравировка готова. Буквы ровные — всё как заказывали."}
+      apprentice-engraving-jopa:
+        actor-ids: ["354"]
+        initial-delay-seconds: 34
+        cooldown-min-seconds: 26
+        cooldown-max-seconds: 44
+        step-ids: [face, blank, clear-hand, tool, flatten, plate, carve-zh, consume-zh, zh-left, zh-mid, zh-right, carve-o, consume-o, o-left, o-right, o-top, o-bottom, carve-p, consume-p, p-left, p-right, p-top, carve-a, consume-a, a-left, a-right, a-bar, finish, inspect, clear-zh-left, clear-zh-mid, clear-zh-right, clear-o-left, clear-o-right, clear-o-top, clear-o-bottom, clear-p-left, clear-p-right, clear-p-top, clear-a-left, clear-a-right, clear-a-bar, result, line]
+        steps:
+          face: {type: LOOK_AT_SURFACE, actor-id: 354, surface: apprentice-work-surface}
+          blank: {type: BLOCK_DISPLAY, key: luka-jopa-plate, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, scale: "0.88,0.085,0.38"}
+          clear-hand: {type: EQUIP, actor-id: 354, material: AIR}
+          tool: {type: EQUIP, actor-id: 354, material: MACE}
+          flatten: {type: SWING, actor-id: 354, repetitions: 7, period-ticks: 9, feedback-surface: apprentice-work-surface, particle: ELECTRIC_SPARK, particle-count: 3, sound: BLOCK_ANVIL_LAND, sound-every: 2, sound-volume: 0.25, sound-pitch: 1.48}
+          plate: {type: BLOCK_DISPLAY, key: luka-jopa-plate, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, scale: "0.82,0.035,0.32", interpolation-ticks: 8}
+          carve-zh: {type: SWING, actor-id: 354, repetitions: 4, period-ticks: 7, feedback-surface: apprentice-work-surface, particle: ELECTRIC_SPARK, particle-count: 4, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.27, sound-pitch: 1.62}
+          consume-zh: {type: BLOCK_DISPLAY, key: luka-jopa-plate, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.10,0,0", scale: "0.62,0.032,0.30", interpolation-ticks: 6}
+          zh-left: {type: BLOCK_DISPLAY, key: luka-jopa-zh-left, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "-0.315,0.012,0", scale: "0.026,0.055,0.245", rotation-y-degrees: 38, interpolation-ticks: 4}
+          zh-mid: {type: BLOCK_DISPLAY, key: luka-jopa-zh-mid, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "-0.315,0.012,0", scale: "0.026,0.055,0.245", interpolation-ticks: 4}
+          zh-right: {type: BLOCK_DISPLAY, key: luka-jopa-zh-right, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "-0.315,0.012,0", scale: "0.026,0.055,0.245", rotation-y-degrees: -38, interpolation-ticks: 4}
+          carve-o: {type: SWING, actor-id: 354, repetitions: 4, period-ticks: 7, feedback-surface: apprentice-work-surface, particle: ELECTRIC_SPARK, particle-count: 4, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.27, sound-pitch: 1.66}
+          consume-o: {type: BLOCK_DISPLAY, key: luka-jopa-plate, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.20,0,0", scale: "0.43,0.030,0.28", interpolation-ticks: 6}
+          o-left: {type: BLOCK_DISPLAY, key: luka-jopa-o-left, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "-0.145,0.012,0", scale: "0.025,0.055,0.235", interpolation-ticks: 4}
+          o-right: {type: BLOCK_DISPLAY, key: luka-jopa-o-right, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "-0.035,0.012,0", scale: "0.025,0.055,0.235", interpolation-ticks: 4}
+          o-top: {type: BLOCK_DISPLAY, key: luka-jopa-o-top, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "-0.090,0.012,-0.105", scale: "0.135,0.055,0.025", interpolation-ticks: 4}
+          o-bottom: {type: BLOCK_DISPLAY, key: luka-jopa-o-bottom, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "-0.090,0.012,0.105", scale: "0.135,0.055,0.025", interpolation-ticks: 4}
+          carve-p: {type: SWING, actor-id: 354, repetitions: 4, period-ticks: 7, feedback-surface: apprentice-work-surface, particle: ELECTRIC_SPARK, particle-count: 4, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.27, sound-pitch: 1.70}
+          consume-p: {type: BLOCK_DISPLAY, key: luka-jopa-plate, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.31,0,0", scale: "0.21,0.028,0.27", interpolation-ticks: 6}
+          p-left: {type: BLOCK_DISPLAY, key: luka-jopa-p-left, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.055,0.012,0", scale: "0.025,0.055,0.235", interpolation-ticks: 4}
+          p-right: {type: BLOCK_DISPLAY, key: luka-jopa-p-right, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.165,0.012,0", scale: "0.025,0.055,0.235", interpolation-ticks: 4}
+          p-top: {type: BLOCK_DISPLAY, key: luka-jopa-p-top, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.110,0.012,-0.105", scale: "0.135,0.055,0.025", interpolation-ticks: 4}
+          carve-a: {type: SWING, actor-id: 354, repetitions: 5, period-ticks: 7, feedback-surface: apprentice-work-surface, particle: ELECTRIC_SPARK, particle-count: 5, sound: BLOCK_ANVIL_USE, sound-every: 2, sound-volume: 0.29, sound-pitch: 1.74}
+          consume-a: {type: REMOVE_DISPLAY, key: luka-jopa-plate}
+          a-left: {type: BLOCK_DISPLAY, key: luka-jopa-a-left, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.285,0.012,0", scale: "0.027,0.055,0.255", rotation-y-degrees: -17, interpolation-ticks: 4}
+          a-right: {type: BLOCK_DISPLAY, key: luka-jopa-a-right, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.355,0.012,0", scale: "0.027,0.055,0.255", rotation-y-degrees: 17, interpolation-ticks: 4}
+          a-bar: {type: BLOCK_DISPLAY, key: luka-jopa-a-bar, surface: apprentice-work-surface, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0.320,0.012,0.025", scale: "0.105,0.055,0.024", interpolation-ticks: 4}
+          finish: {type: SOUND, anchor: apprentice-anvil, sound: BLOCK_ANVIL_USE, volume: 0.42, pitch: 1.46}
+          inspect: {type: WAIT, ticks: 30}
+          clear-zh-left: {type: REMOVE_DISPLAY, key: luka-jopa-zh-left}
+          clear-zh-mid: {type: REMOVE_DISPLAY, key: luka-jopa-zh-mid}
+          clear-zh-right: {type: REMOVE_DISPLAY, key: luka-jopa-zh-right}
+          clear-o-left: {type: REMOVE_DISPLAY, key: luka-jopa-o-left}
+          clear-o-right: {type: REMOVE_DISPLAY, key: luka-jopa-o-right}
+          clear-o-top: {type: REMOVE_DISPLAY, key: luka-jopa-o-top}
+          clear-o-bottom: {type: REMOVE_DISPLAY, key: luka-jopa-o-bottom}
+          clear-p-left: {type: REMOVE_DISPLAY, key: luka-jopa-p-left}
+          clear-p-right: {type: REMOVE_DISPLAY, key: luka-jopa-p-right}
+          clear-p-top: {type: REMOVE_DISPLAY, key: luka-jopa-p-top}
+          clear-a-left: {type: REMOVE_DISPLAY, key: luka-jopa-a-left}
+          clear-a-right: {type: REMOVE_DISPLAY, key: luka-jopa-a-right}
+          clear-a-bar: {type: REMOVE_DISPLAY, key: luka-jopa-a-bar}
+          result: {type: EQUIP, actor-id: 354, material: IRON_INGOT}
+          line: {type: SPEECH, actor-id: 354, text: "Ещё одна надпись готова. Заказчик просил без лишних вопросов."}
+      ore-inspection:
+        actor-ids: ["351"]
+        initial-delay-seconds: 14
+        cooldown-min-seconds: 52
+        cooldown-max-seconds: 78
+        step-ids: ["waiting-cart", "source", "face-source", "open-source", "take-source", "ore-in-hand", "lift-source", "close-source", "load", "face-load", "load-ore", "loaded-cart", "grip", "take-handles", "push-cart", "push-ore", "outbound-entry", "outbound-turn", "outbound-passage", "park", "park-cart", "park-ore", "park-pause", "unload-side", "face-load-at-stock", "lift-ore", "carry-ore", "carry-load", "stock", "face-stock", "open-stock", "store", "store-pause", "stored-ore", "empty-hand", "close-stock", "clink", "around-cart", "return-grip", "face-return-cart", "turn-cart", "return-cart", "return-passage", "return-turn", "return-entry", "return-load", "rest-cart", "release-handles", "leave-cart", "home"]
+        steps:
+          waiting-cart: {"type": "ITEM_DISPLAY", "key": "savva-cart", "item-id": "elitecreatures:medieval_market_decoration_v1_cart_2", "context": "GROUND", "scale": "3,3,3", "interpolation-ticks": 3, "anchor": "ore-load-cart"}
+          source: {"type": "MOVE", "actor-id": 351, "anchor": "ore-cart-stand", "route-profile": "ore-haul", "timeout-ticks": 240}
+          face-source: {"type": "LOOK_AT_ANCHOR", "actor-id": 351, "anchor": "ore-cart"}
+          open-source: {"type": "CONTAINER_LID", "actor-id": 351, "anchor": "ore-cart", "state": "OPEN"}
+          take-source: {"type": "SWING", "actor-id": 351, "repetitions": 2, "period-ticks": 10}
+          ore-in-hand: {"type": "EQUIP", "actor-id": 351, "material": "RAW_IRON"}
+          lift-source: {"type": "WAIT", "ticks": 20}
+          close-source: {"type": "CONTAINER_LID", "actor-id": 351, "anchor": "ore-cart", "state": "CLOSE"}
+          load: {"type": "MOVE", "actor-id": 351, "anchor": "ore-load-stand", "route-profile": "ore-haul", "timeout-ticks": 240}
+          face-load: {"type": "LOOK_AT_ANCHOR", "actor-id": 351, "anchor": "ore-load-cart"}
+          load-ore: {"type": "SWING", "actor-id": 351, "repetitions": 2, "period-ticks": 10}
+          loaded-cart: {"type": "BLOCK_DISPLAY", "key": "savva-ore", "material": "RAW_IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.46,0.28,0.42", "interpolation-ticks": 3, "anchor": "ore-load-cart", "offset": "0,0.0875,0"}
+          grip: {"type": "EQUIP", "actor-id": 351, "material": "AIR"}
+          take-handles: {"type": "WAIT", "ticks": 20}
+          push-cart: {"type": "ITEM_DISPLAY", "key": "savva-cart", "item-id": "elitecreatures:medieval_market_decoration_v1_cart_2", "context": "GROUND", "scale": "3,3,3", "interpolation-ticks": 3, "follow-actor-id": 351, "follow-offset": "0,0.5625,1.0", "yaw-offset-degrees": 180}
+          push-ore: {"type": "BLOCK_DISPLAY", "key": "savva-ore", "material": "RAW_IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.46,0.28,0.42", "interpolation-ticks": 3, "follow-actor-id": 351, "follow-offset": "0,0.65,1.0"}
+          outbound-entry: {"type": "MOVE", "actor-id": 351, "anchor": "ore-route-entry", "route-profile": "ore-haul", "timeout-ticks": 240}
+          outbound-turn: {"type": "MOVE", "actor-id": 351, "anchor": "ore-route-turn", "route-profile": "ore-haul", "timeout-ticks": 240}
+          outbound-passage: {"type": "MOVE", "actor-id": 351, "anchor": "ore-passage", "route-profile": "ore-haul", "timeout-ticks": 240}
+          park: {"type": "MOVE", "actor-id": 351, "anchor": "ore-park-stand", "route-profile": "ore-haul", "timeout-ticks": 240}
+          park-cart: {"type": "ITEM_DISPLAY", "key": "savva-cart", "item-id": "elitecreatures:medieval_market_decoration_v1_cart_2", "context": "GROUND", "scale": "3,3,3", "interpolation-ticks": 3, "anchor": "ore-park-cart"}
+          park-ore: {"type": "BLOCK_DISPLAY", "key": "savva-ore", "material": "RAW_IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.46,0.28,0.42", "interpolation-ticks": 3, "anchor": "ore-park-cart", "offset": "0,0.0875,0"}
+          park-pause: {"type": "WAIT", "ticks": 20}
+          unload-side: {"type": "MOVE", "actor-id": 351, "anchor": "ore-unload-side", "route-profile": "ore-haul", "timeout-ticks": 240}
+          face-load-at-stock: {"type": "LOOK_AT_ANCHOR", "actor-id": 351, "anchor": "ore-park-cart"}
+          lift-ore: {"type": "SWING", "actor-id": 351, "repetitions": 2, "period-ticks": 10}
+          carry-ore: {"type": "EQUIP", "actor-id": 351, "material": "RAW_IRON"}
+          carry-load: {"type": "BLOCK_DISPLAY", "key": "savva-ore", "material": "RAW_IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.46,0.28,0.42", "interpolation-ticks": 3, "follow-actor-id": 351, "follow-offset": "0,0.80,0.42"}
+          stock: {"type": "MOVE", "actor-id": 351, "anchor": "stock-stand", "route-profile": "ore-haul", "timeout-ticks": 240}
+          face-stock: {"type": "LOOK_AT_ANCHOR", "actor-id": 351, "anchor": "stock-chest"}
+          open-stock: {"type": "CONTAINER_LID", "actor-id": 351, "anchor": "stock-chest", "state": "OPEN"}
+          store: {"type": "SWING", "actor-id": 351, "repetitions": 2, "period-ticks": 10}
+          store-pause: {"type": "WAIT", "ticks": 20}
+          stored-ore: {"type": "REMOVE_DISPLAY", "key": "savva-ore"}
+          empty-hand: {"type": "EQUIP", "actor-id": 351, "material": "AIR"}
+          close-stock: {"type": "CONTAINER_LID", "actor-id": 351, "anchor": "stock-chest", "state": "CLOSE"}
+          clink: {"type": "SOUND", "anchor": "stock-chest", "sound": "BLOCK_IRON_PLACE", "volume": 0.38, "pitch": 0.92}
+          around-cart: {"type": "MOVE", "actor-id": 351, "anchor": "ore-return-side", "route-profile": "ore-haul", "timeout-ticks": 240}
+          return-grip: {"type": "MOVE", "actor-id": 351, "anchor": "ore-return-grip", "route-profile": "ore-haul", "timeout-ticks": 240}
+          face-return-cart: {"type": "LOOK_AT_ANCHOR", "actor-id": 351, "anchor": "ore-park-cart"}
+          turn-cart: {"type": "WAIT", "ticks": 16}
+          return-cart: {"type": "ITEM_DISPLAY", "key": "savva-cart", "item-id": "elitecreatures:medieval_market_decoration_v1_cart_2", "context": "GROUND", "scale": "3,3,3", "interpolation-ticks": 3, "follow-actor-id": 351, "follow-offset": "0,0.5625,1.0", "yaw-offset-degrees": 180}
+          return-passage: {"type": "MOVE", "actor-id": 351, "anchor": "ore-passage", "route-profile": "ore-haul", "timeout-ticks": 240}
+          return-turn: {"type": "MOVE", "actor-id": 351, "anchor": "ore-route-turn", "route-profile": "ore-haul", "timeout-ticks": 240}
+          return-entry: {"type": "MOVE", "actor-id": 351, "anchor": "ore-route-entry", "route-profile": "ore-haul", "timeout-ticks": 240}
+          return-load: {"type": "MOVE", "actor-id": 351, "anchor": "ore-return-load", "route-profile": "ore-haul", "timeout-ticks": 240}
+          rest-cart: {"type": "ITEM_DISPLAY", "key": "savva-cart", "item-id": "elitecreatures:medieval_market_decoration_v1_cart_2", "context": "GROUND", "scale": "3,3,3", "interpolation-ticks": 3, "anchor": "ore-load-cart"}
+          release-handles: {"type": "WAIT", "ticks": 20}
+          leave-cart: {"type": "REMOVE_DISPLAY", "key": "savva-cart"}
+          home: {"type": "MOVE", "actor-id": 351, "anchor": "ore-cart-stand", "route-profile": "ore-haul", "timeout-ticks": 240}
+      blade-practice:
+        actor-ids: ["355"]
+        initial-delay-seconds: 18
+        cooldown-min-seconds: 58
+        cooldown-max-seconds: 86
+        yield-anchor: dummy
+        yield-range: 2.0
+        step-ids: [stage, face, blade, warmup, settle, combo, breathe, finish, line]
+        steps:
+          stage: {type: MOVE, actor-id: 355, anchor: dummy-stage, route-profile: floor, timeout-ticks: 220}
+          face: {type: LOOK_AT_ANCHOR, actor-id: 355, anchor: dummy}
+          blade: {type: EQUIP, actor-id: 355, material: IRON_SWORD}
+          warmup: {type: SWING, actor-id: 355, repetitions: 8, period-ticks: 13, feedback-anchor: dummy, damage-target-npc-id: 364, damage-amount: 1.0, particle: SWEEP_ATTACK, particle-count: 1, particle-every: 2, sound: ENTITY_ARMOR_STAND_HIT, sound-every: 1, sound-volume: 0.30, sound-pitch: 0.96}
+          settle: {type: WAIT, ticks: 24}
+          combo: {type: SWING, actor-id: 355, repetitions: 12, period-ticks: 9, feedback-anchor: dummy, damage-target-npc-id: 364, damage-amount: 1.0, particle: SWEEP_ATTACK, particle-count: 1, particle-every: 2, sound: ENTITY_ARMOR_STAND_HIT, sound-every: 1, sound-volume: 0.34, sound-pitch: 1.08}
+          breathe: {type: WAIT, ticks: 18}
+          finish: {type: SWING, actor-id: 355, repetitions: 4, period-ticks: 15, feedback-anchor: dummy, damage-target-npc-id: 364, damage-amount: 1.0, particle: CRIT, particle-count: 4, particle-every: 1, sound: ENTITY_ARMOR_STAND_HIT, sound-every: 1, sound-volume: 0.42, sound-pitch: 0.88}
+          line: {type: SPEECH, actor-id: 355, text: "Двадцать четыре. Теперь ещё раз — без лишнего замаха."}
+      hammer-rhythm:
+        actor-ids: ["358"]
+        initial-delay-seconds: 7
+        cooldown-min-seconds: 16
+        cooldown-max-seconds: 28
+        step-ids: [face, tool, strike, ring, sparks, pause]
+        steps:
+          face: {type: LOOK_AT_ANCHOR, actor-id: 358, anchor: hammer-anvil}
+          tool: {type: EQUIP, actor-id: 358, material: MACE}
+          strike: {type: SWING, actor-id: 358, repetitions: 3, period-ticks: 12}
+          ring: {type: SOUND, anchor: hammer-anvil, sound: BLOCK_ANVIL_LAND, volume: 0.32, pitch: 0.84}
+          sparks: {type: PARTICLE, anchor: hammer-anvil, particle: ELECTRIC_SPARK, count: 5}
+          pause: {type: WAIT, ticks: 18}
+      furnace-check:
+        actor-ids: ["362"]
+        initial-delay-seconds: 22
+        cooldown-min-seconds: 24
+        cooldown-max-seconds: 38
+        step-ids: [stock, face-stock, open-stock, reach-stock, ore, close-stock, furnace, face-fire, feed, flame, crackle, heat, hot-billet, draw, casting, face-mould, clear-hand, mould, crucible, molten-cap, raise-crucible, pour, stream-a, fill-start, stream-b, fill-grow, stream-c, fill-full, pour-sound, pour-pause, clear-stream-a, clear-stream-b, clear-stream-c, clear-molten-cap, clear-crucible, cool-smoke, cool-hiss, cool-wait, cooled-casting, break-mould, clear-mould, inspect, collect-casting, cooled-ingot, result-stock, face-result-stock, open-result-stock, store, clear, close-result-stock, line]
+        steps:
+          stock: {type: MOVE, actor-id: 362, anchor: stock-stand, route-profile: floor, timeout-ticks: 220}
+          face-stock: {type: LOOK_AT_ANCHOR, actor-id: 362, anchor: stock-chest}
+          open-stock: {type: CONTAINER_LID, actor-id: 362, anchor: stock-chest, state: OPEN}
+          reach-stock: {type: SWING, actor-id: 362, repetitions: 2, period-ticks: 10}
+          ore: {type: EQUIP, actor-id: 362, material: RAW_IRON}
+          close-stock: {type: CONTAINER_LID, actor-id: 362, anchor: stock-chest, state: CLOSE}
+          furnace: {type: MOVE, actor-id: 362, anchor: furnace-stand, route-profile: floor, timeout-ticks: 220}
+          face-fire: {type: LOOK_AT_ANCHOR, actor-id: 362, anchor: furnace-fire}
+          feed: {type: SWING, actor-id: 362, repetitions: 6, period-ticks: 10}
+          flame: {type: PARTICLE, anchor: furnace-fire, particle: SMALL_FLAME, count: 12}
+          crackle: {type: SOUND, anchor: furnace-fire, sound: BLOCK_FURNACE_FIRE_CRACKLE, volume: 0.38, pitch: 0.88}
+          heat: {type: WAIT, ticks: 50}
+          hot-billet: {type: EQUIP, actor-id: 362, material: MAGMA_BLOCK}
+          draw: {type: SWING, actor-id: 362, repetitions: 2, period-ticks: 10}
+          casting: {type: MOVE, actor-id: 362, anchor: quench-stand, route-profile: floor, timeout-ticks: 180}
+          face-mould: {type: LOOK_AT_ANCHOR, actor-id: 362, anchor: quench-cauldron}
+          clear-hand: {type: EQUIP, actor-id: 362, material: AIR}
+          mould: {type: BLOCK_DISPLAY, key: yar-mould, anchor: quench-cauldron, material: POLISHED_BLACKSTONE, origin: CENTER, offset: "0,0.26,0", scale: "0.52,0.13,0.34", rotation-y-degrees: 8, interpolation-ticks: 6}
+          crucible: {type: BLOCK_DISPLAY, key: yar-crucible, anchor: quench-cauldron, material: POLISHED_BLACKSTONE, origin: CENTER, offset: "-0.44,0.82,-0.03", scale: "0.40,0.24,0.40", rotation-y-degrees: -16, interpolation-ticks: 8}
+          molten-cap: {type: BLOCK_DISPLAY, key: yar-molten-cap, anchor: quench-cauldron, material: MAGMA_BLOCK, origin: CENTER, offset: "-0.44,0.95,-0.03", scale: "0.31,0.035,0.31", rotation-y-degrees: -16, interpolation-ticks: 6}
+          raise-crucible: {type: WAIT, ticks: 18}
+          pour: {type: SWING, actor-id: 362, repetitions: 3, period-ticks: 9}
+          stream-a: {type: BLOCK_DISPLAY, key: yar-stream-a, anchor: quench-cauldron, material: MAGMA_BLOCK, origin: CENTER, offset: "-0.25,0.64,-0.01", scale: "0.075,0.32,0.075", rotation-y-degrees: -18, interpolation-ticks: 4}
+          fill-start: {type: BLOCK_DISPLAY, key: yar-casting, anchor: quench-cauldron, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: "0,0.34,0", scale: "0.10,0.055,0.15", rotation-y-degrees: 8, interpolation-ticks: 5}
+          stream-b: {type: BLOCK_DISPLAY, key: yar-stream-b, anchor: quench-cauldron, material: MAGMA_BLOCK, origin: CENTER, offset: "-0.13,0.51,0", scale: "0.07,0.28,0.07", rotation-y-degrees: -8, interpolation-ticks: 4}
+          fill-grow: {type: BLOCK_DISPLAY, key: yar-casting, anchor: quench-cauldron, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: "0,0.34,0", scale: "0.25,0.06,0.16", rotation-y-degrees: 8, interpolation-ticks: 6}
+          stream-c: {type: BLOCK_DISPLAY, key: yar-stream-c, anchor: quench-cauldron, material: MAGMA_BLOCK, origin: CENTER, offset: "-0.04,0.43,0.01", scale: "0.065,0.22,0.065", rotation-y-degrees: 5, interpolation-ticks: 4}
+          fill-full: {type: BLOCK_DISPLAY, key: yar-casting, anchor: quench-cauldron, material: MAGMA_BLOCK, origin: BOTTOM_CENTER, offset: "0,0.34,0", scale: "0.40,0.065,0.18", rotation-y-degrees: 8, interpolation-ticks: 7}
+          pour-sound: {type: SOUND, anchor: quench-cauldron, sound: BLOCK_LAVA_POP, volume: 0.56, pitch: 0.78}
+          pour-pause: {type: WAIT, ticks: 22}
+          clear-stream-a: {type: REMOVE_DISPLAY, key: yar-stream-a}
+          clear-stream-b: {type: REMOVE_DISPLAY, key: yar-stream-b}
+          clear-stream-c: {type: REMOVE_DISPLAY, key: yar-stream-c}
+          clear-molten-cap: {type: REMOVE_DISPLAY, key: yar-molten-cap}
+          clear-crucible: {type: REMOVE_DISPLAY, key: yar-crucible}
+          cool-smoke: {type: PARTICLE, anchor: quench-cauldron, particle: CLOUD, count: 24}
+          cool-hiss: {type: SOUND, anchor: quench-cauldron, sound: BLOCK_FIRE_EXTINGUISH, volume: 0.58, pitch: 0.92}
+          cool-wait: {type: WAIT, ticks: 34}
+          cooled-casting: {type: BLOCK_DISPLAY, key: yar-casting, anchor: quench-cauldron, material: IRON_BLOCK, origin: BOTTOM_CENTER, offset: "0,0.34,0", scale: "0.40,0.065,0.18", rotation-y-degrees: 8, interpolation-ticks: 10}
+          break-mould: {type: SOUND, anchor: quench-cauldron, sound: BLOCK_DEEPSLATE_TILES_BREAK, volume: 0.48, pitch: 0.84}
+          clear-mould: {type: REMOVE_DISPLAY, key: yar-mould}
+          cooled-ingot: {type: EQUIP, actor-id: 362, material: IRON_INGOT}
+          inspect: {type: WAIT, ticks: 30}
+          collect-casting: {type: REMOVE_DISPLAY, key: yar-casting}
+          result-stock: {type: MOVE, actor-id: 362, anchor: stock-stand, route-profile: floor, timeout-ticks: 220}
+          face-result-stock: {type: LOOK_AT_ANCHOR, actor-id: 362, anchor: stock-chest}
+          open-result-stock: {type: CONTAINER_LID, actor-id: 362, anchor: stock-chest, state: OPEN}
+          store: {type: SWING, actor-id: 362, repetitions: 2, period-ticks: 10}
+          clear: {type: EQUIP, actor-id: 362, material: AIR}
+          close-result-stock: {type: CONTAINER_LID, actor-id: 362, anchor: stock-chest, state: CLOSE}
+          line: {type: SPEECH, actor-id: 362, text: "Остыл ровно. Готовый металл — обратно в запас."}
+
+  mount-yard:
+    anchor: "60.0,70.0,-128.0"
+    audience-range: 72.0
+    retry-seconds: 3
+    max-concurrent-cycles: 7
+    actor-ids: ["370", "371", "412", "413", "414", "415", "422", "423", "369", "440", "441", "442", "443", "444", "445", "446"]
+    actors:
+      370: {"home": "56.0612,70.0,-141.8403,-85.6,0", "denied-denizen-flags": []}
+      371: {"home": "63.6,70.0,-119.7132,57.0,-43.4", "denied-denizen-flags": []}
+      412: {"home": "43.5,68,-109.5,-90,0", "denied-denizen-flags": []}
+      413: {"home": "43.5,68,-109.5,-90,0", "denied-denizen-flags": []}
+      414: {"home": "73.5,68,-104.5,-90,0", "denied-denizen-flags": []}
+      415: {"home": "73.5,68,-104.5,-90,0", "denied-denizen-flags": []}
+      422: {"home": "47.5,70.0,-136.5,-90,0", "denied-denizen-flags": []}
+      423: {"home": "72.5,70.0,-134.5,-180,0", "denied-denizen-flags": []}
+      369: {"home": "54.6336,70,-119.518,180,0", "denied-denizen-flags": []}
+      440: {"home": "57.5,70,-133.5,180,0", "denied-denizen-flags": []}
+      441: {"home": "66.5,70,-141.5,-90,0", "denied-denizen-flags": []}
+      442: {"home": "69.5,70,-141.5,180,0", "denied-denizen-flags": []}
+      443: {"home": "52.5,70,-121.5,90,0", "denied-denizen-flags": []}
+      444: {"home": "57.5,70,-125.5,180,0", "denied-denizen-flags": []}
+      445: {"home": "45.5,70,-141.5,-90,0", "denied-denizen-flags": []}
+      446: {"home": "73.5,70,-141.5,90,0", "denied-denizen-flags": []}
+    anchor-ids: ["tack-table", "wind-approach", "buran-approach", "ryzhik-approach", "wind-graze", "wind-turn", "buran-graze", "buran-turn", "ryzhik-graze", "ryzhik-turn", "iney-turn", "bay-turn", "yard-center", "saddler-stand", "saddle-rack-stand", "helper-hay", "helper-barrels", "helper-feed", "feed-floor", "hay-source", "cat-nap", "cat-watch", "dog-patrol", "dog-watch", "goat-hay", "goat-turn", "llama-turn", "llama-watch", "donkey-graze", "packing-crates", "packing-stand", "packing-target", "caravan-helper", "caravan-person-mid", "caravan-animal-mid", "caravan-person-front", "caravan-animal-front", "home-369", "home-440", "home-441", "home-442", "home-443", "home-444", "home-445", "home-446", "helper-water", "water-trough", "caravan-person-exit", "caravan-animal-exit", "home-371", "home-422", "home-423", "home-415", "caravan-person-corner", "caravan-animal-corner", "home-412", "home-413", "home-414", "iney-field-point-0", "iney-field-point-1", "iney-field-point-2", "iney-field-point-3", "iney-field-point-4", "iney-field-point-5", "iney-field-point-6", "iney-field-point-7", "bay-field-point-0", "bay-field-point-1", "bay-field-point-2", "bay-field-point-3", "bay-field-point-4", "bay-field-point-5", "bay-field-point-6", "bay-field-point-7", "bay-field-point-8"]
+    anchors:
+      tack-table: "60.5,70.0,-122.5"
+      wind-approach: "62.5,70.0,-121.5"
+      buran-approach: "49.5,70.0,-136.5"
+      ryzhik-approach: "70.5,70.0,-134.5"
+      wind-graze: "62.5,70,-121.5,0,0"
+      wind-turn: "61.5,70,-119.5,0,0"
+      buran-graze: "47.5,70,-134.5,0,0"
+      buran-turn: "48.5,70,-135.5,0,0"
+      ryzhik-graze: "71.5,70,-134.5,0,0"
+      ryzhik-turn: "73.5,70,-134.5,0,0"
+      iney-turn: "51.5,69.0,-100.5"
+      bay-turn: "59.5,70,-116.5,0,0"
+      yard-center: "58.5,70.0,-130.5"
+      saddler-stand: "54.6336,70,-119.518,180,0"
+      saddle-rack-stand: "52.5,70,-121.5,180,0"
+      helper-hay: "57.5,70,-123.5,90,0"
+      helper-barrels: "56.5,70,-134.5,90,0"
+      helper-feed: "61.5,70,-121.5,-90,0"
+      feed-floor: "63.5,70.05,-121.5"
+      hay-source: "55.5,71,-125.5"
+      cat-nap: "51.5,70,-122.5,90,0"
+      cat-watch: "53.5,70,-120.5,-90,0"
+      dog-patrol: "60.5,70,-131.5,180,0"
+      dog-watch: "61.5,70,-139.5,180,0"
+      goat-hay: "47.5,70,-142.5,0,0"
+      goat-turn: "45.5,70,-137.5,180,0"
+      llama-turn: "71.5,70,-143.5,90,0"
+      llama-watch: "73.5,70,-138.5,180,0"
+      donkey-graze: "68.5,70,-139.5,180,0"
+      packing-crates: "66.5,70,-139.5,180,0"
+      packing-stand: "68.0,70,-141.5,-90,0"
+      packing-target: "69.5,69.7,-141.5"
+      caravan-helper: "67.5,70,-143.5,0,0"
+      caravan-person-mid: "59.5,70,-134.5,0,0"
+      caravan-animal-mid: "61.5,70,-134.5,0,0"
+      caravan-person-front: "59.5,70,-123.5,0,0"
+      caravan-animal-front: "61.5,70,-123.5,0,0"
+      home-369: "54.6336,70,-119.518,180,0"
+      home-440: "57.5,70,-133.5,180,0"
+      home-441: "66.5,70,-141.5,-90,0"
+      home-442: "69.5,70,-141.5,180,0"
+      home-443: "52.5,70,-121.5,90,0"
+      home-444: "57.5,70,-125.5,180,0"
+      home-445: "45.5,70,-141.5,-90,0"
+      home-446: "73.5,70,-141.5,90,0"
+      helper-water: "58.5,70,-121.5,90,0"
+      water-trough: "57.5,70.9,-121.5"
+      caravan-person-exit: "65.5,70,-143.5,0,0"
+      caravan-animal-exit: "65.5,70,-141.5,0,0"
+      home-371: "63.6,70.0,-119.7132,57.0,-43.4"
+      home-422: "47.5,70.0,-136.5,-90,0"
+      home-423: "72.5,70.0,-134.5,-180,0"
+      home-415: "73.5,68,-104.5,-90,0"
+      caravan-person-corner: "61.5,70,-139.5,0,0"
+      caravan-animal-corner: "65.5,70,-138.5,0,0"
+      home-412: "43.5,68,-109.5,-90,0"
+      home-413: "43.5,68,-109.5,-90,0"
+      home-414: "73.5,68,-104.5,-90,0"
+      iney-field-point-0: "43.5,68,-109.5,-90,0"
+      iney-field-point-1: "47.5,68,-113.5,-90,0"
+      iney-field-point-2: "47.5,68,-117.5,-90,0"
+      iney-field-point-3: "47.5,69,-121.5,-90,0"
+      iney-field-point-4: "43.5,69,-124.5,-90,0"
+      iney-field-point-5: "39.5,68,-121.5,-90,0"
+      iney-field-point-6: "39.5,68,-117.5,-90,0"
+      iney-field-point-7: "43.5,68,-113.5,-90,0"
+      bay-field-point-0: "73.5,68,-104.5,-90,0"
+      bay-field-point-1: "81.5,68,-105.5,-90,0"
+      bay-field-point-2: "86.5,67,-109.5,-90,0"
+      bay-field-point-3: "87.5,67,-118.5,-90,0"
+      bay-field-point-4: "85.5,67,-126.5,-90,0"
+      bay-field-point-5: "81.5,68,-125.5,-90,0"
+      bay-field-point-6: "79.5,68,-125.5,-90,0"
+      bay-field-point-7: "77.5,69,-117.5,-90,0"
+      bay-field-point-8: "76.5,69,-109.5,-90,0"
+    route-profile-ids: ["yard", "north", "caravan", "west-pen", "east-pen", "front-yard", "iney-field", "bay-field"]
+    route-profiles:
+      yard: {"floor-y": 70, "min-block": "43,-147", "max-block": "76,-116", "forbidden-areas": [], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 3, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
+      north: {"floor-y": 69, "min-block": "48,-121", "max-block": "63,-98", "forbidden-areas": [], "preferred-areas": ["50,-115,58,-100"], "max-visited": 1024, "snap-radius": 3, "poll-ticks": 2, "stall-polls": 30, "speed-modifier": 0.52, "distance-margin": 0.7, "path-distance-margin": 0.55, "maximum-step-height": 0.125}
+      caravan: {"floor-y": 70, "min-block": "43,-147", "max-block": "76,-116", "forbidden-areas": ["66,-140,76,-125", "62,-134,76,-125", "43,-140,57,-123"], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 3, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
+      west-pen: {"floor-y": 70, "min-block": "47,-137", "max-block": "48,-134", "forbidden-areas": [], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
+      east-pen: {"floor-y": 70, "min-block": "71,-135", "max-block": "73,-135", "forbidden-areas": [], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
+      front-yard: {"floor-y": 70, "min-block": "55,-122", "max-block": "64,-116", "forbidden-areas": [], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
+      iney-field: {"floor-y": 69, "min-block": "37,-127", "max-block": "49,-108", "forbidden-areas": [], "preferred-areas": [], "max-visited": 1024, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 50, "speed-modifier": 0.42, "distance-margin": 0.22, "path-distance-margin": 0.2, "maximum-step-height": 1.0, "maximum-surface-drop": 0.0625, "surface-search-range": 2, "allowed-support-materials": ["FARMLAND"]}
+      bay-field: {"floor-y": 69, "min-block": "71,-129", "max-block": "89,-103", "forbidden-areas": [], "preferred-areas": [], "max-visited": 1024, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 50, "speed-modifier": 0.42, "distance-margin": 0.22, "path-distance-margin": 0.2, "maximum-step-height": 1.0, "maximum-surface-drop": 0.0625, "surface-search-range": 2, "allowed-support-materials": ["FARMLAND"]}
+    cycle-ids: ["groom-wind", "inspect-buran", "inspect-ryzhik", "wind-paddock", "buran-paddock", "ryzhik-paddock", "iney-patrol", "bay-patrol", "saddler-work", "caravan-preparation", "helper-hay", "helper-water", "cat-round", "dog-round", "goat-round", "llama-round", "donkey-rest", "cat-and-dog"]
+    cycles:
+      groom-wind:
+        actor-ids: ["370", "371"]
+        initial-delay-seconds: 8
+        cooldown-min-seconds: 48
+        cooldown-max-seconds: 70
+        step-ids: ["table", "brush", "horse", "face", "groom", "wool", "hearts", "line", "carrot", "feed", "home"]
+        steps:
+          table: {"type": "MOVE", "actor-id": 370, "anchor": "tack-table", "route-profile": "yard", "timeout-ticks": 220}
+          brush: {"type": "EQUIP", "actor-id": 370, "material": "BRUSH"}
+          horse: {"type": "MOVE", "actor-id": 370, "anchor": "wind-approach", "route-profile": "yard", "timeout-ticks": 220}
+          face: {"type": "LOOK_AT_ACTOR", "actor-id": 370, "target-actor-id": 371}
+          groom: {"type": "SWING", "actor-id": 370, "repetitions": 5, "period-ticks": 12}
+          wool: {"type": "SOUND", "actor-id": 371, "sound": "BLOCK_WOOL_STEP", "volume": 0.34, "pitch": 1.25}
+          hearts: {"type": "PARTICLE", "actor-id": 371, "particle": "HEART", "count": 3}
+          line: {"type": "SPEECH", "actor-id": 370, "text": "Спокойно, Ветер. Гриву расчешем — и гулять."}
+          carrot: {"type": "EQUIP", "actor-id": 370, "material": "CARROT"}
+          feed: {"type": "SOUND", "actor-id": 371, "sound": "ENTITY_HORSE_EAT", "volume": 0.46, "pitch": 1.0}
+          home: {"type": "MOVE", "actor-id": 370, "anchor": "yard-center", "route-profile": "yard", "timeout-ticks": 260}
+      inspect-buran:
+        actor-ids: ["370", "422"]
+        initial-delay-seconds: 20
+        cooldown-min-seconds: 64
+        cooldown-max-seconds: 92
+        step-ids: ["approach", "wheat", "face", "inspect", "snort", "line", "home"]
+        steps:
+          approach: {"type": "MOVE", "actor-id": 370, "anchor": "buran-approach", "route-profile": "yard", "timeout-ticks": 260}
+          wheat: {"type": "EQUIP", "actor-id": 370, "material": "WHEAT"}
+          face: {"type": "LOOK_AT_ACTOR", "actor-id": 370, "target-actor-id": 422}
+          inspect: {"type": "SWING", "actor-id": 370, "repetitions": 3, "period-ticks": 14}
+          snort: {"type": "SOUND", "actor-id": 422, "sound": "ENTITY_HORSE_BREATHE", "volume": 0.42, "pitch": 0.9}
+          line: {"type": "SPEECH", "actor-id": 370, "text": "Копыто чистое. Буран сегодня хоть на дальний тракт."}
+          home: {"type": "MOVE", "actor-id": 370, "anchor": "yard-center", "route-profile": "yard", "timeout-ticks": 260}
+      inspect-ryzhik:
+        actor-ids: ["370", "423"]
+        initial-delay-seconds: 32
+        cooldown-min-seconds: 70
+        cooldown-max-seconds: 100
+        step-ids: ["approach", "saddle", "face", "inspect", "hearts", "line", "home"]
+        steps:
+          approach: {"type": "MOVE", "actor-id": 370, "anchor": "ryzhik-approach", "route-profile": "yard", "timeout-ticks": 260}
+          saddle: {"type": "EQUIP", "actor-id": 370, "material": "SADDLE"}
+          face: {"type": "LOOK_AT_ACTOR", "actor-id": 370, "target-actor-id": 423}
+          inspect: {"type": "SWING", "actor-id": 370, "repetitions": 3, "period-ticks": 14}
+          hearts: {"type": "PARTICLE", "actor-id": 423, "particle": "HAPPY_VILLAGER", "count": 5}
+          line: {"type": "SPEECH", "actor-id": 370, "text": "Рыжик, подпруга ровно. Не хитри на повороте."}
+          home: {"type": "MOVE", "actor-id": 370, "anchor": "yard-center", "route-profile": "yard", "timeout-ticks": 260}
+      wind-paddock:
+        actor-ids: ["371"]
+        initial-delay-seconds: 12
+        cooldown-min-seconds: 16
+        cooldown-max-seconds: 30
+        step-ids: ["graze", "graze-pose", "pause", "stand-pose", "turn", "breathe", "home"]
+        steps:
+          graze: {"type": "MOVE", "actor-id": 371, "anchor": "wind-graze", "route-profile": "front-yard", "timeout-ticks": 260}
+          graze-pose: {"type": "POSE", "actor-id": 371, "state": "HORSE_GRAZE"}
+          pause: {"type": "WAIT", "ticks": 170}
+          stand-pose: {"type": "POSE", "actor-id": 371, "state": "STAND"}
+          turn: {"type": "MOVE", "actor-id": 371, "anchor": "wind-turn", "route-profile": "front-yard", "timeout-ticks": 220}
+          breathe: {"type": "SOUND", "actor-id": 371, "sound": "ENTITY_HORSE_BREATHE", "volume": 0.3, "pitch": 1.08}
+          home: {"type": "MOVE", "actor-id": 371, "anchor": "home-371", "route-profile": "front-yard", "timeout-ticks": 260}
+      buran-paddock:
+        actor-ids: ["422"]
+        initial-delay-seconds: 24
+        cooldown-min-seconds: 16
+        cooldown-max-seconds: 30
+        step-ids: ["graze", "graze-pose", "pause", "stand-pose", "turn", "step", "home"]
+        steps:
+          graze: {"type": "MOVE", "actor-id": 422, "anchor": "buran-graze", "route-profile": "west-pen", "timeout-ticks": 220}
+          graze-pose: {"type": "POSE", "actor-id": 422, "state": "HORSE_GRAZE"}
+          pause: {"type": "WAIT", "ticks": 170}
+          stand-pose: {"type": "POSE", "actor-id": 422, "state": "STAND"}
+          turn: {"type": "MOVE", "actor-id": 422, "anchor": "buran-turn", "route-profile": "west-pen", "timeout-ticks": 220}
+          step: {"type": "SOUND", "actor-id": 422, "sound": "ENTITY_HORSE_STEP", "volume": 0.28, "pitch": 0.92}
+          home: {"type": "MOVE", "actor-id": 422, "anchor": "home-422", "route-profile": "west-pen", "timeout-ticks": 220}
+      ryzhik-paddock:
+        actor-ids: ["423"]
+        initial-delay-seconds: 36
+        cooldown-min-seconds: 16
+        cooldown-max-seconds: 30
+        step-ids: ["graze", "turn", "happy", "graze-pose", "pause", "stand-pose", "home"]
+        steps:
+          graze: {"type": "MOVE", "actor-id": 423, "anchor": "ryzhik-graze", "route-profile": "east-pen", "timeout-ticks": 220}
+          turn: {"type": "MOVE", "actor-id": 423, "anchor": "ryzhik-turn", "route-profile": "east-pen", "timeout-ticks": 220}
+          happy: {"type": "PARTICLE", "actor-id": 423, "particle": "HAPPY_VILLAGER", "count": 4}
+          graze-pose: {"type": "POSE", "actor-id": 423, "state": "HORSE_GRAZE"}
+          pause: {"type": "WAIT", "ticks": 170}
+          stand-pose: {"type": "POSE", "actor-id": 423, "state": "STAND"}
+          home: {"type": "MOVE", "actor-id": 423, "anchor": "home-423", "route-profile": "east-pen", "timeout-ticks": 220}
+      iney-patrol:
+        actor-ids: ["412", "413"]
+        initial-delay-seconds: 2
+        cooldown-min-seconds: 1
+        cooldown-max-seconds: 3
+        step-ids: ["mount", "lap-0-0", "lap-0-1", "lap-0-2", "lap-0-3", "lap-0-4", "lap-0-5", "lap-0-6", "lap-0-7", "line", "lap-1-0", "lap-1-1", "lap-1-2", "lap-1-3", "lap-1-4", "lap-1-5", "lap-1-6", "lap-1-7"]
+        steps:
+          mount: {"type": "MOUNT", "rider-id": 412, "vehicle-id": 413}
+          lap-0-0: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-1", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-0-1: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-2", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-0-2: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-3", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-0-3: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-4", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-0-4: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-5", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-0-5: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-6", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-0-6: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-7", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-0-7: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-0", "route-profile": "iney-field", "timeout-ticks": 600}
+          line: {"type": "SPEECH", "actor-id": 412, "text": "Иней, проверим морковные грядки и дальний край поля."}
+          lap-1-0: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-7", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-1-1: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-6", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-1-2: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-5", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-1-3: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-4", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-1-4: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-3", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-1-5: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-2", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-1-6: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-1", "route-profile": "iney-field", "timeout-ticks": 600}
+          lap-1-7: {"type": "MOVE", "actor-id": 413, "anchor": "iney-field-point-0", "route-profile": "iney-field", "timeout-ticks": 600}
+      bay-patrol:
+        actor-ids: ["414", "415"]
+        initial-delay-seconds: 5
+        cooldown-min-seconds: 1
+        cooldown-max-seconds: 3
+        step-ids: ["mount", "lap-0-0", "lap-0-1", "lap-0-2", "lap-0-3", "lap-0-4", "lap-0-5", "lap-0-6", "lap-0-7", "lap-0-8", "line", "lap-1-0", "lap-1-1", "lap-1-2", "lap-1-3", "lap-1-4", "lap-1-5", "lap-1-6", "lap-1-7", "lap-1-8"]
+        steps:
+          mount: {"type": "MOUNT", "rider-id": 414, "vehicle-id": 415}
+          lap-0-0: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-1", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-0-1: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-2", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-0-2: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-3", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-0-3: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-4", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-0-4: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-5", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-0-5: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-6", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-0-6: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-7", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-0-7: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-8", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-0-8: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-0", "route-profile": "bay-field", "timeout-ticks": 600}
+          line: {"type": "SPEECH", "actor-id": 414, "text": "Гнедой, обходим пшеницу большим кругом. Дорогу оставим людям."}
+          lap-1-0: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-8", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-1-1: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-7", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-1-2: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-6", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-1-3: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-5", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-1-4: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-4", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-1-5: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-3", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-1-6: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-2", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-1-7: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-1", "route-profile": "bay-field", "timeout-ticks": 600}
+          lap-1-8: {"type": "MOVE", "actor-id": 415, "anchor": "bay-field-point-0", "route-profile": "bay-field", "timeout-ticks": 600}
+      saddler-work:
+        actor-ids: ["369"]
+        initial-delay-seconds: 3
+        cooldown-min-seconds: 4
+        cooldown-max-seconds: 9
+        step-ids: ["bench", "tool", "face", "start", "cut-seat", "cut-work", "shape-front", "shape-back", "shape-skirt-left", "shape-skirt-right", "shape-work", "stitch-stitch-left", "stitch-stitch-right", "stitch-horn", "stitch-horn-cap", "stitch-work", "stitch-line", "fit-strap-left", "fit-strap-right", "fit-buckle-left", "fit-buckle-right", "fit-stirrup-l-front", "fit-stirrup-l-back", "fit-stirrup-l-base", "fit-stirrup-r-front", "fit-stirrup-r-back", "fit-stirrup-r-base", "fit-work", "ready", "show", "empty-hand", "carry-seat", "carry-front", "carry-back", "carry-skirt-left", "carry-skirt-right", "carry-stitch-left", "carry-stitch-right", "carry-horn", "carry-horn-cap", "carry-strap-left", "carry-strap-right", "carry-buckle-left", "carry-buckle-right", "carry-stirrup-l-front", "carry-stirrup-l-back", "carry-stirrup-l-base", "carry-stirrup-r-front", "carry-stirrup-r-back", "carry-stirrup-r-base", "rack", "rack-look", "hang-seat", "hang-front", "hang-back", "hang-skirt-left", "hang-skirt-right", "hang-stitch-left", "hang-stitch-right", "hang-horn", "hang-horn-cap", "hang-strap-left", "hang-strap-right", "hang-buckle-left", "hang-buckle-right", "hang-stirrup-l-front", "hang-stirrup-l-back", "hang-stirrup-l-base", "hang-stirrup-r-front", "hang-stirrup-r-back", "hang-stirrup-r-base", "put", "back", "rack-display", "done-seat", "done-front", "done-back", "done-skirt-left", "done-skirt-right", "done-stitch-left", "done-stitch-right", "done-horn", "done-horn-cap", "done-strap-left", "done-strap-right", "done-buckle-left", "done-buckle-right", "done-stirrup-l-front", "done-stirrup-l-back", "done-stirrup-l-base", "done-stirrup-r-front", "done-stirrup-r-back", "done-stirrup-r-base"]
+        steps:
+          bench: {"type": "MOVE", "actor-id": 369, "anchor": "saddler-stand", "route-profile": "yard", "timeout-ticks": 500}
+          tool: {"type": "EQUIP", "actor-id": 369, "material": "SHEARS"}
+          face: {"type": "LOOK_AT_SURFACE", "actor-id": 369, "surface": "saddler-bench"}
+          start: {"type": "SPEECH", "actor-id": 369, "text": "Сначала кожа и основа. Хорошее седло не должно натирать."}
+          cut-seat: {"type": "BLOCK_DISPLAY", "key": "saddle-seat", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.1000,0.0000", "scale": "0.5200,0.1200,0.6400", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          cut-work: {"type": "SWING", "actor-id": 369, "repetitions": 12, "period-ticks": 15, "feedback-surface": "saddler-bench", "sound": "BLOCK_WOOL_PLACE", "sound-every": 3, "sound-volume": 0.25, "sound-pitch": 1.1, "particle": "WAX_OFF", "particle-count": 2, "particle-every": 4}
+          shape-front: {"type": "BLOCK_DISPLAY", "key": "saddle-front", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.2000,-0.3000", "scale": "0.5600,0.1800,0.1200", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          shape-back: {"type": "BLOCK_DISPLAY", "key": "saddle-back", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.2000,0.3000", "scale": "0.5800,0.2200,0.1400", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          shape-skirt-left: {"type": "BLOCK_DISPLAY", "key": "saddle-skirt-left", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "-0.3100,0.0200,0.0300", "scale": "0.1600,0.0900,0.7600", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          shape-skirt-right: {"type": "BLOCK_DISPLAY", "key": "saddle-skirt-right", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "0.3100,0.0200,0.0300", "scale": "0.1600,0.0900,0.7600", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          shape-work: {"type": "SWING", "actor-id": 369, "repetitions": 12, "period-ticks": 15, "feedback-surface": "saddler-bench", "sound": "BLOCK_WOOL_PLACE", "sound-every": 3, "sound-volume": 0.25, "sound-pitch": 1.25, "particle": "WAX_OFF", "particle-count": 2, "particle-every": 4}
+          stitch-stitch-left: {"type": "BLOCK_DISPLAY", "key": "saddle-stitch-left", "material": "YELLOW_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "-0.2350,0.2210,0.0000", "scale": "0.0180,0.0100,0.4500", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          stitch-stitch-right: {"type": "BLOCK_DISPLAY", "key": "saddle-stitch-right", "material": "YELLOW_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "0.2350,0.2210,0.0000", "scale": "0.0180,0.0100,0.4500", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          stitch-horn: {"type": "BLOCK_DISPLAY", "key": "saddle-horn", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.3800,-0.3000", "scale": "0.0800,0.1400,0.0800", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          stitch-horn-cap: {"type": "BLOCK_DISPLAY", "key": "saddle-horn-cap", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.5000,-0.3000", "scale": "0.1400,0.0350,0.1200", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          stitch-work: {"type": "SWING", "actor-id": 369, "repetitions": 12, "period-ticks": 15, "feedback-surface": "saddler-bench", "sound": "BLOCK_WOOL_PLACE", "sound-every": 3, "sound-volume": 0.25, "sound-pitch": 1.4000000000000001, "particle": "WAX_OFF", "particle-count": 2, "particle-every": 4}
+          stitch-line: {"type": "SPEECH", "actor-id": 369, "text": "Стежок к стежку. Теперь ремни, пряжки и стремена."}
+          fit-strap-left: {"type": "BLOCK_DISPLAY", "key": "saddle-strap-left", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "offset": "-0.3600,0.1000,0.0000", "scale": "0.0550,0.3000,0.0800", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          fit-strap-right: {"type": "BLOCK_DISPLAY", "key": "saddle-strap-right", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "offset": "0.3600,0.1000,0.0000", "scale": "0.0550,0.3000,0.0800", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          fit-buckle-left: {"type": "BLOCK_DISPLAY", "key": "saddle-buckle-left", "material": "CUT_COPPER", "origin": "BOTTOM_CENTER", "offset": "-0.3900,0.1800,0.0000", "scale": "0.0350,0.0700,0.1200", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          fit-buckle-right: {"type": "BLOCK_DISPLAY", "key": "saddle-buckle-right", "material": "CUT_COPPER", "origin": "BOTTOM_CENTER", "offset": "0.3900,0.1800,0.0000", "scale": "0.0350,0.0700,0.1200", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          fit-stirrup-l-front: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-l-front", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "offset": "-0.4400,0.0150,-0.0550", "scale": "0.0350,0.1600,0.0350", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          fit-stirrup-l-back: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-l-back", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "offset": "-0.4400,0.0150,0.0550", "scale": "0.0350,0.1600,0.0350", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          fit-stirrup-l-base: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-l-base", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "offset": "-0.4400,0.0150,0.0000", "scale": "0.0350,0.0350,0.1450", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          fit-stirrup-r-front: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-r-front", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "offset": "0.4400,0.0150,-0.0550", "scale": "0.0350,0.1600,0.0350", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          fit-stirrup-r-back: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-r-back", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "offset": "0.4400,0.0150,0.0550", "scale": "0.0350,0.1600,0.0350", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          fit-stirrup-r-base: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-r-base", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "offset": "0.4400,0.0150,0.0000", "scale": "0.0350,0.0350,0.1450", "interpolation-ticks": 5, "surface": "saddler-bench"}
+          fit-work: {"type": "SWING", "actor-id": 369, "repetitions": 12, "period-ticks": 15, "feedback-surface": "saddler-bench", "sound": "BLOCK_WOOL_PLACE", "sound-every": 3, "sound-volume": 0.25, "sound-pitch": 1.55, "particle": "WAX_OFF", "particle-count": 2, "particle-every": 4}
+          ready: {"type": "SPEECH", "actor-id": 369, "text": "Мягкая посадка, крепкие ремни. Вот теперь можно в дорогу."}
+          show: {"type": "WAIT", "ticks": 100}
+          empty-hand: {"type": "EQUIP", "actor-id": 369, "material": "AIR"}
+          carry-seat: {"type": "BLOCK_DISPLAY", "key": "saddle-seat", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "scale": "0.4160,0.0960,0.5120", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "0.0000,0.8800,0.6000"}
+          carry-front: {"type": "BLOCK_DISPLAY", "key": "saddle-front", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "scale": "0.4480,0.1440,0.0960", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "0.0000,0.9600,0.3600"}
+          carry-back: {"type": "BLOCK_DISPLAY", "key": "saddle-back", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "scale": "0.4640,0.1760,0.1120", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "0.0000,0.9600,0.8400"}
+          carry-skirt-left: {"type": "BLOCK_DISPLAY", "key": "saddle-skirt-left", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "scale": "0.1280,0.0720,0.6080", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "-0.2480,0.8160,0.6240"}
+          carry-skirt-right: {"type": "BLOCK_DISPLAY", "key": "saddle-skirt-right", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "scale": "0.1280,0.0720,0.6080", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "0.2480,0.8160,0.6240"}
+          carry-stitch-left: {"type": "BLOCK_DISPLAY", "key": "saddle-stitch-left", "material": "YELLOW_TERRACOTTA", "origin": "BOTTOM_CENTER", "scale": "0.0144,0.0080,0.3600", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "-0.1880,0.9768,0.6000"}
+          carry-stitch-right: {"type": "BLOCK_DISPLAY", "key": "saddle-stitch-right", "material": "YELLOW_TERRACOTTA", "origin": "BOTTOM_CENTER", "scale": "0.0144,0.0080,0.3600", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "0.1880,0.9768,0.6000"}
+          carry-horn: {"type": "BLOCK_DISPLAY", "key": "saddle-horn", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "scale": "0.0640,0.1120,0.0640", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "0.0000,1.1040,0.3600"}
+          carry-horn-cap: {"type": "BLOCK_DISPLAY", "key": "saddle-horn-cap", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "scale": "0.1120,0.0280,0.0960", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "0.0000,1.2000,0.3600"}
+          carry-strap-left: {"type": "BLOCK_DISPLAY", "key": "saddle-strap-left", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "scale": "0.0440,0.2400,0.0640", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "-0.2880,0.8800,0.6000"}
+          carry-strap-right: {"type": "BLOCK_DISPLAY", "key": "saddle-strap-right", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "scale": "0.0440,0.2400,0.0640", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "0.2880,0.8800,0.6000"}
+          carry-buckle-left: {"type": "BLOCK_DISPLAY", "key": "saddle-buckle-left", "material": "CUT_COPPER", "origin": "BOTTOM_CENTER", "scale": "0.0280,0.0560,0.0960", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "-0.3120,0.9440,0.6000"}
+          carry-buckle-right: {"type": "BLOCK_DISPLAY", "key": "saddle-buckle-right", "material": "CUT_COPPER", "origin": "BOTTOM_CENTER", "scale": "0.0280,0.0560,0.0960", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "0.3120,0.9440,0.6000"}
+          carry-stirrup-l-front: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-l-front", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.0280,0.1280,0.0280", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "-0.3520,0.8120,0.5560"}
+          carry-stirrup-l-back: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-l-back", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.0280,0.1280,0.0280", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "-0.3520,0.8120,0.6440"}
+          carry-stirrup-l-base: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-l-base", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.0280,0.0280,0.1160", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "-0.3520,0.8120,0.6000"}
+          carry-stirrup-r-front: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-r-front", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.0280,0.1280,0.0280", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "0.3520,0.8120,0.5560"}
+          carry-stirrup-r-back: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-r-back", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.0280,0.1280,0.0280", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "0.3520,0.8120,0.6440"}
+          carry-stirrup-r-base: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-r-base", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.0280,0.0280,0.1160", "interpolation-ticks": 5, "follow-actor-id": 369, "follow-offset": "0.3520,0.8120,0.6000"}
+          rack: {"type": "MOVE", "actor-id": 369, "anchor": "saddle-rack-stand", "route-profile": "yard", "timeout-ticks": 500}
+          rack-look: {"type": "LOOK_AT_SURFACE", "actor-id": 369, "surface": "saddle-rack"}
+          hang-seat: {"type": "BLOCK_DISPLAY", "key": "saddle-seat", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.1000,0.0000", "scale": "0.5200,0.1200,0.6400", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-front: {"type": "BLOCK_DISPLAY", "key": "saddle-front", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.2000,-0.3000", "scale": "0.5600,0.1800,0.1200", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-back: {"type": "BLOCK_DISPLAY", "key": "saddle-back", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.2000,0.3000", "scale": "0.5800,0.2200,0.1400", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-skirt-left: {"type": "BLOCK_DISPLAY", "key": "saddle-skirt-left", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "-0.3100,0.0200,0.0300", "scale": "0.1600,0.0900,0.7600", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-skirt-right: {"type": "BLOCK_DISPLAY", "key": "saddle-skirt-right", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "0.3100,0.0200,0.0300", "scale": "0.1600,0.0900,0.7600", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-stitch-left: {"type": "BLOCK_DISPLAY", "key": "saddle-stitch-left", "material": "YELLOW_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "-0.2350,0.2210,0.0000", "scale": "0.0180,0.0100,0.4500", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-stitch-right: {"type": "BLOCK_DISPLAY", "key": "saddle-stitch-right", "material": "YELLOW_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "0.2350,0.2210,0.0000", "scale": "0.0180,0.0100,0.4500", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-horn: {"type": "BLOCK_DISPLAY", "key": "saddle-horn", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.3800,-0.3000", "scale": "0.0800,0.1400,0.0800", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-horn-cap: {"type": "BLOCK_DISPLAY", "key": "saddle-horn-cap", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.5000,-0.3000", "scale": "0.1400,0.0350,0.1200", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-strap-left: {"type": "BLOCK_DISPLAY", "key": "saddle-strap-left", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "offset": "-0.3600,0.1000,0.0000", "scale": "0.0550,0.3000,0.0800", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-strap-right: {"type": "BLOCK_DISPLAY", "key": "saddle-strap-right", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "offset": "0.3600,0.1000,0.0000", "scale": "0.0550,0.3000,0.0800", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-buckle-left: {"type": "BLOCK_DISPLAY", "key": "saddle-buckle-left", "material": "CUT_COPPER", "origin": "BOTTOM_CENTER", "offset": "-0.3900,0.1800,0.0000", "scale": "0.0350,0.0700,0.1200", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-buckle-right: {"type": "BLOCK_DISPLAY", "key": "saddle-buckle-right", "material": "CUT_COPPER", "origin": "BOTTOM_CENTER", "offset": "0.3900,0.1800,0.0000", "scale": "0.0350,0.0700,0.1200", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-stirrup-l-front: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-l-front", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "offset": "-0.4400,0.0150,-0.0550", "scale": "0.0350,0.1600,0.0350", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-stirrup-l-back: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-l-back", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "offset": "-0.4400,0.0150,0.0550", "scale": "0.0350,0.1600,0.0350", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-stirrup-l-base: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-l-base", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "offset": "-0.4400,0.0150,0.0000", "scale": "0.0350,0.0350,0.1450", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-stirrup-r-front: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-r-front", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "offset": "0.4400,0.0150,-0.0550", "scale": "0.0350,0.1600,0.0350", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-stirrup-r-back: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-r-back", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "offset": "0.4400,0.0150,0.0550", "scale": "0.0350,0.1600,0.0350", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          hang-stirrup-r-base: {"type": "BLOCK_DISPLAY", "key": "saddle-stirrup-r-base", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "offset": "0.4400,0.0150,0.0000", "scale": "0.0350,0.0350,0.1450", "interpolation-ticks": 5, "surface": "saddle-rack"}
+          put: {"type": "SOUND", "actor-id": 369, "sound": "ITEM_ARMOR_EQUIP_LEATHER", "volume": 0.32, "pitch": 1.0}
+          back: {"type": "MOVE", "actor-id": 369, "anchor": "saddler-stand", "route-profile": "yard", "timeout-ticks": 500}
+          rack-display: {"type": "WAIT", "ticks": 260}
+          done-seat: {"type": "REMOVE_DISPLAY", "key": "saddle-seat"}
+          done-front: {"type": "REMOVE_DISPLAY", "key": "saddle-front"}
+          done-back: {"type": "REMOVE_DISPLAY", "key": "saddle-back"}
+          done-skirt-left: {"type": "REMOVE_DISPLAY", "key": "saddle-skirt-left"}
+          done-skirt-right: {"type": "REMOVE_DISPLAY", "key": "saddle-skirt-right"}
+          done-stitch-left: {"type": "REMOVE_DISPLAY", "key": "saddle-stitch-left"}
+          done-stitch-right: {"type": "REMOVE_DISPLAY", "key": "saddle-stitch-right"}
+          done-horn: {"type": "REMOVE_DISPLAY", "key": "saddle-horn"}
+          done-horn-cap: {"type": "REMOVE_DISPLAY", "key": "saddle-horn-cap"}
+          done-strap-left: {"type": "REMOVE_DISPLAY", "key": "saddle-strap-left"}
+          done-strap-right: {"type": "REMOVE_DISPLAY", "key": "saddle-strap-right"}
+          done-buckle-left: {"type": "REMOVE_DISPLAY", "key": "saddle-buckle-left"}
+          done-buckle-right: {"type": "REMOVE_DISPLAY", "key": "saddle-buckle-right"}
+          done-stirrup-l-front: {"type": "REMOVE_DISPLAY", "key": "saddle-stirrup-l-front"}
+          done-stirrup-l-back: {"type": "REMOVE_DISPLAY", "key": "saddle-stirrup-l-back"}
+          done-stirrup-l-base: {"type": "REMOVE_DISPLAY", "key": "saddle-stirrup-l-base"}
+          done-stirrup-r-front: {"type": "REMOVE_DISPLAY", "key": "saddle-stirrup-r-front"}
+          done-stirrup-r-back: {"type": "REMOVE_DISPLAY", "key": "saddle-stirrup-r-back"}
+          done-stirrup-r-base: {"type": "REMOVE_DISPLAY", "key": "saddle-stirrup-r-base"}
+      caravan-preparation:
+        actor-ids: ["441", "442", "370"]
+        initial-delay-seconds: 17
+        cooldown-min-seconds: 35
+        cooldown-max-seconds: 55
+        step-ids: ["crate", "call", "donkey-stand", "animal-still", "tom", "packer", "check", "brush", "groom", "approve", "face", "load-0-pad", "work-0", "load-1-left-pack", "load-1-right-pack", "load-1-left-lid", "load-1-right-lid", "work-1", "load-2-blanket", "load-2-strap-front", "load-2-strap-back", "work-2", "load-3-left-lock", "load-3-right-lock", "work-3", "ready", "snort", "show-load", "out-exit", "out-corner", "out-middle", "out-front", "inspect-load", "line", "rest", "return-middle", "return-corner", "return-exit", "return", "unload-work-3", "unload-3-left-lock", "unload-3-right-lock", "unload-work-2", "unload-2-blanket", "unload-2-strap-front", "unload-2-strap-back", "unload-work-1", "unload-1-left-pack", "unload-1-right-pack", "unload-1-left-lid", "unload-1-right-lid", "unload-work-0", "unload-0-pad", "finish"]
+        steps:
+          crate: {"type": "MOVE", "actor-id": 441, "anchor": "packing-crates", "route-profile": "yard", "timeout-ticks": 500}
+          call: {"type": "SPEECH", "actor-id": 441, "text": "Том, проверь Репея. Я пока уложу поклажу."}
+          donkey-stand: {"type": "MOVE", "actor-id": 442, "anchor": "home-442", "route-profile": "yard", "timeout-ticks": 500}
+          animal-still: {"type": "POSE", "actor-id": 442, "state": "STAND"}
+          tom: {"type": "MOVE", "actor-id": 370, "anchor": "caravan-helper", "route-profile": "yard", "timeout-ticks": 500}
+          packer: {"type": "MOVE", "actor-id": 441, "anchor": "packing-stand", "route-profile": "yard", "timeout-ticks": 500}
+          check: {"type": "LOOK_AT_ACTOR", "actor-id": 370, "target-actor-id": 442}
+          brush: {"type": "EQUIP", "actor-id": 370, "material": "BRUSH"}
+          groom: {"type": "SWING", "actor-id": 370, "repetitions": 10, "period-ticks": 12}
+          approve: {"type": "SPEECH", "actor-id": 370, "text": "Копыта чистые. Только груз поровну, Тихон."}
+          face: {"type": "LOOK_AT_ANCHOR", "actor-id": 441, "anchor": "packing-target"}
+          load-0-pad: {"type": "BLOCK_DISPLAY", "key": "cargo-pad", "material": "RED_WOOL", "origin": "BOTTOM_CENTER", "scale": "0.6000,0.0800,0.8200", "interpolation-ticks": 5, "follow-actor-id": 442, "follow-offset": "0.0000,1.1400,0.1200"}
+          work-0: {"type": "SWING", "actor-id": 441, "repetitions": 8, "period-ticks": 12, "feedback-anchor": "packing-target", "sound": "BLOCK_WOOL_PLACE", "sound-every": 3, "sound-volume": 0.25}
+          load-1-left-pack: {"type": "BLOCK_DISPLAY", "key": "cargo-left-pack", "material": "SPRUCE_PLANKS", "origin": "BOTTOM_CENTER", "scale": "0.3400,0.4200,0.4800", "interpolation-ticks": 5, "follow-actor-id": 442, "follow-offset": "-0.4700,0.6700,0.1200"}
+          load-1-right-pack: {"type": "BLOCK_DISPLAY", "key": "cargo-right-pack", "material": "SPRUCE_PLANKS", "origin": "BOTTOM_CENTER", "scale": "0.3400,0.4200,0.4800", "interpolation-ticks": 5, "follow-actor-id": 442, "follow-offset": "0.4700,0.6700,0.1200"}
+          load-1-left-lid: {"type": "BLOCK_DISPLAY", "key": "cargo-left-lid", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "scale": "0.3700,0.0550,0.5100", "interpolation-ticks": 5, "follow-actor-id": 442, "follow-offset": "-0.4700,1.0750,0.1200"}
+          load-1-right-lid: {"type": "BLOCK_DISPLAY", "key": "cargo-right-lid", "material": "DARK_OAK_PLANKS", "origin": "BOTTOM_CENTER", "scale": "0.3700,0.0550,0.5100", "interpolation-ticks": 5, "follow-actor-id": 442, "follow-offset": "0.4700,1.0750,0.1200"}
+          work-1: {"type": "SWING", "actor-id": 441, "repetitions": 8, "period-ticks": 12, "feedback-anchor": "packing-target", "sound": "BLOCK_WOOL_PLACE", "sound-every": 3, "sound-volume": 0.25}
+          load-2-blanket: {"type": "BLOCK_DISPLAY", "key": "cargo-blanket", "material": "CYAN_WOOL", "origin": "BOTTOM_CENTER", "scale": "0.6900,0.2100,0.2400", "interpolation-ticks": 5, "follow-actor-id": 442, "follow-offset": "0.0000,1.2200,0.2700"}
+          load-2-strap-front: {"type": "BLOCK_DISPLAY", "key": "cargo-strap-front", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "scale": "0.7400,0.0350,0.0600", "interpolation-ticks": 5, "follow-actor-id": 442, "follow-offset": "0.0000,1.2100,-0.1500"}
+          load-2-strap-back: {"type": "BLOCK_DISPLAY", "key": "cargo-strap-back", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "scale": "0.7400,0.0250,0.0450", "interpolation-ticks": 5, "follow-actor-id": 442, "follow-offset": "0.0000,1.4350,0.3200"}
+          work-2: {"type": "SWING", "actor-id": 441, "repetitions": 8, "period-ticks": 12, "feedback-anchor": "packing-target", "sound": "BLOCK_WOOL_PLACE", "sound-every": 3, "sound-volume": 0.25}
+          load-3-left-lock: {"type": "BLOCK_DISPLAY", "key": "cargo-left-lock", "material": "CUT_COPPER", "origin": "BOTTOM_CENTER", "scale": "0.0350,0.1000,0.0750", "interpolation-ticks": 5, "follow-actor-id": 442, "follow-offset": "-0.6500,0.9300,0.1200"}
+          load-3-right-lock: {"type": "BLOCK_DISPLAY", "key": "cargo-right-lock", "material": "CUT_COPPER", "origin": "BOTTOM_CENTER", "scale": "0.0350,0.1000,0.0750", "interpolation-ticks": 5, "follow-actor-id": 442, "follow-offset": "0.6500,0.9300,0.1200"}
+          work-3: {"type": "SWING", "actor-id": 441, "repetitions": 8, "period-ticks": 12, "feedback-anchor": "packing-target", "sound": "BLOCK_WOOL_PLACE", "sound-every": 3, "sound-volume": 0.25}
+          ready: {"type": "SPEECH", "actor-id": 441, "text": "Сумки закреплены, одеяло сверху. Репей, шагом!"}
+          snort: {"type": "SOUND", "actor-id": 442, "sound": "ENTITY_DONKEY_AMBIENT", "volume": 0.32, "pitch": 0.9}
+          show-load: {"type": "WAIT", "ticks": 80}
+          out-exit: {"type": "MOVE_GROUP", "actor-ids": ["441", "442"], "anchors": ["caravan-person-exit", "caravan-animal-exit"], "route-profile": "caravan", "timeout-ticks": 700}
+          out-corner: {"type": "MOVE_GROUP", "actor-ids": ["441", "442"], "anchors": ["caravan-person-corner", "caravan-animal-corner"], "route-profile": "caravan", "timeout-ticks": 700}
+          out-middle: {"type": "MOVE_GROUP", "actor-ids": ["441", "442"], "anchors": ["caravan-person-mid", "caravan-animal-mid"], "route-profile": "caravan", "timeout-ticks": 700}
+          out-front: {"type": "MOVE_GROUP", "actor-ids": ["441", "442"], "anchors": ["caravan-person-front", "caravan-animal-front"], "route-profile": "caravan", "timeout-ticks": 700}
+          inspect-load: {"type": "LOOK_AT_ACTOR", "actor-id": 441, "target-actor-id": 442}
+          line: {"type": "SPEECH", "actor-id": 441, "text": "Ничего не гремит и не сползает. Ещё круг — и обоз готов."}
+          rest: {"type": "WAIT", "ticks": 220}
+          return-middle: {"type": "MOVE_GROUP", "actor-ids": ["441", "442"], "anchors": ["caravan-person-mid", "caravan-animal-mid"], "route-profile": "caravan", "timeout-ticks": 700}
+          return-corner: {"type": "MOVE_GROUP", "actor-ids": ["441", "442"], "anchors": ["caravan-person-corner", "caravan-animal-corner"], "route-profile": "caravan", "timeout-ticks": 700}
+          return-exit: {"type": "MOVE_GROUP", "actor-ids": ["441", "442"], "anchors": ["caravan-person-exit", "caravan-animal-exit"], "route-profile": "caravan", "timeout-ticks": 700}
+          return: {"type": "MOVE_GROUP", "actor-ids": ["441", "442"], "anchors": ["packing-stand", "home-442"], "route-profile": "caravan", "timeout-ticks": 700}
+          unload-work-3: {"type": "SWING", "actor-id": 441, "repetitions": 3, "period-ticks": 13}
+          unload-3-left-lock: {"type": "REMOVE_DISPLAY", "key": "cargo-left-lock"}
+          unload-3-right-lock: {"type": "REMOVE_DISPLAY", "key": "cargo-right-lock"}
+          unload-work-2: {"type": "SWING", "actor-id": 441, "repetitions": 3, "period-ticks": 13}
+          unload-2-blanket: {"type": "REMOVE_DISPLAY", "key": "cargo-blanket"}
+          unload-2-strap-front: {"type": "REMOVE_DISPLAY", "key": "cargo-strap-front"}
+          unload-2-strap-back: {"type": "REMOVE_DISPLAY", "key": "cargo-strap-back"}
+          unload-work-1: {"type": "SWING", "actor-id": 441, "repetitions": 3, "period-ticks": 13}
+          unload-1-left-pack: {"type": "REMOVE_DISPLAY", "key": "cargo-left-pack"}
+          unload-1-right-pack: {"type": "REMOVE_DISPLAY", "key": "cargo-right-pack"}
+          unload-1-left-lid: {"type": "REMOVE_DISPLAY", "key": "cargo-left-lid"}
+          unload-1-right-lid: {"type": "REMOVE_DISPLAY", "key": "cargo-right-lid"}
+          unload-work-0: {"type": "SWING", "actor-id": 441, "repetitions": 3, "period-ticks": 13}
+          unload-0-pad: {"type": "REMOVE_DISPLAY", "key": "cargo-pad"}
+          finish: {"type": "SPEECH", "actor-id": 441, "text": "Отдыхай, Репей. До следующего выхода всё уложено."}
+      helper-hay:
+        actor-ids: ["440", "371"]
+        initial-delay-seconds: 10
+        cooldown-min-seconds: 25
+        cooldown-max-seconds: 45
+        step-ids: ["source", "look", "take", "hands", "carry-bale", "carry-binding", "deliver", "call", "animal", "put-look", "put", "serve-bale", "serve-binding", "graze", "eat", "meal", "eaten-bale", "eaten-binding", "last-bites", "clean-bale", "clean-binding", "stand"]
+        steps:
+          source: {"type": "MOVE", "actor-id": 440, "anchor": "helper-hay", "route-profile": "yard", "timeout-ticks": 500}
+          look: {"type": "LOOK_AT_ANCHOR", "actor-id": 440, "anchor": "hay-source"}
+          take: {"type": "SWING", "actor-id": 440, "repetitions": 4, "period-ticks": 12}
+          hands: {"type": "EQUIP", "actor-id": 440, "material": "AIR"}
+          carry-bale: {"type": "BLOCK_DISPLAY", "key": "hay-bale", "material": "HAY_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.5400,0.4500,0.4200", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.0000,0.8500,0.5500"}
+          carry-binding: {"type": "BLOCK_DISPLAY", "key": "hay-binding", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "scale": "0.0800,0.4800,0.4400", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.0000,0.8400,0.5500"}
+          deliver: {"type": "MOVE", "actor-id": 440, "anchor": "helper-feed", "route-profile": "yard", "timeout-ticks": 500}
+          call: {"type": "SPEECH", "actor-id": 440, "text": "Ветер, свежее сено. Только не всё разом!"}
+          animal: {"type": "MOVE", "actor-id": 371, "anchor": "wind-approach", "route-profile": "yard", "timeout-ticks": 500}
+          put-look: {"type": "LOOK_AT_ANCHOR", "actor-id": 440, "anchor": "feed-floor"}
+          put: {"type": "SWING", "actor-id": 440, "repetitions": 3, "period-ticks": 12}
+          serve-bale: {"type": "BLOCK_DISPLAY", "key": "hay-bale", "material": "HAY_BLOCK", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.0300,0.0000", "scale": "0.5400,0.4500,0.4200", "interpolation-ticks": 5, "anchor": "feed-floor"}
+          serve-binding: {"type": "BLOCK_DISPLAY", "key": "hay-binding", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.0200,0.0000", "scale": "0.0800,0.4800,0.4400", "interpolation-ticks": 5, "anchor": "feed-floor"}
+          graze: {"type": "POSE", "actor-id": 371, "state": "HORSE_GRAZE"}
+          eat: {"type": "SOUND", "actor-id": 371, "sound": "ENTITY_HORSE_EAT", "volume": 0.32, "pitch": 1.0}
+          meal: {"type": "WAIT", "ticks": 150}
+          eaten-bale: {"type": "BLOCK_DISPLAY", "key": "hay-bale", "material": "HAY_BLOCK", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.0100,0.0000", "scale": "0.1620,0.1350,0.1260", "interpolation-ticks": 5, "anchor": "feed-floor"}
+          eaten-binding: {"type": "BLOCK_DISPLAY", "key": "hay-binding", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.0070,0.0000", "scale": "0.0240,0.1440,0.1320", "interpolation-ticks": 5, "anchor": "feed-floor"}
+          last-bites: {"type": "WAIT", "ticks": 100}
+          clean-bale: {"type": "REMOVE_DISPLAY", "key": "hay-bale"}
+          clean-binding: {"type": "REMOVE_DISPLAY", "key": "hay-binding"}
+          stand: {"type": "POSE", "actor-id": 371, "state": "STAND"}
+      helper-water:
+        actor-ids: ["440"]
+        initial-delay-seconds: 42
+        cooldown-min-seconds: 45
+        cooldown-max-seconds: 65
+        step-ids: ["barrels", "fill", "hands", "bucket-base", "bucket-front", "bucket-back", "bucket-left", "bucket-right", "bucket-water", "bucket-handle", "deliver", "face-trough", "pour", "splash", "drops", "line", "wait", "empty-water", "back", "put-base", "put-front", "put-back", "put-left", "put-right", "put-handle"]
+        steps:
+          barrels: {"type": "MOVE", "actor-id": 440, "anchor": "helper-barrels", "route-profile": "yard", "timeout-ticks": 500}
+          fill: {"type": "SOUND", "actor-id": 440, "sound": "ITEM_BUCKET_FILL", "volume": 0.32, "pitch": 1.0}
+          hands: {"type": "EQUIP", "actor-id": 440, "material": "AIR"}
+          bucket-base: {"type": "BLOCK_DISPLAY", "key": "bucket-base", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.2600,0.0400,0.2600", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.3800,0.6000,0.2000"}
+          bucket-front: {"type": "BLOCK_DISPLAY", "key": "bucket-front", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.2600,0.2300,0.0300", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.3800,0.6400,0.0800"}
+          bucket-back: {"type": "BLOCK_DISPLAY", "key": "bucket-back", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.2600,0.2300,0.0300", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.3800,0.6400,0.3200"}
+          bucket-left: {"type": "BLOCK_DISPLAY", "key": "bucket-left", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.0300,0.2300,0.2600", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.2600,0.6400,0.2000"}
+          bucket-right: {"type": "BLOCK_DISPLAY", "key": "bucket-right", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.0300,0.2300,0.2600", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.5000,0.6400,0.2000"}
+          bucket-water: {"type": "BLOCK_DISPLAY", "key": "bucket-water", "material": "LIGHT_BLUE_STAINED_GLASS", "origin": "BOTTOM_CENTER", "scale": "0.2000,0.0250,0.2000", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.3800,0.8200,0.2000"}
+          bucket-handle: {"type": "BLOCK_DISPLAY", "key": "bucket-handle", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.0250,0.0250,0.2800", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.3800,1.0200,0.2000"}
+          deliver: {"type": "MOVE", "actor-id": 440, "anchor": "helper-water", "route-profile": "yard", "timeout-ticks": 500}
+          face-trough: {"type": "LOOK_AT_SURFACE", "actor-id": 440, "surface": "water-trough"}
+          pour: {"type": "SWING", "actor-id": 440, "repetitions": 5, "period-ticks": 16}
+          splash: {"type": "SOUND", "actor-id": 440, "sound": "ITEM_BUCKET_EMPTY", "volume": 0.32, "pitch": 1.0}
+          drops: {"type": "PARTICLE", "anchor": "water-trough", "particle": "SPLASH", "count": 12}
+          line: {"type": "SPEECH", "actor-id": 440, "text": "Вода свежая. Теперь можно и мне передохнуть."}
+          wait: {"type": "WAIT", "ticks": 60}
+          empty-water: {"type": "REMOVE_DISPLAY", "key": "bucket-water"}
+          back: {"type": "MOVE", "actor-id": 440, "anchor": "helper-barrels", "route-profile": "yard", "timeout-ticks": 500}
+          put-base: {"type": "REMOVE_DISPLAY", "key": "bucket-base"}
+          put-front: {"type": "REMOVE_DISPLAY", "key": "bucket-front"}
+          put-back: {"type": "REMOVE_DISPLAY", "key": "bucket-back"}
+          put-left: {"type": "REMOVE_DISPLAY", "key": "bucket-left"}
+          put-right: {"type": "REMOVE_DISPLAY", "key": "bucket-right"}
+          put-handle: {"type": "REMOVE_DISPLAY", "key": "bucket-handle"}
+      cat-round:
+        actor-ids: ["443"]
+        initial-delay-seconds: 5
+        cooldown-min-seconds: 12
+        cooldown-max-seconds: 25
+        step-ids: ["stand", "out", "look", "voice", "observe", "turn", "sit", "watch", "lie", "nap", "up"]
+        steps:
+          stand: {"type": "POSE", "actor-id": 443, "state": "STAND"}
+          out: {"type": "MOVE", "actor-id": 443, "anchor": "cat-watch", "route-profile": "yard", "timeout-ticks": 500}
+          look: {"type": "LOOK_AT_ANCHOR", "actor-id": 443, "anchor": "cat-nap"}
+          voice: {"type": "SOUND", "actor-id": 443, "sound": "ENTITY_CAT_PURR", "volume": 0.32, "pitch": 1.0}
+          observe: {"type": "WAIT", "ticks": 100}
+          turn: {"type": "MOVE", "actor-id": 443, "anchor": "cat-nap", "route-profile": "yard", "timeout-ticks": 500}
+          sit: {"type": "POSE", "actor-id": 443, "state": "SIT"}
+          watch: {"type": "WAIT", "ticks": 120}
+          lie: {"type": "POSE", "actor-id": 443, "state": "CAT_LIE"}
+          nap: {"type": "WAIT", "ticks": 440}
+          up: {"type": "POSE", "actor-id": 443, "state": "STAND"}
+      dog-round:
+        actor-ids: ["444"]
+        initial-delay-seconds: 9
+        cooldown-min-seconds: 12
+        cooldown-max-seconds: 25
+        step-ids: ["stand", "out", "look", "voice", "observe", "turn", "home", "sit", "guard", "up"]
+        steps:
+          stand: {"type": "POSE", "actor-id": 444, "state": "STAND"}
+          out: {"type": "MOVE", "actor-id": 444, "anchor": "dog-patrol", "route-profile": "yard", "timeout-ticks": 500}
+          look: {"type": "LOOK_AT_ANCHOR", "actor-id": 444, "anchor": "dog-watch"}
+          voice: {"type": "SOUND", "actor-id": 444, "sound": "ENTITY_WOLF_AMBIENT", "volume": 0.32, "pitch": 1.0}
+          observe: {"type": "WAIT", "ticks": 100}
+          turn: {"type": "MOVE", "actor-id": 444, "anchor": "dog-watch", "route-profile": "yard", "timeout-ticks": 500}
+          home: {"type": "MOVE", "actor-id": 444, "anchor": "home-444", "route-profile": "yard", "timeout-ticks": 500}
+          sit: {"type": "POSE", "actor-id": 444, "state": "SIT"}
+          guard: {"type": "WAIT", "ticks": 340}
+          up: {"type": "POSE", "actor-id": 444, "state": "STAND"}
+      goat-round:
+        actor-ids: ["445"]
+        initial-delay-seconds: 13
+        cooldown-min-seconds: 12
+        cooldown-max-seconds: 25
+        step-ids: ["stand", "out", "look", "voice", "observe", "turn", "rest", "up"]
+        steps:
+          stand: {"type": "POSE", "actor-id": 445, "state": "STAND"}
+          out: {"type": "MOVE", "actor-id": 445, "anchor": "goat-hay", "route-profile": "yard", "timeout-ticks": 500}
+          look: {"type": "LOOK_AT_ANCHOR", "actor-id": 445, "anchor": "goat-turn"}
+          voice: {"type": "SOUND", "actor-id": 445, "sound": "ENTITY_GOAT_AMBIENT", "volume": 0.32, "pitch": 1.0}
+          observe: {"type": "WAIT", "ticks": 100}
+          turn: {"type": "MOVE", "actor-id": 445, "anchor": "goat-turn", "route-profile": "yard", "timeout-ticks": 500}
+          rest: {"type": "WAIT", "ticks": 160}
+          up: {"type": "POSE", "actor-id": 445, "state": "STAND"}
+      llama-round:
+        actor-ids: ["446"]
+        initial-delay-seconds: 21
+        cooldown-min-seconds: 12
+        cooldown-max-seconds: 25
+        step-ids: ["stand", "out", "look", "voice", "observe", "turn", "rest", "up"]
+        steps:
+          stand: {"type": "POSE", "actor-id": 446, "state": "STAND"}
+          out: {"type": "MOVE", "actor-id": 446, "anchor": "llama-turn", "route-profile": "yard", "timeout-ticks": 500}
+          look: {"type": "LOOK_AT_ANCHOR", "actor-id": 446, "anchor": "llama-watch"}
+          voice: {"type": "SOUND", "actor-id": 446, "sound": "ENTITY_LLAMA_AMBIENT", "volume": 0.32, "pitch": 1.0}
+          observe: {"type": "WAIT", "ticks": 100}
+          turn: {"type": "MOVE", "actor-id": 446, "anchor": "llama-watch", "route-profile": "yard", "timeout-ticks": 500}
+          rest: {"type": "WAIT", "ticks": 160}
+          up: {"type": "POSE", "actor-id": 446, "state": "STAND"}
+      donkey-rest:
+        actor-ids: ["442"]
+        initial-delay-seconds: 7
+        cooldown-min-seconds: 12
+        cooldown-max-seconds: 25
+        step-ids: ["stand", "out", "look", "voice", "observe", "turn", "graze", "eat", "up"]
+        steps:
+          stand: {"type": "POSE", "actor-id": 442, "state": "STAND"}
+          out: {"type": "MOVE", "actor-id": 442, "anchor": "donkey-graze", "route-profile": "yard", "timeout-ticks": 500}
+          look: {"type": "LOOK_AT_ANCHOR", "actor-id": 442, "anchor": "home-442"}
+          voice: {"type": "SOUND", "actor-id": 442, "sound": "ENTITY_DONKEY_AMBIENT", "volume": 0.32, "pitch": 1.0}
+          observe: {"type": "WAIT", "ticks": 100}
+          turn: {"type": "MOVE", "actor-id": 442, "anchor": "home-442", "route-profile": "yard", "timeout-ticks": 500}
+          graze: {"type": "POSE", "actor-id": 442, "state": "HORSE_GRAZE"}
+          eat: {"type": "WAIT", "ticks": 220}
+          up: {"type": "POSE", "actor-id": 442, "state": "STAND"}
+      cat-and-dog:
+        actor-ids: ["443", "444"]
+        initial-delay-seconds: 70
+        cooldown-min-seconds: 75
+        cooldown-max-seconds: 110
+        step-ids: ["cat", "dog", "cat-looks", "dog-looks", "cat-sits", "meow", "pause", "dog-sits", "reply", "truce"]
+        steps:
+          cat: {"type": "MOVE", "actor-id": 443, "anchor": "cat-watch", "route-profile": "yard", "timeout-ticks": 500}
+          dog: {"type": "MOVE", "actor-id": 444, "anchor": "home-444", "route-profile": "yard", "timeout-ticks": 500}
+          cat-looks: {"type": "LOOK_AT_ACTOR", "actor-id": 443, "target-actor-id": 444}
+          dog-looks: {"type": "LOOK_AT_ACTOR", "actor-id": 444, "target-actor-id": 443}
+          cat-sits: {"type": "POSE", "actor-id": 443, "state": "SIT"}
+          meow: {"type": "SOUND", "actor-id": 443, "sound": "ENTITY_CAT_AMBIENT", "volume": 0.32, "pitch": 1.15}
+          pause: {"type": "WAIT", "ticks": 70}
+          dog-sits: {"type": "POSE", "actor-id": 444, "state": "SIT"}
+          reply: {"type": "SOUND", "actor-id": 444, "sound": "ENTITY_WOLF_WHINE", "volume": 0.32, "pitch": 1.1}
+          truce: {"type": "WAIT", "ticks": 180}
+    prop-surface-ids: ["saddler-bench", "saddle-rack", "water-trough"]
+    prop-surfaces:
+      saddler-bench: {"near": "54.5,70,-121.5", "material-ids": ["SPRUCE_PLANKS"], "search-radius": 0, "top-offset": 1.02, "look-target-offset-y": -1.15}
+      saddle-rack: {"near": "52.5,70,-122.5", "material-ids": ["SPRUCE_FENCE"], "search-radius": 0, "top-offset": 1.51, "look-target-offset-y": -1.15}
+      water-trough: {"near": "57.5,70,-121.5", "material-ids": ["WATER_CAULDRON"], "search-radius": 0, "top-offset": 0.9, "look-target-offset-y": -1.15}

@@ -1,0 +1,239 @@
+# Origin is the public spawn world. Keep this source default portable; the
+# production profile enables it and owns the exact world coordinates below.
+enabled: false
+world: rc_origin_spawn
+
+# While the Origin module is enabled, ARC always cancels real block breaking in
+# this world. This optional layer shows the block disappearing only to that
+# player: no drops, physics, or container loss. Disable it for plain protection.
+# The build permission bypasses both protection and feedback, restoring normal
+# breaking and drops. Feedback is a rate-limited action bar, not chat spam.
+regenerative-breaking:
+  enabled: true
+  restore-delay-ticks: 100
+  bypass-permission: arc.origin.spawn.build
+  feedback:
+    enabled: true
+    count-interval-ticks: 20
+    message-cooldown-ticks: 60
+    reset-after-ticks: 2400
+    tiers:
+      - from-attempt: 1
+        messages:
+          - "И зачем ты это делаешь?"
+          - "Ты нашёл блок, который любит оставаться целым."
+          - "Ты стучишься, а блок делает вид, что никого нет."
+          - "Проверяешь прочность спавна? Проверка пройдена."
+      - from-attempt: 3
+        messages:
+          - "Ты всё ещё надеешься?"
+          - "Блок уже понял намёк. И отказался."
+          - "Твоя кирка старается, но этот блок взял выходной."
+          - "Смотреть можно. Добывать — ну вот опять."
+      - from-attempt: 5
+        messages:
+          - "Ладно, теперь это уже принцип?"
+          - "Блок восстановился быстрее твоего плана."
+          - "Твоя кирка убедительна, но правила убедительнее."
+          - "Мы оба знаем, чем закончится следующая попытка."
+      - from-attempt: 8
+        messages:
+          - "Архитектор уже идёт. Он очень расстроен."
+          - "Комиссия по бессмысленному копанию уже в пути."
+          - "Ты почти убедил блок, но печать спавна сильнее."
+          - "Ещё немного — и блок начнёт ломать тебя морально."
+      - from-attempt: 12
+        messages:
+          - "Архитектор вызвал второго архитектора."
+          - "Финал: здесь можно копать только взглядом."
+          - "Блок официально считает это отношениями."
+          - "Легендарная бесполезная попытка засчитана."
+
+# ARC-owned Origin gates. Each anchor's x/y/z/yaw positions its portal; the
+# global vertical-offset can be overridden per anchor. Move anchor coordinates
+# in-game with `/arc originportals move <survival|mining|vanilla|gallery_exit|slimefun|furniture_entry>`.
+# Hologram front-distance points toward the approaching player (opposite yaw),
+# side-offset shifts right along the gate, and height-offset starts at the
+# raised portal center. Text and scale are independent per portal.
+# Both text faces share this front position; no second sign is placed behind the gate.
+# background-gray and background-alpha range from 0 to 255.
+# Small destinations may override `particles.radius`, `particles.height`, and `pulse.amplitude`.
+origin-portals:
+  enabled: true
+  vertical-offset: 5.0
+  entry-depth: 2.0
+  items:
+    origin: origin_gate_portals:origin_portal
+    astral: origin_gate_portals:astral_portal
+    void: origin_gate_portals:void_portal
+  pulse:
+    amplitude: 0.035
+    period-ticks: 36
+  particles:
+    enabled: true
+    streams: 4
+    reduced-streams: 2
+    points-per-stream: 2
+    reduced-points-per-stream: 1
+    radius: 5.5
+    height: 8.4
+    turns: 1.75
+    size: 0.6
+    core-count: 4
+    full-distance: 24.0
+    reduced-distance: 40.0
+  anchors:
+    survival:
+      world: rc_origin_spawn
+      x: 9.5
+      y: 70.0
+      z: 0.5
+      yaw: 270.0
+      width: 12.0
+      height: 16.8
+      style: origin
+      hologram:
+        text: Новые биомы
+        front-distance: 3.0
+        side-offset: 0.0
+        height-offset: -0.5
+        scale: 2.5
+        background-gray: 48
+        background-alpha: 180
+      command: arc rtp survival --only-if-first
+    mining:
+      world: rc_origin_spawn
+      x: 6.914214
+      y: 70.0
+      z: -5.914214
+      yaw: 225.0
+      width: 12.0
+      height: 16.8
+      style: astral
+      hologram:
+        text: Мир добычи
+        front-distance: 3.0
+        side-offset: 0.0
+        height-offset: -0.5
+        scale: 3.0
+        background-gray: 48
+        background-alpha: 180
+      command: arc rtp mining --only-if-first
+    vanilla:
+      world: rc_origin_spawn
+      x: 6.914214
+      y: 70.0
+      z: 6.914214
+      yaw: 315.0
+      width: 12.0
+      height: 16.8
+      style: void
+      hologram:
+        text: Ванильные биомы
+        front-distance: 3.0
+        side-offset: 0.0
+        height-offset: -0.5
+        scale: 2.0
+        background-gray: 48
+        background-alpha: 180
+      command: arc rtp vanilla --only-if-first
+    gallery_exit:
+      world: rc_atelier_furniture_gallery
+      x: 36.5
+      y: 67.0
+      z: 60.5
+      yaw: 90.0
+      width: 4.5
+      height: 6.3
+      style: origin
+      label: Вернуться в Origin
+      command: rcfurniturereturn
+    slimefun:
+      # Leave disabled until this anchor is deliberately activated in the live config.
+      enabled: false
+      world: rc_origin_spawn
+      x: -17.5
+      y: 72.0
+      z: -52.5
+      yaw: 180.0
+      width: 2.8
+      height: 2.8
+      entry-depth: 0.65
+      transfer-distance: 8.0
+      style: origin
+      vertical-offset: 1.4
+      hologram:
+        text: Сервер Slimefun
+        front-distance: 0.65
+        side-offset: 0.0
+        height-offset: 1.8
+        scale: 0.75
+        background-gray: 0
+        background-alpha: 0
+      particles:
+        enabled: false
+        radius: 1.25
+        height: 2.8
+      pulse:
+        amplitude: 0.0
+      command: arc originportals enter slimefun
+
+# BlueMap Origin mask: X -256..256, Z -192..160. Chunk bounds are inclusive.
+chunks:
+  min-x: -16
+  max-x: 16
+  min-z: -12
+  max-z: 10
+  max-in-flight: 8
+
+auction-showcase:
+  enabled: false
+  cycle-ticks: 40
+  page-ticks: 300
+  rotation-ticks: 2
+  click-debounce-millis: 500
+
+  # Four side stands plus two rear stands flanking Ratibor. The rear pair sits
+  # on the central carpet, clear of both staircases and the middle aisle.
+  pedestals:
+    - { x: -58.5, y: 72.08, z: -4.5, yaw: 0 }
+    - { x: -61.5, y: 72.08, z: -4.5, yaw: 0 }
+    - { x: -64.5, y: 72.08, z: -2.5, yaw: 0 }
+    - { x: -58.5, y: 72.08, z: 4.5, yaw: 180 }
+    - { x: -61.5, y: 72.08, z: 4.5, yaw: 180 }
+    - { x: -64.5, y: 72.08, z: 2.5, yaw: 180 }
+
+  text:
+    listing: |-
+      <#f2b84b><name>
+      <#969696>Продавец: <seller>
+      <#ffacd5>Цена: <price> <white><bold:false>💰</bold></white>
+
+  messages:
+    stale: '<#ff9f0f>Лот уже недоступен — витрина обновлена'
+    unavailable: '<#ff9f0f>Аукцион сейчас недоступен'
+    failed: '<#ff9f0f>Не удалось открыть лот — попробуйте ещё раз'
+    admin-only: '<#ff6b61>У вас нет прав для управления витриной.'
+    not-ready: '<#ff9f0f>Витрина ещё загружается — попробуйте через секунду.'
+    saving: '<#ff9f0f>Сохранение витрины уже выполняется.'
+    target-required: '<#ff9f0f>Посмотрите на блок, на котором нужно поставить пьедестал.'
+    wrong-world: '<#ff9f0f>Пьедесталы можно ставить только в мире Origin.'
+    outside-area: '<#ff9f0f>Поставьте пьедестал в пределах территории спавна Origin.'
+    invalid-target: '<#ff9f0f>Нужен твёрдый блок с доступной верхней поверхностью.'
+    duplicate: '<#ff9f0f>На этом месте уже стоит пьедестал.'
+    overlap: '<#ff9f0f>Здесь пьедестал пересечётся с соседней витриной.'
+    full: '<#ff9f0f>Достигнут предел пьедесталов витрины.'
+    saved: '<#9bd48d>Пьедестал аукциона установлен.'
+    removed: '<#9bd48d>Пьедестал аукциона удалён.'
+    save-failed: '<#ff6b61>Не удалось сохранить витрину; изменения не применены.'
+    stale-pedestal: '<#ff9f0f>Этот пьедестал уже изменился — откройте его меню ещё раз.'
+
+  admin-dialog:
+    title: '<#f2b84b>Пьедестал аукциона'
+    empty-body: '<#e8dfd2>На этом пьедестале сейчас нет лота.'
+    open-lot: '<white>› Открыть текущий лот'
+    delete: '<#ff6b61>Удалить пьедестал'
+    confirm-title: '<#ff6b61>Удалить пьедестал?'
+    confirm-body: '<#e8dfd2>Удаление сохранится после перезапуска. Действие не удаляет и не изменяет сам лот.'
+    confirm-delete: '<#ff6b61>Удалить'
+    cancel: '<white>‹ Назад'

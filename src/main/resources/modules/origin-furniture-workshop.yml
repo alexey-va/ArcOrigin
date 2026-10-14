@@ -1,0 +1,474 @@
+# Kotlin-owned Origin furniture production. Output displays are decorative only.
+origin-furniture-workshop:
+  enabled: false
+  world: rc_origin_spawn
+  dispatcher-interval-ticks: 10
+  viewer-radius: 24
+  active-timeout-ticks: 1800
+  pickup-duration-ticks: 8
+  pickup-sound: BLOCK_WOOD_PLACE
+  sound-volume: 0.22
+  prop-interpolation-ticks: 6
+  machine-update-ticks: 2
+  workstation-route-timeout-ticks: 120
+  sleep-rotation:
+    duration-ticks: 2400
+    approach: { x: -56.5, y: 71, z: -49.5, yaw: 0 }
+    at: { x: -56.5, y: 71, z: -46.5, yaw: 90 }
+  carry:
+    scale: 0.34
+    forward-distance: 0.45
+    yaw-offset: 90
+    offset-y: 0.7
+    translation-y: 0.18
+    yaw: 90
+    pitch: 0
+  route:
+    floor-y: 71
+    bounds: { min-x: -63, max-x: -38, min-z: -76, max-z: -49 }
+    forbidden:
+      - { min-x: -63, max-x: -59, min-z: -48, max-z: -45 }
+      - { min-x: -38, max-x: -35, min-z: -76, max-z: -72 }
+      - { min-x: -38, max-x: -35, min-z: -61, max-z: -57 }
+      - { min-x: -51, max-x: -47, min-z: -48, max-z: -45 }
+      - { min-x: -38, max-x: -36, min-z: -71, max-z: -69 }
+      - { min-x: -38, max-x: -36, min-z: -56, max-z: -54 }
+      - { min-x: -46, max-x: -44, min-z: -48, max-z: -46 }
+      - { min-x: -58, max-x: -56, min-z: -48, max-z: -46 }
+    preferred:
+      - { min-x: -39, max-x: -39, min-z: -76, max-z: -49 }
+      - { min-x: -63, max-x: -44, min-z: -49, max-z: -49 }
+    max-visited: 1024
+    snap-radius: 3
+    poll-ticks: 2
+    stall-polls: 20
+    off-floor-tolerance: 0.45
+    distance-margin: 0.35
+    path-distance-margin: 0.35
+    speed: 0.65
+    entity-obstacle-padding: 0.25
+    obstacle-refresh-polls: 10
+    heading-look-ahead-cells: 2
+    heading-update-ticks: 1
+    heading-max-turn-degrees-per-tick: 18
+    corner-smoothing-distance: 0.75
+    corner-smoothing-lead: 0.30
+    maximum-step-height: 0.125
+  actors:
+    carpenter:
+      npc-id: 430
+      table-id: carpenter
+      home: { x: -38.5, y: 71, z: -73.5, yaw: -90 }
+      pickup: { x: -38.5, y: 71, z: -66.5, yaw: -90 }
+      pickup-source: { x: -36.2, y: 71.44, z: -66.0, yaw: -90 }
+      work-approach: { x: -38.5, y: 71, z: -73.5, yaw: -90 }
+      bench: { x: -36.5, y: 72.15, z: -73.5, yaw: -90 }
+      rest-focus: { x: -36.5, y: 72.15, z: -73.5, yaw: -90 }
+      output-approach: { x: -38.5, y: 71, z: -69.5, yaw: -90 }
+      output: { x: -36.5, y: 71, z: -70.0, yaw: 270 }
+      routes:
+        pickup:
+          - { point: { x: -38.5, y: 71, z: -66.5, yaw: -90 }, timeout-ticks: 240 }
+        work-return:
+          - { point: { x: -38.5, y: 71, z: -73.5, yaw: -90 }, timeout-ticks: 240 }
+        output:
+          - { point: { x: -38.5, y: 71, z: -69.5, yaw: -90 }, timeout-ticks: 200 }
+        home-return:
+          - { point: { x: -38.5, y: 71, z: -73.5, yaw: -90 }, timeout-ticks: 200 }
+      initial-delay-ticks: 20
+      cycle-delay-ticks: 200
+      finished-hold-ticks: 32
+      raw-hand: OAK_PLANKS
+      raw-root-material: OAK_PLANKS
+      raw-root-scale: 0.32
+      product-id: furnituresplus:white_wooden_chair
+      finished-scale: 1.0
+      finished-translation-y: 0.5
+      parts:
+        - material: STICK
+          scale: 0.22
+          source: { x: -36.85, y: 72.15, z: -73.2 }
+          join: { x: -36.5, y: 72.15, z: -73.35 }
+          converge-delay-ticks: 8
+        - material: SPRUCE_PLANKS
+          scale: 0.25
+          source: { x: -36.85, y: 72.15, z: -73.8 }
+          join: { x: -36.5, y: 72.15, z: -73.65 }
+          converge-delay-ticks: 11
+      beats:
+        - phase: inspect
+          mechanism: none
+          hand: COMPASS
+          offhand: PAPER
+          focus: { x: -36.5, y: 72.15, z: -73.5, yaw: -90 }
+          root-at: { x: -36.8, y: 72.15, z: -73.5 }
+          root-scale: 0.26
+          gesture: ARM_SWING
+          strokes: 3
+          stroke-gap-ticks: 5
+          duration-ticks: 30
+          converge: false
+          particle-material: OAK_PLANKS
+          particle-quantity: 7
+          sound: BLOCK_WOOD_PLACE
+          sound-pitch: 0.88
+        - phase: saw
+          mechanism: saw
+          approach: { x: -38.5, y: 71, z: -72.5, yaw: -90 }
+          hand: IRON_AXE
+          offhand: OAK_PLANKS
+          focus: { x: -36.5, y: 72.15, z: -73.5, yaw: -90 }
+          root-at: { x: -36.65, y: 72.15, z: -73.5, yaw: 25 }
+          root-scale: 0.31
+          gesture: ARM_SWING
+          strokes: 6
+          stroke-gap-ticks: 16
+          duration-ticks: 24
+          converge: false
+          particle-material: OAK_PLANKS
+          particle-quantity: 3
+          sound: BLOCK_WOOD_BREAK
+          sound-pitch: 1.18
+        - phase: join
+          mechanism: none
+          hand: WOODEN_AXE
+          offhand: STICK
+          focus: { x: -36.5, y: 72.15, z: -73.5, yaw: -90 }
+          root-at: { x: -36.5, y: 72.15, z: -73.5, yaw: 45 }
+          root-scale: 0.38
+          gesture: ARM_SWING
+          strokes: 5
+          stroke-gap-ticks: 4
+          duration-ticks: 35
+          converge: true
+          particle-material: STICK
+          particle-quantity: 8
+          sound: BLOCK_WOOD_PLACE
+          sound-pitch: 1.08
+        - phase: finish
+          mechanism: none
+          hand: STICK
+          offhand: OAK_PLANKS
+          focus: { x: -36.5, y: 72.15, z: -73.5, yaw: -90 }
+          root-at: { x: -36.5, y: 72.15, z: -73.5, yaw: 90 }
+          root-scale: 0.42
+          gesture: ARM_SWING
+          strokes: 3
+          stroke-gap-ticks: 5
+          duration-ticks: 30
+          converge: false
+          particle-material: OAK_PLANKS
+          particle-quantity: 8
+          sound: BLOCK_WOOD_PLACE
+          sound-pitch: 1.16
+    upholsterer:
+      npc-id: 458
+      table-id: upholsterer
+      home: { x: -38.5, y: 71, z: -58.5, yaw: -90 }
+      pickup: { x: -38.5, y: 71, z: -64.5, yaw: -90 }
+      pickup-source: { x: -35.75, y: 71.75, z: -64.0, yaw: -90 }
+      work-approach: { x: -38.5, y: 71, z: -58.5, yaw: -90 }
+      bench: { x: -36.5, y: 72.15, z: -58.5, yaw: -90 }
+      rest-focus: { x: -36.5, y: 72.15, z: -58.5, yaw: -90 }
+      output-approach: { x: -38.5, y: 71, z: -64.5, yaw: -90 }
+      output: { x: -36.5, y: 71.18, z: -64.0, yaw: 270 }
+      routes:
+        pickup:
+          - { point: { x: -38.5, y: 71, z: -64.5, yaw: -90 }, timeout-ticks: 240 }
+        work-return:
+          - { point: { x: -38.5, y: 71, z: -58.5, yaw: -90 }, timeout-ticks: 240 }
+        output:
+          - { point: { x: -38.5, y: 71, z: -64.5, yaw: -90 }, timeout-ticks: 200 }
+        home-return:
+          - { point: { x: -38.5, y: 71, z: -58.5, yaw: -90 }, timeout-ticks: 200 }
+      initial-delay-ticks: 50
+      cycle-delay-ticks: 200
+      finished-hold-ticks: 32
+      raw-hand: RED_WOOL
+      raw-root-material: RED_WOOL
+      raw-root-scale: 0.32
+      product-id: furnituresplus:red_wooden_sofa_single
+      finished-scale: 1.0
+      finished-translation-y: 0.5
+      parts:
+        - material: OAK_PLANKS
+          scale: 0.25
+          source: { x: -36.85, y: 72.15, z: -58.2 }
+          join: { x: -36.5, y: 72.15, z: -58.5 }
+          converge-delay-ticks: 8
+        - material: STICK
+          scale: 0.22
+          source: { x: -36.85, y: 72.15, z: -58.8 }
+          join: { x: -36.5, y: 72.15, z: -58.5 }
+          converge-delay-ticks: 13
+      beats:
+        - phase: inspect
+          mechanism: none
+          hand: SHEARS
+          offhand: RED_WOOL
+          focus: { x: -36.5, y: 72.15, z: -58.5, yaw: -90 }
+          root-at: { x: -36.8, y: 72.15, z: -58.5 }
+          root-scale: 0.26
+          gesture: ARM_SWING
+          strokes: 4
+          stroke-gap-ticks: 6
+          duration-ticks: 38
+          converge: false
+          particle-material: RED_WOOL
+          particle-quantity: 7
+          sound: BLOCK_BREWING_STAND_BREW
+          sound-pitch: 0.85
+        - phase: stretch
+          mechanism: press
+          approach: { x: -38.5, y: 71, z: -57.5, yaw: -90 }
+          hand: SHEARS
+          offhand: RED_WOOL
+          focus: { x: -36.5, y: 72.15, z: -58.5, yaw: -90 }
+          root-at: { x: -36.5, y: 72.15, z: -58.5, yaw: 30 }
+          root-scale: 0.36
+          gesture: ARM_SWING
+          strokes: 3
+          stroke-gap-ticks: 28
+          duration-ticks: 28
+          converge: true
+          particle-material: RED_WOOL
+          particle-quantity: 3
+          sound: BLOCK_WOOL_PLACE
+          sound-pitch: 0.9
+        - phase: tack
+          mechanism: none
+          hand: WOODEN_AXE
+          offhand: STICK
+          focus: { x: -36.5, y: 72.15, z: -58.5, yaw: -90 }
+          root-at: { x: -36.5, y: 72.15, z: -58.5 }
+          root-scale: 0.43
+          gesture: ARM_SWING
+          strokes: 4
+          stroke-gap-ticks: 6
+          duration-ticks: 38
+          converge: false
+          particle-material: STICK
+          particle-quantity: 6
+          sound: BLOCK_BREWING_STAND_BREW
+          sound-pitch: 1.12
+    assembler:
+      npc-id: 459
+      table-id: assembler
+      home: { x: -48.5, y: 71, z: -48.5 }
+      pickup: { x: -53.5, y: 71, z: -48.5, yaw: 90 }
+      pickup-source: { x: -52.5, y: 72.05, z: -46.5 }
+      work-approach: { x: -48.5, y: 71, z: -48.5 }
+      bench: { x: -48.5, y: 72.15, z: -46.5 }
+      rest-focus: { x: -48.5, y: 72.15, z: -46.5 }
+      output-approach: { x: -44.5, y: 71, z: -48.5, yaw: 0 }
+      output: { x: -44.5, y: 71.18, z: -46.5, yaw: 0 }
+      routes:
+        pickup:
+          - { point: { x: -53.5, y: 71, z: -48.5, yaw: 90 }, timeout-ticks: 240 }
+        work-return:
+          - { point: { x: -48.5, y: 71, z: -48.5 }, timeout-ticks: 240 }
+        output:
+          - { point: { x: -44.5, y: 71, z: -48.5, yaw: 0 }, timeout-ticks: 200 }
+        home-return:
+          - { point: { x: -48.5, y: 71, z: -48.5, yaw: 0 }, timeout-ticks: 200 }
+      initial-delay-ticks: 80
+      cycle-delay-ticks: 200
+      finished-hold-ticks: 32
+      raw-hand: SPRUCE_PLANKS
+      raw-root-material: SPRUCE_PLANKS
+      raw-root-scale: 0.32
+      product-id: furnituresplus:white_wooden_diningtable
+      finished-scale: 1.0
+      finished-translation-y: 0.52
+      parts:
+        - material: STICK
+          scale: 0.22
+          source: { x: -48.8, y: 72.15, z: -46.85, yaw: 90 }
+          join: { x: -48.65, y: 72.15, z: -46.5, yaw: 90 }
+          converge-delay-ticks: 8
+        - material: SPRUCE_PLANKS
+          scale: 0.25
+          source: { x: -48.2, y: 72.15, z: -46.85, yaw: 90 }
+          join: { x: -48.5, y: 72.15, z: -46.5, yaw: 90 }
+          converge-delay-ticks: 10
+        - material: STICK
+          scale: 0.22
+          source: { x: -48.5, y: 72.15, z: -46.3, yaw: 90 }
+          join: { x: -48.35, y: 72.15, z: -46.5, yaw: 90 }
+          converge-delay-ticks: 12
+      beats:
+        - phase: measure
+          mechanism: none
+          hand: COMPASS
+          offhand: PAPER
+          focus: { x: -48.5, y: 72.15, z: -46.5 }
+          root-at: { x: -48.5, y: 72.15, z: -46.8, yaw: 90 }
+          root-scale: 0.25
+          gesture: ARM_SWING
+          strokes: 3
+          stroke-gap-ticks: 5
+          duration-ticks: 21
+          converge: false
+          particle-material: SPRUCE_PLANKS
+          particle-quantity: 6
+          sound: BLOCK_WOOD_PLACE
+          sound-pitch: 0.82
+        - phase: brace
+          mechanism: vise
+          approach: { x: -49.5, y: 71, z: -48.5 }
+          hand: WOODEN_AXE
+          offhand: STICK
+          focus: { x: -48.5, y: 72.15, z: -46.5 }
+          root-at: { x: -48.5, y: 72.15, z: -46.65, yaw: 120 }
+          root-scale: 0.30
+          gesture: ARM_SWING
+          strokes: 3
+          stroke-gap-ticks: 20
+          duration-ticks: 20
+          converge: false
+          particle-material: STICK
+          particle-quantity: 2
+          sound: BLOCK_PISTON_CONTRACT
+          sound-pitch: 0.85
+        - phase: square
+          mechanism: none
+          hand: IRON_AXE
+          offhand: SPRUCE_PLANKS
+          focus: { x: -48.5, y: 72.15, z: -46.5 }
+          root-at: { x: -48.5, y: 72.15, z: -46.5, yaw: 135 }
+          root-scale: 0.38
+          gesture: ARM_SWING
+          strokes: 5
+          stroke-gap-ticks: 4
+          duration-ticks: 30
+          converge: true
+          particle-material: SPRUCE_PLANKS
+          particle-quantity: 9
+          sound: BLOCK_WOOD_PLACE
+          sound-pitch: 1.04
+        - phase: tap
+          mechanism: anvil
+          approach: { x: -47.5, y: 71, z: -48.5 }
+          hand: STICK
+          offhand: SPRUCE_PLANKS
+          focus: { x: -48.5, y: 72.15, z: -46.5 }
+          root-at: { x: -48.5, y: 72.15, z: -46.5, yaw: 60 }
+          root-scale: 0.42
+          gesture: ARM_SWING
+          strokes: 4
+          stroke-gap-ticks: 24
+          duration-ticks: 24
+          converge: false
+          particle-material: STICK
+          particle-quantity: 2
+          sound: BLOCK_ANVIL_USE
+          sound-pitch: 1.1
+        - phase: inspect
+          mechanism: none
+          hand: COMPASS
+          offhand: PAPER
+          focus: { x: -48.5, y: 72.15, z: -46.5 }
+          root-at: { x: -48.5, y: 72.15, z: -46.5, yaw: 90 }
+          root-scale: 0.45
+          gesture: ARM_SWING
+          strokes: 3
+          stroke-gap-ticks: 5
+          duration-ticks: 24
+          converge: false
+          particle-material: SPRUCE_PLANKS
+          particle-quantity: 7
+          sound: BLOCK_WOOD_PLACE
+          sound-pitch: 1.2
+    finisher:
+      npc-id: 460
+      table-id: finisher
+      home: { x: -60.5, y: 71, z: -48.5, yaw: 0 }
+      pickup: { x: -61.5, y: 71, z: -48.5, yaw: 0 }
+      pickup-source: { x: -61.65, y: 72.38, z: -46.64, yaw: 0 }
+      work-approach: { x: -60.5, y: 71, z: -48.5, yaw: 0 }
+      bench: { x: -60.5, y: 72.12, z: -46.95, yaw: 0 }
+      rest-focus: { x: -60.5, y: 72.12, z: -46.95, yaw: 0 }
+      output-approach: { x: -60.5, y: 71, z: -48.5, yaw: 0 }
+      output: { x: -60.5, y: 71.18, z: -46.95 }
+      routes:
+        pickup:
+          - { point: { x: -61.5, y: 71, z: -48.5, yaw: 0 }, timeout-ticks: 120 }
+        work-return:
+          - { point: { x: -60.5, y: 71, z: -48.5, yaw: 0 }, timeout-ticks: 120 }
+        output:
+          - { point: { x: -60.5, y: 71, z: -48.5, yaw: 0 }, timeout-ticks: 120 }
+        home-return:
+          - { point: { x: -60.5, y: 71, z: -48.5, yaw: 0 }, timeout-ticks: 120 }
+      initial-delay-ticks: 110
+      cycle-delay-ticks: 200
+      finished-hold-ticks: 32
+      raw-hand: BRUSH
+      raw-root-material: SPRUCE_PLANKS
+      raw-root-scale: 0.32
+      deliver-output: false
+      product-id: furnituresplus:white_wooden_chair
+      finished-scale: 1.0
+      finished-translation-y: 0.5
+      parts:
+        - material: SPRUCE_PLANKS
+          scale: 0.25
+          source: { x: -60.5, y: 72.12, z: -46.95 }
+          join: { x: -60.5, y: 72.12, z: -46.95 }
+          converge-delay-ticks: 8
+        - material: OAK_PLANKS
+          scale: 0.2
+          source: { x: -60.5, y: 72.12, z: -46.95 }
+          join: { x: -60.5, y: 72.12, z: -46.95 }
+          converge-delay-ticks: 8
+      beats:
+        - phase: dip
+          mechanism: none
+          approach: { x: -61.5, y: 71, z: -48.5, yaw: 0 }
+          hand: BRUSH
+          offhand: SPRUCE_PLANKS
+          focus: { x: -61.65, y: 72.38, z: -46.64, yaw: 0 }
+          root-at: { x: -61.65, y: 72.38, z: -46.64 }
+          root-scale: 0.32
+          gesture: ARM_SWING
+          strokes: 2
+          stroke-gap-ticks: 8
+          duration-ticks: 16
+          converge: false
+          particle-material: SPRUCE_PLANKS
+          particle-quantity: 3
+          sound: BLOCK_BREWING_STAND_BREW
+          sound-pitch: 0.88
+        - phase: coat
+          mechanism: finish
+          approach: { x: -60.5, y: 71, z: -48.5, yaw: 0 }
+          hand: BRUSH
+          offhand: SPRUCE_PLANKS
+          focus: { x: -60.5, y: 72.12, z: -46.95, yaw: 0 }
+          root-at: { x: -60.5, y: 72.12, z: -46.95 }
+          root-scale: 0.32
+          gesture: ARM_SWING
+          strokes: 8
+          stroke-gap-ticks: 18
+          duration-ticks: 24
+          converge: false
+          particle-material: SPRUCE_PLANKS
+          particle-quantity: 3
+          sound: BLOCK_WOOD_PLACE
+          sound-pitch: 1.08
+        - phase: dry
+          mechanism: none
+          approach: { x: -59.5, y: 71, z: -48.5, yaw: 0 }
+          hand: BRUSH
+          offhand: SPRUCE_PLANKS
+          focus: { x: -59.4, y: 72.6, z: -46.85, yaw: 0 }
+          root-at: { x: -59.4, y: 72.6, z: -46.85 }
+          root-scale: 0.28
+          gesture: ARM_SWING
+          strokes: 2
+          stroke-gap-ticks: 12
+          duration-ticks: 18
+          converge: false
+          particle-material: SPRUCE_PLANKS
+          particle-quantity: 2
+          sound: BLOCK_WOOD_PLACE
+          sound-pitch: 1.14

@@ -1,0 +1,797 @@
+# ARC owns the interactive meals in both Origin restaurants.
+
+# Small, bounded choreography. ARC owns these props; no Denizen tasks.
+life:
+  audience-range: 24.0
+  effect-range: 14.0
+  max-active-cycles: 4
+  serving-ticks: 16
+  bite-interval-min-ticks: 400
+  bite-interval-max-ticks: 650
+  bite-duration-ticks: 24
+  steam-duration-ticks: 200
+  bartender-rest-min-ticks: 120
+  bartender-rest-max-ticks: 200
+  hand-side: 0.32
+  hand-forward: 0.45
+  hand-height: 1.05
+  pour-height: 0.3
+  drink-table-offset-x: 0.38
+  drink-table-offset-z: 0.0
+  drink-full-ticks: 900
+  drink-empty-ticks: 300
+  # GROUND bounds, scale .65. Mug rests exactly on the carpet at y=73.0625.
+  mug: {item: "elitecreatures:restaurant_mug_full", scale: 0.65, surface-lift: 0.20475}
+  empty-mug: {item: "elitecreatures:restaurant_mug_empty", scale: 0.65, surface-lift: 0.20475}
+  pouring-bottle: {item: "elitecreatures:restaurant_pouring_bottle", scale: 0.65, surface-lift: 0.20475}
+  bottle-mouth-y: 0.2998125
+  empty-plate: {item: "elitecreatures:restaurant_food_eggbeacon_empty", scale: 0.65, surface-lift: 0.24375}
+  empty-plate-dish-ids: [egg, fish, steak]
+  empty-plates:
+    egg: {item: "elitecreatures:restaurant_food_eggbeacon_empty", scale: 0.65, surface-lift: 0.24375}
+    fish: {item: "elitecreatures:restaurant_food_halffish_empty", scale: 0.65, surface-lift: 0.08125}
+    steak: {item: "elitecreatures:restaurant_food_steak_empty", scale: 0.65, surface-lift: 0.24375}
+  bartender-ids: ["439"]
+  bartenders:
+    439:
+      station: "-52.5,73.0625,56.5,0"
+      waiter-ids: ["431", "432"]
+  ready-lines:
+    - "Кружки готовы. Только с пеной осторожнее."
+    - "Свежая порция — можно забирать."
+    - "Вот теперь порядок. Следующий заказ!"
+  empty-lines:
+    - "Спасибо, было вкусно."
+    - "Можно убрать тарелку."
+    - "Хороший ужин получился."
+
+conversation:
+  minimum-line-millis: 1800
+  maximum-line-millis: 7000
+  characters-per-second: 12.0
+  pause-between-lines-millis: 600
+  gesture-every-lines: 2
+  pair-cooldown-millis: 15000
+  venue-cooldown-millis: 3000
+  execution-timeout-millis: 120000
+
+# Run /arc reload after editing this file; no server restart is required.
+
+placement:
+  # Every dish starts exactly at the center of the block directly in front of
+  # the seated player. These values only provide intentional fine tuning.
+  forward-blocks: 1.0
+  vertical-offset-blocks: 0.0
+  tables:
+    brewery_south_west:
+      seat: "-7.5,70.0,37.5,-90"
+      clicked-block: "-8,70,37"
+      waiter-stop: "-7.5,70.0,38.5,0"
+      waiter-id: 410
+      height-above-seat: 1.0
+      offset-x: 0.0
+      offset-y: 0.0
+      offset-z: 0.0
+    brewery_south_east:
+      seat: "-3.5,70.0,37.5,90"
+      clicked-block: "-4,70,37"
+      waiter-stop: "-3.5,70.0,38.5,180"
+      waiter-id: 410
+      height-above-seat: 1.0
+      offset-x: 0.0
+      offset-y: 0.0
+      offset-z: 0.0
+    brewery_fire:
+      seat: "-8.5,70.0,48.5,180"
+      clicked-block: "-9,70,48"
+      waiter-stop: "-6.5,70.0,48.5,90"
+      waiter-id: 411
+      height-above-seat: 0.75
+      offset-x: 0.0
+      offset-y: 0.0
+      offset-z: 0.0
+    brewery_west:
+      seat: "-13.5,70.0,53.5,90"
+      clicked-block: "-14,70,53"
+      waiter-stop: "-13.5,70.0,55.5,180"
+      waiter-id: 411
+      height-above-seat: 1.0
+      offset-x: 0.0
+      offset-y: 0.0
+      offset-z: 0.0
+    restaurant_a:
+      seat: "-54.5,72.0,48.5,180"
+      clicked-block: "-55,72,48"
+      waiter-stop: "-52.5,72.0,46.5,180"
+      waiter-id: 431
+      height-above-seat: 1.0
+      offset-x: 0.0
+      offset-y: 0.0
+      offset-z: 0.0
+    restaurant_b:
+      seat: "-47.5,72.0,52.5,180"
+      clicked-block: "-48,72,52"
+      waiter-stop: "-50.5,72.0,50.5,180"
+      waiter-id: 432
+      height-above-seat: 1.0
+      offset-x: 0.0
+      offset-y: 0.0
+      offset-z: 0.0
+
+display:
+  # Culling bounds only affect visibility, not the model's physical size.
+  view-range: 2.0
+  culling-width: 4.0
+  culling-height: 4.0
+  # surface-lift values come from the actual ItemsAdder model bounds with the
+  # GROUND transform. The plate bottom touches the table without extra clearance.
+  dishes:
+    egg:
+      scale: 0.65
+      surface-lift: 0.24375
+    fish:
+      scale: 0.65
+      surface-lift: 0.08125
+    steak:
+      scale: 0.65
+      surface-lift: 0.24375
+    herbal_tea:
+      scale: 0.65
+      surface-lift: 0.24475
+    berry_kvass:
+      scale: 0.65
+      surface-lift: 0.24475
+    spiced_mead:
+      scale: 0.65
+      surface-lift: 0.24475
+
+interaction:
+  meal-hitbox-size: 1.8
+  meal-hitbox-y-offset: -0.15
+  waiter-hitbox-width: 1.4
+  waiter-hitbox-height: 2.2
+  ambient-dialogue-range: 8.0
+  # Speech only starts while at least one player can actually see this table.
+  ambient-audience-range: 24.0
+  # Keep temporary speech above the permanent Citizens nameplate and readable
+  # against both the bright windows and the dark interior.
+  ambient-speech-height: 2.8
+  ambient-speech-view-range: 1.25
+  ambient-speech-scale: 1.1
+
+timing:
+  delivery-fallback-ticks: 20
+  service-pause-ticks: 12
+  next-delivery-ticks: 10
+  waiter-poll-ticks: 10
+  waiter-max-polls: 20
+  delivery-route-max-polls: 30
+  ambient-route-max-polls: 36
+  waiter-return-release-ticks: 120
+  progress-log-every-polls: 4
+  theft-cooldown-seconds: 90
+  session-ttl-seconds: 300
+  dialog-authorization-seconds: 60
+  customer-call-delay-ticks: 20
+  player-service-cooldown-seconds: 120
+  # Background life uses ranges so guests and waiters do not act on one clock.
+  ambient-dialogue-min-seconds: 12
+  ambient-dialogue-max-seconds: 20
+  ambient-reply-delay-min-ticks: 18
+  ambient-reply-delay-max-ticks: 42
+  ambient-look-hold-min-ticks: 32
+  ambient-look-hold-max-ticks: 68
+  ambient-speech-duration-ticks: 200
+  ambient-retry-seconds: 5
+  guest-reconcile-seconds: 5
+  # Each waiter returns to base first, then pauses there for a different interval.
+  ambient-waiter-rest-min-seconds: 3
+  ambient-waiter-rest-max-seconds: 6
+
+navigation:
+  waiter-ready-margin: 2.25
+  # Must stay within normal survival entity-interaction reach.
+  waiter-player-range: 1.8
+  distance-margin: 0.35
+  path-distance-margin: 0.35
+  # ARC builds a bounded four-way path only through safe cells on this floor,
+  # then gives Citizens the complete prepared route. Tables and chairs can
+  # therefore never become route shortcuts.
+  grid-max-visited: 1024
+  grid-poll-ticks: 2
+  grid-stall-polls: 20
+  grid-snap-radius: 3
+  grid-off-floor-tolerance: 0.45
+  # Profiles bound every route to its venue. Add hard no-go rectangles to
+  # forbidden-areas and cheap preferred corridors to preferred-areas. Code may
+  # also supply ordered via points when an NPC must pass through exact gates.
+  # Rectangle format: min-x,min-z,max-x,max-z.
+  route-profile-ids: [brewery, restaurant]
+  route-profiles:
+    brewery:
+      floor-y: 70
+      min-block: "-22,70,35"
+      max-block: "4,70,64"
+      forbidden-areas: []
+      preferred-areas: []
+      # Extra clearance around ItemsAdder furniture converted to blocked cells.
+      entity-obstacle-padding: 0.25
+      obstacle-refresh-polls: 10
+      heading-look-ahead-cells: 2
+      heading-update-ticks: 1
+      heading-max-turn-degrees-per-tick: 18.0
+      corner-smoothing-distance: 0.75
+      corner-smoothing-lead: 0.30
+      maximum-step-height: 0.125
+      speed-modifier: 0.72
+    restaurant:
+      floor-y: 72
+      min-block: "-61,72,40"
+      max-block: "-40,72,62"
+      forbidden-areas: []
+      preferred-areas: []
+      entity-obstacle-padding: 0.25
+      obstacle-refresh-polls: 10
+      heading-look-ahead-cells: 2
+      heading-update-ticks: 1
+      heading-max-turn-degrees-per-tick: 18.0
+      corner-smoothing-distance: 0.75
+      corner-smoothing-lead: 0.30
+      maximum-step-height: 0.125
+      speed-modifier: 0.72
+  session-radius: 8.0
+
+seating:
+  guest-marker-lift: 0.6
+  guest-entity-lift: 0.4
+  # ARC starts service only after the chair plugin has actually mounted the player.
+  confirm-delay-ticks: 2
+  confirm-max-polls: 3
+  confirm-horizontal-radius: 1.0
+
+dynamic-seats:
+  # Любая нижняя ступенька внутри территории пивоварни или ресторана становится
+  # местом для игрока. Если перед ней нет блока/стола, открывается меню напитков,
+  # а купленная бутылка выдаётся в инвентарь.
+  table-height-above-seat: 1.0
+  dish-offset-x: 0.0
+  dish-offset-y: 0.0
+  dish-offset-z: 0.0
+  waiter-side-offset: 1.0
+  # Для ItemsAdder-мебели направление сначала определяется по соседнему столу.
+  # yaw-offset используется как резерв, а смещения задаются в локальных осях модели.
+  furniture-profile-ids: [wooden_chairs]
+  furniture-profiles:
+    wooden_chairs:
+      ids:
+        - "furnituresplus:red_wooden_chair"
+        - "furnituresplus:white_wooden_chair"
+        - "furnituresplus:cyan_wooden_chair"
+        - "furnituresplus:gray_wooden_chair"
+        - "furnituresplus:iron_chair"
+        - "furnituresplus:amethyst_chair"
+      yaw-offset: 180.0
+      offset-x: 0.0
+      offset-y: 0.0
+      offset-z: 0.0
+      require-table: true
+
+# Все координаты двух ресторанных сцен находятся здесь и перечитываются через
+# /arc reload. Формат точки: x,y,z,yaw. Формат блока: x,y,z.
+scene:
+  ambient-cycle-min-seconds: 18
+  ambient-cycle-max-seconds: 30
+  # The actual count is chosen randomly from one to this limit each cycle.
+  ambient-routes-per-cycle: 2
+  # ARC ищет обычные нижние ступеньки со столом в соседнем блоке, рассаживает
+  # этих посетителей ближе к их резервным точкам и сохраняет места для игроков.
+  auto-seating:
+    zone-ids: [brewery, restaurant]
+    zones:
+      brewery:
+        guest-ids: ["416", "417", "418", "419", "420"]
+        min-block: "-19,70,39"
+        max-block: "-1,70,54"
+        load-chunks: true
+        minimum-free-seats: 1
+        excluded-blocks: []
+      restaurant:
+        guest-ids: ["433", "434", "435", "436"]
+        min-block: "-58,72,43"
+        max-block: "-43,72,53"
+        load-chunks: true
+        minimum-free-seats: 2
+        excluded-blocks: []
+  # Одноразово заменяет старую раскладку и barrier-маркеры обычными ступеньками.
+  seat-layout-version: 3
+  authored-seat-ids: []
+  authored-seat-points:
+    - "-16.5,70.0,40.5,-90"
+    - "-14.5,70.0,40.5,90"
+    - "-16.5,70.0,47.5,-90"
+    - "-14.5,70.0,47.5,90"
+    - "-2.5,70.0,47.5,180"
+    - "-2.5,70.0,45.5,0"
+    - "-13.5,70.0,53.5,90"
+    - "-15.5,70.0,53.5,-90"
+  retired-seat-blocks:
+    - "-18,70,40"
+    - "-14,70,40"
+    - "-18,70,47"
+    - "-14,70,47"
+    - "-3,70,48"
+    - "-3,70,44"
+  cleanup-points:
+    - "-0.5,72.4,53.5,0" # бывшая реплика удалённой Тэссы
+  legacy-furniture-cleanup:
+    ids:
+      - "elitecreatures:restaurant_food_steak"
+      - "elitecreatures:medieval_market_decoration_v2_table_2"
+    points:
+      - "-15.5,71.1,47.5,180"
+      - "-15.5,70.001,40.5,0"
+      - "-15.5,70.001,47.5,0"
+      - "-2.5,70.001,46.5,0"
+      - "-4.5,70.001,37.5,0"
+  legacy-player-table:
+    meal-hitbox: "-5.5,70.95,37.9,0"
+    meal-display: "-5.5,71.1,37.9,0"
+    order-label: "-5.5,72.35,37.5,0"
+  guest-ids: ["407", "408", "416", "417", "418", "419", "420", "433", "434", "435", "436"]
+  guests:
+    407: {seat: "-10.5,70.0,45.5,-90"}
+    408: {seat: "-6.5,70.0,45.5,90"}
+    416: {seat: "-16.5,70.0,40.5,-90"}
+    417: {seat: "-14.5,70.0,40.5,90"}
+    418: {seat: "-16.5,70.0,47.5,-90"}
+    419: {seat: "-2.5,70.0,47.5,180"}
+    420: {seat: "-2.5,70.0,45.5,0"}
+    433: {seat: "-56.5,72.0,46.5,-90"}
+    434: {seat: "-54.5,72.0,44.5,0"}
+    435: {seat: "-45.5,72.0,50.5,90"}
+    436: {seat: "-47.5,72.0,48.5,0"}
+  waiters:
+    410: {home: "1.5,70.0,57.5,180"}
+    411: {home: "-1.5,70.0,60.5,180"}
+    431: {home: "-51.5,72.0,56.5,63.434948"}
+    432: {home: "-51.5,72.0,58.5,116.56505"}
+  ambient-table-ids:
+    - brewery_north
+    - brewery_south
+    - brewery_east
+    - restaurant_a_west
+    - restaurant_a_north
+    - restaurant_b_east
+    - restaurant_b_north
+  ambient-tables:
+    brewery_north:
+      guest-id: 416
+      waiter-id: 410
+      meal: "-15.5,71.0,40.5,0"
+      waiter-stop: "-15.5,70.0,42.5,0"
+    brewery_south:
+      guest-id: 418
+      waiter-id: 410
+      meal: "-15.5,71.0,47.5,0"
+      waiter-stop: "-15.5,70.0,45.5,180"
+    brewery_east:
+      guest-id: 419
+      waiter-id: 411
+      meal: "-2.5,71.0,46.5,0"
+      waiter-stop: "-4.5,70.0,48.5,90"
+    restaurant_a_west:
+      guest-id: 433
+      waiter-id: 431
+      meal: "-55.2,73.0,46.5,0"
+      waiter-stop: "-52.5,72.0,46.5,180"
+      transit: "-50.5,72.0,49.5,180"
+    restaurant_a_north:
+      guest-id: 434
+      waiter-id: 431
+      meal: "-54.5,73.0,45.8,0"
+      waiter-stop: "-52.5,72.0,46.5,180"
+      transit: "-50.5,72.0,49.5,180"
+    restaurant_b_east:
+      guest-id: 435
+      waiter-id: 432
+      meal: "-46.8,73.0,50.5,0"
+      waiter-stop: "-50.5,72.0,50.5,180"
+      transit: "-50.5,72.0,53.5,180"
+    restaurant_b_north:
+      guest-id: 436
+      waiter-id: 432
+      meal: "-47.5,73.0,49.8,0"
+      waiter-stop: "-50.5,72.0,50.5,180"
+      transit: "-50.5,72.0,53.5,180"
+  dialogue-ids:
+    - brewery_north_roof
+    - brewery_north_mill
+    - brewery_north_letter
+    - brewery_fire_bridge
+    - brewery_fire_search
+    - brewery_fire_map
+    - brewery_east_garden
+    - brewery_east_apprentice
+    - brewery_east_home
+    - restaurant_a_workshop
+    - restaurant_a_sword
+    - restaurant_a_journey
+    - restaurant_b_harvest
+    - restaurant_b_horse
+    - restaurant_b_evening
+  dialogues:
+    brewery_north_roof:
+      first-npc-id: 416
+      second-npc-id: 417
+      lines:
+        - "Ты так и не решила, что делать с домом после взрыва?"
+        - "Стену заложила. А до комнаты наверху всё никак не доберусь."
+        - "Ты ведь хотела там мастерскую. Почему передумала?"
+        - "Не передумала. Просто снова делаю всё одна, и конца этому нет."
+        - "Я предлагал помочь с крышей. Ты сказала, что уже почти закончила."
+        - "Мне неловко было звать тебя разгребать собственный бардак."
+        - "А мне неприятно узнавать потом, что ты неделю спала под дождём."
+        - "Не неделю. Две ночи. Дальше перебралась вниз."
+        - "Ну вот, опять считаешь ночи вместо того, чтобы просто позвать."
+        - "Ладно. Поможешь в субботу? Там ещё балки надо поднять."
+        - "Помогу. Только сначала покажешь, где будет лестница."
+        - "Снаружи, вдоль стены. Чтобы не отнимать место у верстака."
+        - "Зимой будешь обходить дом ради каждого забытого инструмента?"
+        - "Об этом я не подумала. Можно отдать под лестницу угол у печи."
+        - "Давай после ужина нарисуем. Крышу потом подгоняем под комнату."
+        - "Давай. У меня как раз с собой план. Только не смейся над размерами."
+    brewery_north_mill:
+      first-npc-id: 416
+      second-npc-id: 417
+      lines:
+        - "На мельнице снова остановили механизм. Пойду завтра разбираться."
+        - "Ты же только вчера вернулся оттуда. Что на этот раз?"
+        - "Говорят, зерно не проходит. Я уверен, что кто-то трогал заслонку."
+        - "А ты видел сам или тебе уже успели назначить виноватого?"
+        - "Сам ещё нет. Но я проверял подачу, когда закончил."
+        - "На пустой мельнице?"
+        - "Да. Прогнал несколько мешков, всё шло ровно."
+        - "А утром привезли телегу сырого зерна. Мне мельник рассказывал."
+        - "Значит, комки забили воронку. Надо расширить горловину."
+        - "Погоди. Расширишь — он станет засыпать ещё больше за раз."
+        - "И что предлагаешь? Самому стоять рядом с каждым мешком?"
+        - "Посмотреть, как он работает. Ты собирал удобную тебе мельницу."
+        - "Я делал так, чтобы помол шёл быстрее."
+        - "Ему не скорость нужна. Он один и зерно таскает, и муку забирает."
+        - "Пожалуй, схожу к открытию. До того, как он всё расчистит."
+        - "Вот и спроси сначала. Инструменты успеешь достать."
+    brewery_north_letter:
+      first-npc-id: 416
+      second-npc-id: 417
+      lines:
+        - "От сестры письмо пришло. Зовёт пожить у неё до зимы."
+        - "Ты давно собирался съездить. Что тебя держит?"
+        - "Она пишет так, будто я уже согласился. Даже комнату приготовила."
+        - "Ну, комнату можно приготовить и для гостя."
+        - "Там ещё список вещей, которые мне стоит привезти насовсем."
+        - "А ты ей говорил, что хочешь только в гости?"
+        - "Я всякий раз отвечаю: посмотрим, когда закончу дела."
+        - "Тогда откуда ей знать? Ты даже мне сейчас не сразу сказал."
+        - "Не хочу, чтобы она решила, будто я от неё отказываюсь."
+        - "Ты от переезда отказываешься. Это всё-таки не одно и то же."
+        - "Ей там тяжело одной после отъезда сына."
+        - "Она сама об этом написала?"
+        - "Нет. Про сад написала, про соседку, про новую печь."
+        - "Может, начни с вопроса, как она живёт. Не с отказа."
+        - "И предложу приехать на неделю. Без всех своих сундуков."
+        - "Да. А дальше поговорите уже за её столом, не через письма."
+    brewery_fire_bridge:
+      first-npc-id: 407
+      second-npc-id: 408
+      lines:
+        - "Я утром дошёл до старого моста. По нему ещё можно пройти."
+        - "Пешком можно. С телегой я туда больше не сунусь."
+        - "Из-за досок? Их заменить недолго."
+        - "Доски сверху свежие. Ты на опору со стороны воды смотрел?"
+        - "Не спускался. Там склон совсем размыло."
+        - "Вот поэтому и не спускался. Под опорой теперь пустота."
+        - "Надо хотя бы перегородить въезд. Кто-нибудь пойдёт ночью."
+        - "Вчера поставил бочку. Сегодня её уже оттащили к берегу."
+        - "Тогда табличку с объяснением. Не просто «прохода нет»."
+        - "И объезд показать. Иначе решат, что мост чей-то личный."
+        - "Объезд через берёзовую рощу ещё проходим?"
+        - "Проходим, только у ручья колесо вязнет. Пешим там нормально."
+        - "Я могу завтра принести щебень. Ты покажешь место?"
+        - "Покажу. Но мост вдвоём мы не удержим, если его поведёт."
+        - "С мостом позовём тех, кто строил. Сейчас бы дорогу обозначить."
+        - "Тогда утром встречаемся у развилки. Возьми ещё пару фонарей."
+    brewery_fire_search:
+      first-npc-id: 407
+      second-npc-id: 408
+      lines:
+        - "Ты чего весь вечер на дверь оглядываешься?"
+        - "Жду знакомого. Он должен был ещё засветло вернуться из шахты."
+        - "Может, зашёл домой переодеться. Ты там был?"
+        - "Был. На двери записка про нижний штрек, больше ничего."
+        - "Он один ушёл?"
+        - "С учеником. Ученик вернулся за верёвкой, и я их больше не видел."
+        - "Так, это уже не похоже на обычную задержку."
+        - "Не хочу поднимать шум. Он потом скажет, что я зря всех собрал."
+        - "Пускай скажет. Ты знаешь, к какому входу они пошли?"
+        - "К старому, за соснами. Там недавно расчистили спуск."
+        - "Тогда допивай. До входа дойдём вместе и посмотрим на следы."
+        - "Без снаряжения туда спускаться нельзя."
+        - "Я и не предлагаю. У входа окликнем, потом решим."
+        - "А если никто не ответит?"
+        - "Вернёмся за людьми и верёвками. Вдвоём вслепую не полезем."
+        - "Хорошо. Только оставлю бармену записку, если он всё-таки придёт."
+    brewery_fire_map:
+      first-npc-id: 407
+      second-npc-id: 408
+      lines:
+        - "Карту вернули, но я на ней половины отметок не узнаю."
+        - "Кто её брал?"
+        - "Проводник с северной дороги. Сказал, что добавил короткий путь."
+        - "Дай посмотреть. А вот эта линия у болота — его?"
+        - "Его. По ней будто можно пройти прямо к перевалу."
+        - "Летом можно. Сейчас там вода выше колена."
+        - "Он ходил там в конце лета. Потому и нарисовал уверенно."
+        - "Тогда рядом нужна дата. А старую тропу зачем стёр?"
+        - "Наверное, решил, что она больше не нужна."
+        - "Вот этого не люблю. Не каждый с телегой полезет через камыш."
+        - "Мне карта уже самому не нравится. Слишком много на ней слоёв."
+        - "Перерисуй основу. А чужие советы оставь на отдельном листе."
+        - "Жалко убирать. Тут пометки человека, который учил меня ходить."
+        - "Их как раз сохрани. Только не выдавай старые броды за новые."
+        - "Сделаю две карты. Эту оставлю дома, с его почерком."
+        - "А новую сначала пройдём. Хотя бы до болота."
+    brewery_east_garden:
+      first-npc-id: 419
+      second-npc-id: 420
+      lines:
+        - "Я сегодня увидела, что сосед разобрал забор у яблонь."
+        - "Он мне говорил. Хочет объединить участки под огород."
+        - "Только меня никто не спросил. Мои грядки как раз вдоль забора."
+        - "Он, кажется, думал, что ты их бросила."
+        - "Потому что я неделю не приходила? Я болела вообще-то."
+        - "Он не знал. Я тоже узнал только вчера."
+        - "Я понимаю. Но можно же сначала постучать в дверь."
+        - "Можно. Ты ему уже сказала?"
+        - "Нет. Увидела доски и ушла. Очень не хотелось ругаться."
+        - "Тогда он до сих пор думает, что всё хорошо."
+        - "Меня больше всего разозлило, что он перенёс мою скамейку."
+        - "Ту, под яблоней?"
+        - "Да. Мы с мамой там сидели. А теперь она у сарая, под мешками."
+        - "Про это ему обязательно скажи. Он ведь не догадается."
+        - "Завтра пойду. Забор мне не так важен. Пусть скамейку вернёт."
+        - "Хочешь, зайду с тобой? Или лучше вам вдвоём поговорить?"
+    brewery_east_apprentice:
+      first-npc-id: 419
+      second-npc-id: 420
+      lines:
+        - "Сегодня впервые дала ученице самой закончить заказ."
+        - "И как? У тебя такой вид, будто пришлось всё переделать."
+        - "Наоборот, хорошо вышло. Только не так, как я показывала."
+        - "А заказчик что сказал?"
+        - "Ему понравилось. Он даже попросил ещё одну такую же вещь."
+        - "Тогда что тебя беспокоит?"
+        - "Она пропустила два этапа. Я всегда говорила, что без них нельзя."
+        - "Может, для этого заказа можно?"
+        - "Вот теперь сижу и вспоминаю, зачем сама их делаю."
+        - "Ты спросила, почему она решила иначе?"
+        - "Спросила, но таким тоном, что она сразу начала извиняться."
+        - "Значит, завтра придётся спросить ещё раз."
+        - "Надо сначала сказать, что работу я приняла."
+        - "И что тебе правда интересно. Она же не мысли твои читает."
+        - "Пожалуй, попрошу показать всё с начала. На обрезках, не на заказе."
+        - "Вот это уже разговор. Заодно поймёшь, чему её дальше учить."
+    brewery_east_home:
+      first-npc-id: 419
+      second-npc-id: 420
+      lines:
+        - "Ты бы вернулся в город, где вырос?"
+        - "Пожить или просто посмотреть?"
+        - "Не знаю. Мне предложили забрать ключ от старого дома."
+        - "А там кто-нибудь остался из твоих?"
+        - "Никого. Последняя соседка уехала весной."
+        - "Тогда зачем тебе ключ?"
+        - "Вот и не могу ответить. Кажется неправильным, что дом будет чужой."
+        - "Ты ведь уже много лет называешь домом другое место."
+        - "Да. Но я ещё помню, какая там ступенька скрипит."
+        - "Это не исчезнет, если в доме поселится кто-то ещё."
+        - "Боюсь приехать и увидеть, что всё совсем маленькое и чужое."
+        - "Наверное, так и будет. Ты же туда взрослой ещё не возвращалась."
+        - "Думаешь, лучше не ездить?"
+        - "Нет. Думаю, не стоит ждать, что там всё окажется как раньше."
+        - "Я хотя бы заберу отцовский ящик. Он всё ещё под лестницей."
+        - "Тогда начни с этого. Не обязательно решать судьбу дома за один день."
+    restaurant_a_workshop:
+      first-npc-id: 433
+      second-npc-id: 434
+      lines:
+        - "Ты опять принесла за ужин чертежи?"
+        - "Хотела показать одну вещь. Мастерскую можно расширить во двор."
+        - "А где тогда сушить доски? Ты весь навес займёшь."
+        - "Если переставить стойки вдоль стены, места хватит."
+        - "Ты мерила с телегой во дворе или без неё?"
+        - "Без. Телега-то не каждый день приезжает."
+        - "Зато когда приезжает, мы полдня носим всё через узкую дверь."
+        - "Хочешь оставить двор как есть?"
+        - "Хочу сначала понять, что нам мешает работать, а что просто тесно."
+        - "Мне негде собрать длинную раму. Приходится выносить её на улицу."
+        - "А мне негде принять материал, когда у тебя там лежит рама."
+        - "Значит, нужен отдельный проход. Даже если зал получится меньше."
+        - "Да. И дверь пошире, пока стену всё равно переделываем."
+        - "Сейчас нарисую. Только дай блюдо отодвину, тут угол плана."
+        - "Нет уж. Сначала едим. Ты уже дважды макнула рукав в соус."
+        - "Ладно, убираю. Но после ужина пойдём во двор с верёвкой и меркой."
+    restaurant_a_sword:
+      first-npc-id: 433
+      second-npc-id: 434
+      lines:
+        - "У кузнеца сегодня видел старый меч. Его принесли переплавлять."
+        - "Ты так говоришь, будто меч тебе знаком."
+        - "На гарде насечка. Так мой наставник отмечал свои работы."
+        - "Может, просто похожая?"
+        - "Может. Я и не стал уверять. Попросил пока отложить."
+        - "Хочешь выкупить?"
+        - "Сначала узнать, чей он. Хозяин оставил его вместе с ломом."
+        - "Если выбросил, вряд ли ему дорога его история."
+        - "А вдруг он её вообще не знает? Меч совсем ржавый."
+        - "Ты больше из-за наставника переживаешь?"
+        - "Да. У меня от него только инструменты, да и те уже переточены."
+        - "Но если заберёшь меч, что с ним будешь делать?"
+        - "Очищу. Попробую прочесть клеймо под рукоятью."
+        - "А если окажется не его?"
+        - "Тогда хотя бы перестану придумывать. Не хочется спешить с плавкой."
+        - "Давай после ужина зайдём. Ты покажешь, какую насечку узнал."
+    restaurant_a_journey:
+      first-npc-id: 433
+      second-npc-id: 434
+      lines:
+        - "Мне предложили поехать с обозом. Месяца на полтора."
+        - "Ты ведь хотел выбраться из города. Или маршрут не тот?"
+        - "Маршрут хороший. Только они ждут, что я пойду старшим."
+        - "А ты не хочешь отвечать за людей?"
+        - "За дорогу отвечать могу. За чужие ссоры — не очень."
+        - "Ты уже знаешь, кто едет?"
+        - "Двух знаю. Остальных увижу перед выходом."
+        - "Так встреться раньше. Ты сейчас переживаешь из-за незнакомых лиц."
+        - "Есть ещё мастерская. На полтора месяца её не закроешь."
+        - "Я могу присмотреть, но твои заказы брать не стану."
+        - "Я бы и не просил. Закончу начатое, новое пока не возьму."
+        - "Тогда тебе нужно не моё разрешение, а время собраться."
+        - "Наверное. Я всё жду, что кто-нибудь назовёт вескую причину остаться."
+        - "А сам какую причину хочешь услышать?"
+        - "Никакую. Просто давно никуда не уезжал, вот и цепляюсь за дела."
+        - "Тогда поговори с обозниками. Не обещай сразу, просто познакомься."
+    restaurant_b_harvest:
+      first-npc-id: 435
+      second-npc-id: 436
+      lines:
+        - "У тебя тоже морковь в нижнем поле мелкая в этом году?"
+        - "В нижнем — да. А возле дороги нормальная. Почему спрашиваешь?"
+        - "Хочу на следующий год поменять грядки местами."
+        - "С пшеницей? Там же весь день тень от амбара."
+        - "Только после полудня. Я утром специально смотрел."
+        - "Я бы сначала воду проверила. Внизу земля до вечера сырая."
+        - "Ты думаешь, дело в канаве?"
+        - "После ливня её забило. Мы расчистили вход, а дальше никто не смотрел."
+        - "Я заметил, что вода уходит медленно. Думал, почва такая."
+        - "Раньше там было суше. Помнишь, мы даже таскали воду вручную?"
+        - "Помню. Значит, пересаживать пока рано."
+        - "Можно одну грядку перенести для сравнения. Не всё поле сразу."
+        - "И записать, когда поливали. Иначе опять будем по памяти спорить."
+        - "Согласна. Только записи держи не в сарае: там всё отсыревает."
+        - "Принесу тетрадь сюда вечером. Расчертим вместе."
+        - "Давай. А канаву завтра пройду до самого ручья."
+    restaurant_b_horse:
+      first-npc-id: 435
+      second-npc-id: 436
+      lines:
+        - "Молодую лошадь сегодня опять не удалось вывести за ворота."
+        - "Она и с тобой упирается?"
+        - "Со мной выходит до арки. Потом стоит, хоть уговаривай час."
+        - "И ты тянешь её дальше?"
+        - "Нет. Но мне уже советовали взять повод покороче."
+        - "Я бы не торопилась. Она на что смотрит, когда останавливается?"
+        - "В сторону кузни. Там как раз начинали стучать."
+        - "А в тихое время пробовал?"
+        - "Позавчера рано утром прошли почти до поворота."
+        - "Так, может, она не ворот боится. Там звук совсем другой, под аркой."
+        - "Точно. Я сам вздрагиваю, когда удар приходится рядом."
+        - "Завтра постой с ней во дворе, пока работают. Не веди сразу наружу."
+        - "Чтобы привыкла?"
+        - "Чтобы понять, из-за этого ли она. Может, мы вообще не туда смотрим."
+        - "Попробую. Мне хочется уже поехать, но дёргать её жалко."
+        - "Успеешь поехать. Она у тебя всего неделю."
+    restaurant_b_evening:
+      first-npc-id: 435
+      second-npc-id: 436
+      lines:
+        - "Ты сегодня непривычно тихая. Устала?"
+        - "Немного. Весь день люди что-то спрашивали, а теперь слова кончились."
+        - "Тогда можем просто посидеть. Не обязательно меня развлекать."
+        - "Я знаю. Только кажется, будто зря тебя позвала."
+        - "Я пришёл с тобой поужинать, а не слушать выступление."
+        - "Хорошо. Как тебе блюдо?"
+        - "Острое. Но я сам попросил, теперь не буду жаловаться."
+        - "Хочешь поменяться? У меня почти без приправ."
+        - "Нет, хочу доесть. А вот воды попрошу."
+        - "Мне нравится, что здесь вечером не торопят освобождать стол."
+        - "Поэтому я и согласился сюда пойти. Дома опять нашлось бы дело."
+        - "У тебя дома хоть бывает так, чтобы ничего не надо?"
+        - "Бывает, если не заходить в кладовую. Там я сразу всё вспоминаю."
+        - "У меня то же самое с верстаком."
+        - "Значит, сегодня туда не пойдём. Посидим ещё немного."
+        - "Давай. Я, кажется, только сейчас перестала куда-то спешить."
+    brewery_east_second:
+      first-npc-id: 419
+      second-npc-id: 420
+      first-line: "Слышал, на кухне пробуют новый соус."
+      second-line: "Тогда задержимся ещё на одно блюдо."
+    brewery_waiters_tables:
+      first-npc-id: 410
+      second-npc-id: 411
+      first-line: "Я возьму дальние столы."
+      second-line: "Хорошо, я останусь у входа."
+    brewery_waiters_kitchen:
+      first-npc-id: 411
+      second-npc-id: 410
+      first-line: "На кухне готова следующая подача."
+      second-line: "Вижу. Заберу через минуту."
+    restaurant_a:
+      first-npc-id: 433
+      second-npc-id: 434
+      first-line: "Тихо сегодня. Слышно, как кипит кухня."
+      second-line: "Значит, повар не спорит с огнём."
+    restaurant_a_second:
+      first-npc-id: 433
+      second-npc-id: 434
+      first-line: "Этот стол всё-таки самый уютный."
+      second-line: "Особенно когда у окна никого нет."
+    restaurant_b:
+      first-npc-id: 435
+      second-npc-id: 436
+      first-line: "После обеда выйдем к фонтану?"
+      second-line: "Если официант не найдёт ещё одну работу."
+    restaurant_b_second:
+      first-npc-id: 435
+      second-npc-id: 436
+      first-line: "Рыба сегодня получилась особенно хорошо."
+      second-line: "Тогда следующую тарелку не меняем."
+    restaurant_waiters_tables:
+      first-npc-id: 431
+      second-npc-id: 432
+      first-line: "Ты проверишь столы у окна?"
+      second-line: "Да. Потом поменяемся."
+    restaurant_waiters_kitchen:
+      first-npc-id: 432
+      second-npc-id: 431
+      first-line: "Бар просил не задерживать напитки."
+      second-line: "После этой подачи зайду."
+    restaurant_bar:
+      first-npc-id: 439
+      second-npc-id: 431
+      first-line: "Аня, на второй стол новое блюдо."
+      second-line: "Уже несу. Марек пусть проверит напитки."
+    restaurant_bar_second:
+      first-npc-id: 439
+      second-npc-id: 432
+      first-line: "Для дальнего стола всё готово."
+      second-line: "Заберу, как только освобожусь."
+  service-dialogue-ids: [hot_plate, kitchen_ready, fresh_serving, new_course, bread_offer, chef_hurry]
+  service-dialogues:
+    hot_plate:
+      waiter-line: "Ваше блюдо. Осторожно, тарелка горячая."
+      guest-line: "Спасибо, поставьте здесь."
+    kitchen_ready:
+      waiter-line: "Кухня закончила ваш заказ."
+      guest-line: "Отлично, как раз вовремя."
+    fresh_serving:
+      waiter-line: "Принёс свежее блюдо."
+      guest-line: "Выглядит хорошо, спасибо."
+    new_course:
+      waiter-line: "Для вас новая подача."
+      guest-line: "Можно оставить передо мной."
+    bread_offer:
+      waiter-line: "Нужен ещё хлеб к блюду?"
+      guest-line: "Пока хватит, благодарю."
+    chef_hurry:
+      waiter-line: "Повар просил подать сразу."
+      guest-line: "Тогда не будем его расстраивать."

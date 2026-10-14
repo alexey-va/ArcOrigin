@@ -1,0 +1,128 @@
+# Mount-yard animal ownership and interaction defaults.
+#
+# The stable Citizens NPC UUID is the ownership fence, not the spawned entity
+# UUID, which changes after a respawn. A reused numeric NPC ID is never enough.
+world: rc_origin_spawn
+max-interaction-range: 4.0
+speech-duration-ticks: 50
+friendly-sound: BLOCK_AMETHYST_BLOCK_CHIME
+
+interaction:
+  pet-window: 6s
+  pet-cooldown: 750ms
+  pets-before-annoyed: 4
+  annoyed-duration: 10s
+  max-tracked-states: 4096
+  reaction-damage: 2.0
+
+animals:
+  "371":
+    name: Ветер
+    entity-type: HORSE
+    npc-uuid: 73ac6c29-6b4a-4d4b-8303-cc9b9da20d1f
+    friendly-lines:
+      - "Ветер доверчиво тянется к ладони."
+      - "Хороший конь. Ветер довольно переступает копытом."
+    warning-lines:
+      - "Ветер дёргает ушами: хватит щекотать."
+      - "Ещё одна ладонь — и Ветер начнёт сердиться."
+    annoyed-sound: ENTITY_HORSE_ANGRY
+  "413":
+    name: Иней
+    entity-type: HORSE
+    npc-uuid: 5f70a591-04bc-485b-8390-5a8b657920fd
+    friendly-lines:
+      - "Иней узнаёт знакомую руку и подходит ближе."
+      - "Иней спокойно принимает ласку."
+    warning-lines:
+      - "Иней настораживается: дай немного покоя."
+      - "Ещё одна попытка — и Иней может огрызнуться."
+    annoyed-sound: ENTITY_HORSE_ANGRY
+  "415":
+    name: Гнедой
+    entity-type: RAVAGER
+    npc-uuid: 13ebb71f-f13c-4347-9d4c-a33aefca421b
+    friendly-lines:
+      - "Гнедой тяжело сопит, но позволяет почесать шею."
+      - "Гнедой одобрительно урчит."
+    warning-lines:
+      - "Гнедой опускает рога: отойди."
+      - "Ещё раз — и Гнедой толкнёт."
+    annoyed-sound: ENTITY_RAVAGER_ROAR
+  "422":
+    name: Буран
+    entity-type: HORSE
+    npc-uuid: 2204f96b-292b-4fe5-bb0a-a4a763f99d6d
+    friendly-lines:
+      - "Буран фыркает и дружелюбно касается руки."
+      - "Буран довольно встряхивает гривой."
+    warning-lines:
+      - "Буран прижимает уши: пора остановиться."
+      - "Не дразни Бурана — он уже предупреждает."
+    annoyed-sound: ENTITY_HORSE_ANGRY
+  "423":
+    name: Рыжик
+    entity-type: HORSE
+    npc-uuid: d719b7fd-fe35-401c-ba09-e542a51c423a
+    friendly-lines:
+      - "Рыжик мягко тычется мордой в ладонь."
+      - "Рыжик довольно перебирает копытами."
+    warning-lines:
+      - "Рыжик мотает головой: хватит."
+      - "Ещё немного — и Рыжик начнёт отбиваться."
+    annoyed-sound: ENTITY_HORSE_ANGRY
+  "442":
+    name: Репей
+    entity-type: DONKEY
+    npc-uuid: 952c8eed-bd3e-40f0-bb09-45fc07259f37
+    friendly-lines:
+      - "Репей тепло фыркает и подставляет шею."
+      - "Репей довольно мотает ушами."
+    warning-lines:
+      - "Репей упрямо отворачивается: довольно."
+      - "Не щекочи Репея — он уже сердится."
+    annoyed-sound: ENTITY_DONKEY_ANGRY
+  "443":
+    name: Искра
+    entity-type: CAT
+    npc-uuid: 7af13ccb-3895-4472-a86d-30e19f800085
+    friendly-lines:
+      - "Искра мурлычет и трётся о ладонь."
+      - "Искра довольно щурится от ласки."
+    warning-lines:
+      - "Искра дёргает хвостом: не надоедай."
+      - "Ещё одна попытка — и Искра выпустит когти."
+    annoyed-sound: ENTITY_CAT_HISS
+  "444":
+    name: Дозор
+    entity-type: WOLF
+    npc-uuid: db4c291b-b919-4f94-9956-07254798afcb
+    friendly-lines:
+      - "Дозор радостно виляет хвостом."
+      - "Дозор доверчиво подставляет ухо."
+    warning-lines:
+      - "Дозор напрягается: отступи."
+      - "Не трогай Дозора ещё раз — он рычит."
+    annoyed-sound: ENTITY_WOLF_GROWL
+  "445":
+    name: Кнопка
+    entity-type: GOAT
+    npc-uuid: c37b4ab6-092b-4e0b-beae-932dd7c57d54
+    friendly-lines:
+      - "Кнопка тихо блеет и тянется к руке."
+      - "Кнопка довольно кивает рогами."
+    warning-lines:
+      - "Кнопка наклоняет рога: хватит."
+      - "Ещё одна ласка — и Кнопка боднёт."
+    annoyed-sound: ENTITY_GOAT_SCREAMING_AMBIENT
+  "446":
+    name: Плюша
+    entity-type: LLAMA
+    npc-uuid: aa13e28e-7b47-4126-ac2e-4ff90748d539
+    friendly-lines:
+      - "Плюша мягко урчит и склоняет голову."
+      - "Плюша спокойно принимает ласку."
+    warning-lines:
+      - "Плюша отводит голову: хватит."
+      - "Не дразни Плюшу — она уже сердится."
+    annoyed-sound: ENTITY_LLAMA_ANGRY

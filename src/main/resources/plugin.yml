@@ -1,0 +1,28 @@
+name: ArcOrigin
+version: '${version}'
+main: ru.arc.origin.ArcOriginPlugin
+api-version: '1.20'
+depend: [ARC]
+softdepend:
+  - ArcMounts
+  - Citizens
+  - Denizen
+  - ItemsAdder
+  - packetevents
+  - RedisEconomy
+permissions:
+  arc.origin.portals.admin:
+    description: Move ARC Origin portals
+    default: op
+  arc.origin.auction.admin:
+    description: Add and manage Origin auction showcase pedestals
+    default: op
+  arc.origin.portals.bypass:
+    description: Bypass central ARC Origin portal teleport
+    default: false
+  arc.origin.workshop.cooldown.bypass:
+    description: Bypass the cooldown between Origin workshop furniture rewards
+    default: op
+  arc.origin.spawn.build:
+    description: Break blocks normally in the protected Origin spawn world
+    default: op

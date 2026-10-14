@@ -1,0 +1,8 @@
+origin-workshop-game:
+  enabled: false
+  # One player uses the sleeping worker's station; all materials stay in the scene.
+  # Cancel after this many seconds without movement, aiming, clicks or production progress.
+  # The last 30 seconds show a warning. Leaving the station has a separate 20-second grace.
+  session-timeout-seconds: 180
+  # Carpenter board workpieces: ItemsAdder mesh (model) or equal 0.08-block packet cubes.
+  workpiece-renderer: model

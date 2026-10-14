@@ -1,0 +1,18 @@
+world: rc_origin_spawn
+guide:
+  npc-id: 440
+  npc-uuid: f975fcc7-c044-48f8-818d-ac9939eda2aa
+  name: Сеня
+  lines: ["Помощник конюха", "Помочь конюшне"]
+interaction-range: 4.0
+required-animals: 3
+task-lifetime-seconds: 900
+text:
+  introduction: "Поможешь? Погладь {required} разных животных во дворе и возвращайся ко мне. Главное — не дразни их!"
+  progress: "Животные спокойны: {count}/{required}"
+  ready: "Все спокойны. Вернись к Сене за наградой."
+  completed: "Ты помог конюшне. Спасибо!"
+  reward: "Скорость маунтов +{percent}% на {hours} ч."
+  cooldown: "Сегодня ты уже помог. Следующее задание через {minutes} мин."
+  active: "Бонус скорости действует ещё {minutes} мин."
+  unavailable: "Не удалось подтвердить награду. Попробуй ещё раз чуть позже."
