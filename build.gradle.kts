@@ -42,18 +42,18 @@ kotlin.target.compilations.getByName("integrationTest")
 
 dependencies {
     implementation(kotlin("stdlib"))
-    implementation("ru.ruscrafting.arc:arc-core:2.7.22")
-    implementation("ru.ruscrafting.arc:arc-core-logging:2.7.22")
-    implementation("ru.ruscrafting.arc:arc-core-menu:2.7.22")
-    implementation("ru.ruscrafting.arc:arc-core-paper:2.7.22")
-    implementation("ru.ruscrafting.arc:arc-core-paper-menu:2.7.22")
-    implementation("ru.ruscrafting.arc:arc-core-redis:2.7.22")
+    implementation("ru.ruscrafting.arc:arc-core:2.7.23")
+    implementation("ru.ruscrafting.arc:arc-core-logging:2.7.23")
+    implementation("ru.ruscrafting.arc:arc-core-menu:2.7.23")
+    implementation("ru.ruscrafting.arc:arc-core-paper:2.7.23")
+    implementation("ru.ruscrafting.arc:arc-core-paper-menu:2.7.23")
+    implementation("ru.ruscrafting.arc:arc-core-redis:2.7.23")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.10.2")
 
     compileOnly(project(":arc-origin-api"))
     compileOnly("ru.ruscrafting.arc:arc-mounts-api:0.1.0")
-    compileOnly("ru.ruscrafting.arc:arc-core-paper-api:2.7.22")
+    compileOnly("ru.ruscrafting.arc:arc-core-paper-api:2.7.23")
     compileOnly("io.papermc.paper:paper-api:26.1.2.build.+")
     compileOnly("com.github.retrooper:packetevents-spigot:2.12.1") {
         exclude(group = "io.netty")
@@ -67,9 +67,9 @@ dependencies {
     implementation("de.tr7zw:item-nbt-api:2.15.7")
     implementation("com.google.code.gson:gson:2.11.0")
 
-    testImplementation("ru.ruscrafting.arc:arc-core-paper-testing:2.7.22")
+    testImplementation("ru.ruscrafting.arc:arc-core-paper-testing:2.7.23")
     testImplementation(project(":arc-origin-api"))
-    testImplementation("ru.ruscrafting.arc:arc-core-paper-api:2.7.22")
+    testImplementation("ru.ruscrafting.arc:arc-core-paper-api:2.7.23")
     testImplementation(platform("org.junit:junit-bom:6.0.3"))
     testImplementation("org.junit.jupiter:junit-jupiter-api")
     testImplementation("io.kotest:kotest-runner-junit5:6.0.7")
@@ -92,7 +92,7 @@ dependencies {
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
 
     "integrationTestImplementation"(sourceSets.test.get().output)
-    "integrationTestImplementation"("ru.ruscrafting.arc:arc-core-integration-testing:2.7.22")
+    "integrationTestImplementation"("ru.ruscrafting.arc:arc-core-integration-testing:2.7.23")
     configurations["integrationTestImplementation"].extendsFrom(configurations["testImplementation"])
     configurations["integrationTestRuntimeOnly"].extendsFrom(configurations["testRuntimeOnly"])
 }
