@@ -71,11 +71,11 @@ private fun listing(
     customModelData: Int? = null,
 ): ArcOriginAuctions.Listing =
     ArcOriginAuctions.Listing(
-        id = id,
-        item = stack(material, customModelData),
-        itemName = "Камень $id",
-        sellerName = "Seller$id",
-        price = id.toString(),
+        id,
+        stack(material, customModelData),
+        "Камень $id",
+        "Seller$id",
+        id.toString(),
     )
 
 private fun stack(
