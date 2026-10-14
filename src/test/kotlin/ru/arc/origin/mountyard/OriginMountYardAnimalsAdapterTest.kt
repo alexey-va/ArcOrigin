@@ -84,6 +84,7 @@ class OriginMountYardAnimalsAdapterTest {
     }
 
     @Test
+    @Suppress("DEPRECATION") // Preserve the existing synthetic damage event fixture.
     fun `synthetic reaction cancels an observed over-cap damage event`() {
         val owned = loadAnimalsConfig()
         val animal = owned.animals.first { it.npcId == 371 }
@@ -134,6 +135,7 @@ class OriginMountYardAnimalsAdapterTest {
     }
 
     @Test
+    @Suppress("DEPRECATION") // Preserve the existing synthetic damage event fixture.
     fun `synthetic reaction keeps safe normal damage unchanged`() {
         val owned = loadAnimalsConfig()
         val animal = owned.animals.first { it.npcId == 371 }
