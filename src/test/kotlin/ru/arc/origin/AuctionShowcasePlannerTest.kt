@@ -78,6 +78,8 @@ private fun listing(
         id.toString(),
     )
 
+// Existing showcase items use the integer CustomModelData contract.
+@Suppress("DEPRECATION")
 private fun stack(
     material: Material,
     customModelData: Int?,
