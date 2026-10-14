@@ -9,7 +9,6 @@ import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.entity.Entity
 import org.bukkit.event.entity.EntityDamageByEntityEvent
-import org.bukkit.event.entity.EntityDamageEvent
 import org.bukkit.entity.EntityType
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
@@ -84,7 +83,6 @@ class OriginMountYardAnimalsAdapterTest {
     }
 
     @Test
-    @Suppress("DEPRECATION") // Preserve the existing synthetic damage event fixture.
     fun `synthetic reaction cancels an observed over-cap damage event`() {
         val owned = loadAnimalsConfig()
         val animal = owned.animals.first { it.npcId == 371 }
@@ -111,12 +109,7 @@ class OriginMountYardAnimalsAdapterTest {
         var observed: EntityDamageByEntityEvent? = null
         lateinit var listener: OriginMountYardAnimals
         every { player.damage(any<Double>(), any<Entity>()) } answers {
-            val event = EntityDamageByEntityEvent(
-                secondArg<Entity>(),
-                player,
-                EntityDamageEvent.DamageCause.ENTITY_ATTACK,
-                20.0,
-            )
+            val event = syntheticDamageEvent(player, secondArg<Entity>(), 20.0)
             observed = event
             listener.onSyntheticReactionDamage(event)
         }
@@ -135,7 +128,6 @@ class OriginMountYardAnimalsAdapterTest {
     }
 
     @Test
-    @Suppress("DEPRECATION") // Preserve the existing synthetic damage event fixture.
     fun `synthetic reaction keeps safe normal damage unchanged`() {
         val owned = loadAnimalsConfig()
         val animal = owned.animals.first { it.npcId == 371 }
@@ -162,12 +154,7 @@ class OriginMountYardAnimalsAdapterTest {
         var observed: EntityDamageByEntityEvent? = null
         lateinit var listener: OriginMountYardAnimals
         every { player.damage(any<Double>(), any<Entity>()) } answers {
-            val event = EntityDamageByEntityEvent(
-                secondArg<Entity>(),
-                player,
-                EntityDamageEvent.DamageCause.ENTITY_ATTACK,
-                2.0,
-            )
+            val event = syntheticDamageEvent(player, secondArg<Entity>(), 2.0)
             observed = event
             listener.onSyntheticReactionDamage(event)
         }
@@ -193,5 +180,21 @@ class OriginMountYardAnimalsAdapterTest {
         } finally {
             directory.toFile().deleteRecursively()
         }
+    }
+
+    private fun syntheticDamageEvent(
+        target: LivingEntity,
+        damager: Entity,
+        damage: Double,
+    ): EntityDamageByEntityEvent {
+        val event = mockk<EntityDamageByEntityEvent>()
+        var cancelled = false
+        every { event.entity } returns target
+        every { event.damager } returns damager
+        every { event.damage } returns damage
+        every { event.finalDamage } returns damage
+        every { event.isCancelled } answers { cancelled }
+        every { event.isCancelled = any() } answers { cancelled = firstArg() }
+        return event
     }
 }
