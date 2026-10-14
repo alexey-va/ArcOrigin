@@ -14,6 +14,10 @@ class OriginDiningLayoutTest : FreeSpec({
     beforeSpec {
         OriginDiningLayout.load(Files.createTempDirectory("origin-dining-layout-test"))
     }
+    "seat migration marker retains its legacy ARC world PDC identity" {
+        originDiningSeatLayoutVersionKey.namespace shouldBe "arc"
+        originDiningSeatLayoutVersionKey.key shouldBe "origin_dining_seat_layout_version"
+    }
     "every authored chair has a unique block and table anchor" {
         OriginDiningLayout.seats.size shouldBe 6
         OriginDiningLayout.seats.map { it.clickedBlock }.distinct().size shouldBe 6

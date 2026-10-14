@@ -76,6 +76,8 @@ import kotlin.math.floor
 import kotlin.math.min
 import kotlin.math.sin
 
+internal val originDiningSeatLayoutVersionKey = NamespacedKey("arc", "origin_dining_seat_layout_version")
+
 /**
  * Owns the reliable player-facing restaurant path in Origin.
  *
@@ -1188,7 +1190,7 @@ private class OriginDiningService : AutoCloseable {
 
     private fun reconcileAuthoredSeatBlocks() {
         val world = Bukkit.getWorld(OriginDiningLayout.WORLD) ?: return
-        val migrationKey = NamespacedKey(ArcOriginPlugin.instance, "origin_dining_seat_layout_version")
+        val migrationKey = originDiningSeatLayoutVersionKey
         val storedVersion = world.persistentDataContainer.get(migrationKey, PersistentDataType.INTEGER) ?: 0
         val migrate = storedVersion < OriginDiningAmbientLayout.seatLayoutVersion
         if (!migrate) {

@@ -7,6 +7,11 @@ import org.bukkit.Material
 import java.util.UUID
 
 class OriginTrainingDummyModuleTest : StringSpec({
+    "training dummy cooldown retains its legacy ARC PDC identity" {
+        originTrainingDummyCooldownKey.namespace shouldBe "arc"
+        originTrainingDummyCooldownKey.key shouldBe "origin_forge_training_cooldown_until"
+    }
+
     "dummy pose keeps Denizen yaw and pitch in named fields" {
         val point = OriginTrainingDummyPoint.parse(
             position = "71.63546148860222,70.0,72.61048723499574",

@@ -40,6 +40,8 @@ import java.util.UUID
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
+internal val originTrainingDummyCooldownKey = NamespacedKey("arc", "origin_forge_training_cooldown_until")
+
 internal data class OriginTrainingDummyConfig(
     val world: String,
     val dummyNpcId: Int,
@@ -168,7 +170,7 @@ object OriginTrainingDummyModule : PluginModule, Listener {
     private val challenges = mutableMapOf<UUID, OriginTrainingChallenge>()
     private val lastDamageEventAt = mutableMapOf<UUID, Long>()
     private val damageProbes = mutableMapOf<UUID, OriginTrainingDamageProbe>()
-    private val cooldownKey by lazy { NamespacedKey(ArcOriginPlugin.instance, "origin_forge_training_cooldown_until") }
+    private val cooldownKey = originTrainingDummyCooldownKey
 
     override fun init() {
         if (!Bukkit.getPluginManager().isPluginEnabled("Citizens")) {
