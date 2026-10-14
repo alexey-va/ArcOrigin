@@ -27,6 +27,7 @@ import org.joml.AxisAngle4f
 import org.joml.Vector3f
 import ru.arc.core.LifecycleTaskScope
 import ru.arc.core.PluginModule
+import ru.arc.origin.ArcOriginPlugin
 import ru.arc.origin.OriginNpcHolograms
 import ru.arc.npc.CitizensNpcRouteController
 import ru.arc.npc.NpcRouteCell

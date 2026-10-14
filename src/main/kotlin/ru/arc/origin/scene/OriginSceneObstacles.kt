@@ -5,6 +5,7 @@ import org.bukkit.util.BoundingBox
 import ru.arc.npc.NpcRouteCell
 import ru.arc.npc.NpcRouteProfile
 import ru.arc.origin.OriginFurnitureAccess
+import ru.arc.origin.OriginFurnitureHandle
 import ru.arc.origin.SharedOriginFurnitureAccess
 import kotlin.math.ceil
 import kotlin.math.floor

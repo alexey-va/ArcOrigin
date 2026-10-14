@@ -16,6 +16,7 @@ import ru.arc.config.ConfigSection
 import ru.arc.config.ConfigManager
 import ru.arc.core.LifecycleTaskScope
 import ru.arc.core.PluginModule
+import ru.arc.origin.ArcOriginPlugin
 import ru.arc.origin.OriginNpcHolograms
 import ru.arc.mounts.api.ArcMountService
 import ru.arc.logging.ArcLogging.warn
@@ -24,13 +25,13 @@ import java.util.UUID
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
+private fun mountService(): ArcMountService? = Bukkit.getServicesManager().load(ArcMountService::class.java)
+
 /** One Kotlin owner for stable petting, daily care progress and its player-facing entry. */
 object OriginMountYardModule : PluginModule {
     override val name = "OriginMountYard"
     override val priority = 84
     private var runtime: MountYardCareRuntime? = null
-
-    private fun mountService(): ArcMountService? = Bukkit.getServicesManager().load(ArcMountService::class.java)
 
     override fun init() {
         if (!Bukkit.getPluginManager().isPluginEnabled("Citizens")) return

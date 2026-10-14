@@ -3154,13 +3154,13 @@ private class OriginDiningService : AutoCloseable {
 
 
     private fun showSpeech(npcId: Int, line: String, color: NamedTextColor = NamedTextColor.GOLD, owner: String? = null): TextDisplay? {
-        if (OriginNpcHolograms.showTemporaryBubble(
-                npcId,
-                listOf(line),
-                OriginDiningLayout.ambientSpeechDurationTicks.toInt(),
-                owner,
-            )
-        ) return null
+        val durationTicks = OriginDiningLayout.ambientSpeechDurationTicks.toInt()
+        val bubbleShown = if (owner == null) {
+            OriginNpcHolograms.showTemporaryBubble(npcId, listOf(line), durationTicks)
+        } else {
+            OriginNpcHolograms.showTemporaryBubble(npcId, listOf(line), durationTicks, owner)
+        }
+        if (bubbleShown) return null
         val npc = runCatching { CitizensAPI.getNPCRegistry().getById(npcId) }.getOrNull()?.takeIf { it.isSpawned } ?: return null
         clearSpeech(npcId)
         val display = npc.entity.world.spawn(npc.entity.location.clone().add(0.0, OriginDiningLayout.ambientSpeechHeight, 0.0), TextDisplay::class.java).apply {

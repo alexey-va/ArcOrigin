@@ -92,7 +92,7 @@ object OriginPortalsSubCommand : OriginCommandHandler {
                 args[0].equals("enter", ignoreCase = true) -> listOf(OriginPortalId.SLIMEFUN.key).originTabComplete(args[1])
                 else -> emptyList()
             }
-            else -> null
+            else -> emptyList()
         }
 
     fun isPublicAction(args: Array<String>): Boolean =

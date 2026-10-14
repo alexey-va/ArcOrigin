@@ -2,6 +2,7 @@ package ru.arc.origin.commands
 
 import org.bukkit.command.CommandSender
 import ru.arc.origin.api.ArcOriginCommands
+import ru.arc.origin.api.ArcOriginCommands.CommandId
 
 /** Service implementation registered for ARC's host-owned /arc router. */
 internal class OriginCommandService : ArcOriginCommands {
