@@ -23,7 +23,7 @@ jar tf "$jar_path" > "$entries"
 unzip -p "$jar_path" plugin.yml > "$descriptor"
 grep -Fxq 'name: ArcOrigin' "$descriptor"
 grep -Fxq 'main: ru.arc.origin.ArcOriginPlugin' "$descriptor"
-grep -Fxq '  - ARC' "$descriptor"
+grep -Fxq 'depend: [ARC]' "$descriptor"
 grep -Fxq 'kotlin/collections/CollectionsKt.class' "$entries"
 
 if grep -Eq '^(ru/arc/origin/api/|ru/arc/mounts/api/|ru/arc/paper/api/|ru/arc/paper/sql/(PaperSqlServiceProvider|SharedPaperSqlService)[^/]*\.class$|ru/arc/paper/redis/(PaperRedisServiceProvider|SharedPaperRedisService)[^/]*\.class$|ru/arc/paper/metrics/PaperArcMetricsProvider[^/]*\.class$|org/bukkit/|io/papermc/)' "$entries"; then
