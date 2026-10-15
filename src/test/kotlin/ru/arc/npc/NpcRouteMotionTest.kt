@@ -3,6 +3,7 @@ package ru.arc.npc
 import io.kotest.core.spec.style.FreeSpec
 import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.doubles.shouldBeLessThan
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import org.bukkit.util.Vector
 import kotlin.math.abs
@@ -10,6 +11,96 @@ import kotlin.math.acos
 import kotlin.math.hypot
 
 class NpcRouteMotionTest : FreeSpec({
+    "shortcuts and corner rounding together stay within the shared departure budget" {
+        val route = (0..9).map { Vector(it.toDouble(), 72.0, (it / 2).toDouble()) } +
+            (5..10).map { Vector(9.0, 72.0, it.toDouble()) }
+        val totalBudget = 1.0
+        val shortened = shortcutNpcRoutePoints(route, totalBudget - 0.75 / 4.0) { _, _ -> true }
+        val rounded = roundedNpcRoutePoints(shortened, 0.75, 0.30) { _, _ -> true }
+
+        val simulation = simulateMotion(rounded, 0.144)
+        simulation.positions.maxOf { distanceToPolyline(it, route) } shouldBeLessThan totalBudget + 1.0e-6
+        simulation.endpointDistance shouldBeLessThan 1.0e-5
+    }
+
+    "shortens a flat staircase within its departure bound and preserves endpoints" {
+        val route = listOf(
+            Vector(0.0, 72.0, 0.0), Vector(1.0, 72.0, 0.0), Vector(1.0, 72.0, 1.0),
+            Vector(2.0, 72.0, 1.0), Vector(2.0, 72.0, 2.0), Vector(3.0, 72.0, 2.0),
+            Vector(3.0, 72.0, 3.0), Vector(4.0, 72.0, 3.0), Vector(4.0, 72.0, 4.0),
+        )
+        val checked = mutableListOf<Pair<Vector, Vector>>()
+
+        val shortened = shortcutNpcRoutePoints(route, 0.75) { from, to ->
+            checked += from.clone() to to.clone()
+            true
+        }
+
+        shortened shouldBe listOf(route.first(), route.last())
+        checked shouldBe listOf(route.first() to route.last())
+    }
+
+    "long L and self-near subpaths cannot escape the bounded local corridor" {
+        val longL = (0..20).map { Vector(it.toDouble(), 72.0, 0.0) } +
+            (1..20).map { Vector(20.0, 72.0, it.toDouble()) }
+
+        val shortened = shortcutNpcRoutePoints(longL, 1.0) { _, _ -> true }
+
+        shortened.first() shouldBe longL.first()
+        shortened.last() shouldBe longL.last()
+        (shortened.size > 2) shouldBe true
+        val sourceIndices = shortened.map(longL::indexOf)
+        sourceIndices.zipWithNext().all { (from, to) -> to - from in 1..16 } shouldBe true
+
+        val selfNear = listOf(Vector(0.0, 72.0, 0.0), Vector(0.0, 72.0, 5.0), Vector(0.5, 72.0, 0.0))
+        shortcutNpcRoutePoints(selfNear, 1.0) { _, _ -> true } shouldBe selfNear
+    }
+
+    "a rejected long edge falls back to the farthest shorter safe chord" {
+        val route = listOf(
+            Vector(0.0, 72.0, 0.0), Vector(1.0, 72.0, 0.0), Vector(1.0, 72.0, 1.0),
+            Vector(2.0, 72.0, 1.0), Vector(2.0, 72.0, 2.0), Vector(3.0, 72.0, 2.0),
+            Vector(3.0, 72.0, 3.0), Vector(4.0, 72.0, 3.0), Vector(4.0, 72.0, 4.0),
+        )
+        val rejected = mutableListOf<Pair<Vector, Vector>>()
+        val safe: (Vector, Vector) -> Boolean = { from, to ->
+            val crossesNoGo = from == route.first() && to == route.last()
+            if (crossesNoGo) rejected += from.clone() to to.clone()
+            !crossesNoGo
+        }
+
+        val shortened = shortcutNpcRoutePoints(route, 0.75, safe)
+
+        rejected shouldBe listOf(route.first() to route.last())
+        (shortened.size < route.size) shouldBe true
+        shortened.first() shouldBe route.first()
+        shortened.last() shouldBe route.last()
+        shortened.zipWithNext().none { (from, to) -> !safe(from.clone(), to.clone()) } shouldBe true
+    }
+
+    "shortcut stops at height changes and zero departure leaves the route untouched" {
+        val route = listOf(
+            Vector(0.0, 72.0, 0.0), Vector(1.0, 72.0, 0.0), Vector(2.0, 73.0, 0.0),
+            Vector(3.0, 73.0, 0.0), Vector(4.0, 73.0, 0.0),
+        )
+        val checked = mutableListOf<Pair<Vector, Vector>>()
+
+        val shortened = shortcutNpcRoutePoints(route, 0.75) { from, to ->
+            checked += from.clone() to to.clone()
+            true
+        }
+
+        shortened shouldBe listOf(route[0], route[1], route[2], route[4])
+        checked.all { (from, to) -> from.y == to.y } shouldBe true
+
+        var calls = 0
+        shortcutNpcRoutePoints(route, 0.0) { _, _ -> calls++; true } shouldBe route
+        calls shouldBe 0
+        shouldThrow<IllegalArgumentException> {
+            shortcutNpcRoutePoints(route, Double.NaN) { _, _ -> true }
+        }
+    }
+
     "rounds right and left right-angle corners without moving endpoints" {
         val routes = listOf(
             listOf(Vector(0.5, 72.0, 0.5), Vector(3.5, 72.0, 0.5), Vector(3.5, 72.0, 3.5)),

@@ -33,11 +33,19 @@ Dining, ambient scenes and the furniture workshop share
 `plugins/ARC/modules/origin-dining.yml`, `origin-scenes.yml` and
 `origin-furniture-workshop.yml`, not an `ArcOrigin/modules` directory.
 
-Routing first searches four-way paths. If a candidate cannot be reached that way,
-a second bounded search may connect diagonally only through the same full-body
-swept collision check. This admits real gaps between offset obstacles without
-cutting through their corners. Ordered waypoints, forbidden cells, furniture
-obstacles and per-profile surface/step limits remain authoritative. Short flat corners are
+Routing uses eight-way A* with distance-weighted diagonal steps and the same
+full-body swept collision check. `obstacle-clearance` (default 0.25 blocks) adds
+a soft 25% cost near obstacles, preferring space for the body without closing
+narrow passages. Ordered waypoints, forbidden cells, furniture obstacles and
+per-profile surface/step limits remain authoritative. Each waypoint leg then
+loses unnecessary bends only when the entire shortcut is clear. The configured
+`path-shortcut-max-deviation` (default 1.0 block) bounds total shortcut and corner
+departure from that leg's planned polyline; the corner budget is reserved first.
+Both settings are read through the existing module reload lifecycle.
+Shortcuts never skip between waypoint legs; transit-waypoint corners keep their
+existing small rounding allowance, without a forced stop at each anchor.
+Setting the departure budget to zero disables both path reshaping stages.
+Short flat corners are
 rounded only after checking the swept body against collision shapes and blocked
 cells. `corner-smoothing-distance` bounds the approach; the existing
 `corner-smoothing-lead` bounds departure from the original polyline. With the

@@ -712,6 +712,8 @@ internal data class OriginScenePlan(
                 headingMaxTurnDegreesPerTick = boundedReal(source, "$root.heading-max-turn-degrees-per-tick", 18.0, 1.0..90.0).toFloat(),
                 cornerSmoothingDistance = boundedReal(source, "$root.corner-smoothing-distance", 0.75, 0.0..1.5),
                 cornerSmoothingLead = boundedReal(source, "$root.corner-smoothing-lead", 0.30, 0.0..0.75),
+                pathShortcutMaximumDeviation = boundedReal(source, "$root.path-shortcut-max-deviation", 1.0, 0.0..2.0),
+                obstacleClearance = boundedReal(source, "$root.obstacle-clearance", 0.25, 0.0..0.5),
                 maximumStepHeight = boundedReal(source, "$root.maximum-step-height", 0.125, 0.0..1.0),
                 maximumSurfaceDrop = boundedReal(source, "$root.maximum-surface-drop", 0.0, 0.0..0.5),
                 surfaceSearchRange = boundedInteger(source, "$root.surface-search-range", 0, 0..2),

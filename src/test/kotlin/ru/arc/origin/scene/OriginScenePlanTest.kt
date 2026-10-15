@@ -217,6 +217,8 @@ class OriginScenePlanTest : FreeSpec({
                     maximum-step-height: 1.0
                     surface-search-range: 2
                     allowed-support-materials: [FARMLAND]
+                    path-shortcut-max-deviation: 0.8
+                    obstacle-clearance: 0.2
             """.trimIndent(),
         )
 
@@ -225,6 +227,8 @@ class OriginScenePlanTest : FreeSpec({
         profile.maximumStepHeight shouldBe 1.0
         profile.surfaceSearchRange shouldBe 2
         profile.allowedSupportMaterials shouldBe setOf(org.bukkit.Material.FARMLAND)
+        profile.pathShortcutMaximumDeviation shouldBe 0.8
+        profile.obstacleClearance shouldBe 0.2
     }
 
     "route profile rejects nonzero surface search without support allowlist" {

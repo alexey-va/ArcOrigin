@@ -580,6 +580,8 @@ internal object OriginDiningLayout {
                 headingMaxTurnDegreesPerTick = source.real("$root.heading-max-turn-degrees-per-tick", 18.0).toFloat().coerceIn(1f, 90f),
                 cornerSmoothingDistance = source.real("$root.corner-smoothing-distance", 0.75).coerceIn(0.0, 1.5),
                 cornerSmoothingLead = source.real("$root.corner-smoothing-lead", 0.30).coerceIn(0.0, 0.75),
+                pathShortcutMaximumDeviation = source.real("$root.path-shortcut-max-deviation", 1.0).coerceIn(0.0, 2.0),
+                obstacleClearance = source.real("$root.obstacle-clearance", 0.25).coerceIn(0.0, 0.5),
                 maximumStepHeight = source.real("$root.maximum-step-height", 0.125).coerceIn(0.0, 0.5),
             )
         }

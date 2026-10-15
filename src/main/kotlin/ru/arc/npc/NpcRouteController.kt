@@ -68,12 +68,16 @@ internal data class NpcRouteProfile(
     val headingMaxTurnDegreesPerTick: Float = 18f,
     val cornerSmoothingDistance: Double = 0.75,
     val cornerSmoothingLead: Double = 0.30,
+    val pathShortcutMaximumDeviation: Double = 1.0,
+    val obstacleClearance: Double = 0.25,
     val maximumStepHeight: Double = 0.125,
     val maximumSurfaceDrop: Double = 0.0,
     val surfaceSearchRange: Int = 0,
     val allowedSupportMaterials: Set<Material> = emptySet(),
 ) {
     init {
+        require(pathShortcutMaximumDeviation.isFinite() && pathShortcutMaximumDeviation in 0.0..2.0)
+        require(obstacleClearance.isFinite() && obstacleClearance in 0.0..0.5)
         require(maximumStepHeight.isFinite() && maximumStepHeight in 0.0..1.0) {
             "Npc route maximum-step-height must be finite and within 0.0..1.0"
         }
@@ -422,13 +426,19 @@ internal fun findNpcGridPath(
     profile: NpcRouteProfile,
     canTraverse: (NpcRouteCell, NpcRouteCell) -> Boolean = { _, _ -> true },
     allowDiagonalConnections: Boolean = false,
+    stepCost: (NpcRouteCell) -> Int = profile::stepCost,
+    minimumStepCost: Int = if (profile.preferred.isEmpty()) 10 else 1,
     isWalkable: (NpcRouteCell) -> Boolean,
 ): List<NpcRouteCell>? {
     if (!profile.allows(start) || !isWalkable(start)) return null
     val allowedGoals = goals.filter { profile.allows(it) && isWalkable(it) }.toSet()
     if (allowedGoals.isEmpty()) return null
     if (start in allowedGoals) return listOf(start)
-    fun heuristic(cell: NpcRouteCell): Int = allowedGoals.minOf { abs(cell.x - it.x) + abs(cell.z - it.z) }
+    fun heuristic(cell: NpcRouteCell): Int = minimumStepCost * allowedGoals.minOf {
+        val dx = abs(cell.x - it.x)
+        val dz = abs(cell.z - it.z)
+        10 * (dx + dz) - if (allowDiagonalConnections) 6 * minOf(dx, dz) else 0
+    }
     data class Candidate(val cell: NpcRouteCell, val cost: Int, val estimate: Int)
     val open = PriorityQueue(compareBy<Candidate>({ it.estimate }, { heuristic(it.cell) }, { it.cell.x }, { it.cell.z }))
     val costs = mutableMapOf(start to 0)
@@ -457,7 +467,7 @@ internal fun findNpcGridPath(
         }
         for ((next, diagonal) in neighbors) {
             if (!profile.allows(next) || next in closed || !isWalkable(next) || !canTraverse(current.cell, next)) continue
-            val nextCost = current.cost + profile.stepCost(next) * (if (diagonal) 2 else 1)
+            val nextCost = current.cost + stepCost(next) * (if (diagonal) 14 else 10)
             if (nextCost >= costs.getOrDefault(next, Int.MAX_VALUE)) continue
             costs[next] = nextCost
             previous[next] = current.cell
@@ -478,7 +488,9 @@ internal fun findNpcGridPathToNearestCandidate(
     goals: List<NpcRouteCell>,
     profile: NpcRouteProfile,
     canTraverse: (NpcRouteCell, NpcRouteCell) -> Boolean = { _, _ -> true },
-    allowDiagonalFallback: Boolean = false,
+    allowDiagonalConnections: Boolean = false,
+    stepCost: (NpcRouteCell) -> Int = profile::stepCost,
+    minimumStepCost: Int = if (profile.preferred.isEmpty()) 10 else 1,
     isWalkable: (NpcRouteCell) -> Boolean,
 ): List<NpcRouteCell>? =
     goals.asSequence()
@@ -486,14 +498,14 @@ internal fun findNpcGridPathToNearestCandidate(
         .mapNotNull { goal ->
             findNpcGridPath(
                 start, listOf(goal), profile, canTraverse,
-                allowDiagonalConnections = false,
+                allowDiagonalConnections = allowDiagonalConnections,
+                stepCost = stepCost,
+                minimumStepCost = minimumStepCost,
                 isWalkable = isWalkable,
-            ) ?: if (allowDiagonalFallback) {
-                findNpcGridPath(
-                    start, listOf(goal), profile, canTraverse,
-                    allowDiagonalConnections = true,
-                    isWalkable = isWalkable,
-                )
+            ) ?: if (allowDiagonalConnections) {
+                // The larger graph may exhaust its visit budget; retain a bounded axial retry.
+                findNpcGridPath(start, listOf(goal), profile, canTraverse,
+                    stepCost = stepCost, minimumStepCost = minimumStepCost, isWalkable = isWalkable)
             } else null
         }
         .firstOrNull()
@@ -699,6 +711,21 @@ internal class CitizensNpcRouteController(
             return false
         }
         val path = mutableListOf(start)
+        val legEnds = mutableListOf<Int>()
+        val comfortableBody = footprint.copy(
+            halfWidth = footprint.halfWidth + profile.obstacleClearance,
+            halfDepth = footprint.halfDepth + profile.obstacleClearance,
+        )
+        val stepCosts = mutableMapOf<NpcRouteCell, Int>()
+        val stepCost: (NpcRouteCell) -> Int = { cell ->
+            stepCosts.getOrPut(cell) {
+                val point = Vector(cell.x + 0.5, surfaceY(cell)!!, cell.z + 0.5)
+                val comfortable = profile.obstacleClearance == 0.0 ||
+                    isNpcRouteSegmentClear(world, profile, point, point, comfortableBody, blocked)
+                // Clearance is a 25% preference, never a new wall in a narrow passage.
+                profile.stepCost(cell) * if (comfortable) 4 else 5
+            }
+        }
         val traversalCache = mutableMapOf<Pair<NpcRouteCell, NpcRouteCell>, Boolean>()
         for (anchor in via + destination) {
             val goals = candidates(anchor.blockX, anchor.blockZ, profile, blocked, surfaceY, footprintClear)
@@ -721,7 +748,9 @@ internal class CitizensNpcRouteController(
                     orderedGoals,
                     profile,
                     canTraverse = canTraverse,
-                    allowDiagonalFallback = true,
+                    allowDiagonalConnections = true,
+                    stepCost = stepCost,
+                    minimumStepCost = if (profile.preferred.isEmpty()) 40 else 4,
                     isWalkable = walkable,
                 )
             }
@@ -730,6 +759,7 @@ internal class CitizensNpcRouteController(
                 return false
             }
             path += segment.drop(1)
+            legEnds += path.lastIndex
         }
         val surfaceYs = mutableMapOf<NpcRouteCell, Double>()
         path.forEach { cell ->
@@ -763,10 +793,21 @@ internal class CitizensNpcRouteController(
         // Continue from the real position instead of walking back to the start-cell center on every leg.
         val routeStart = npc.entity.location.toVector()
         if (gridPoints.size > 1 && canTraverse(routeStart, gridPoints[1])) gridPoints[0] = routeStart
+        val shortcutPoints = mutableListOf(gridPoints.first())
+        var legStart = 0
+        val curveBudget = minOf(profile.cornerSmoothingLead, profile.pathShortcutMaximumDeviation)
+        val shortcutBudget = (profile.pathShortcutMaximumDeviation -
+            minOf(curveBudget, profile.cornerSmoothingDistance / 4.0)).coerceAtLeast(0.0)
+        for (legEnd in legEnds) {
+            shortcutPoints += shortcutNpcRoutePoints(
+                gridPoints.subList(legStart, legEnd + 1), shortcutBudget, canTraverse,
+            ).drop(1)
+            legStart = legEnd
+        }
         val vectors = roundedNpcRoutePoints(
-            gridPoints,
+            shortcutPoints,
             profile.cornerSmoothingDistance,
-            profile.cornerSmoothingLead,
+            curveBudget,
             canTraverse,
         )
         npc.navigator.setTarget { params ->
@@ -883,7 +924,7 @@ internal class CitizensNpcRouteController(
             !route.profile.allows(currentCell) ||
             currentSurfaceY == null ||
             !isNpcRouteActualYAllowed(actual.y, currentSurfaceY, route.profile) ||
-            !footprintClear(currentCell)
+            !isNpcRouteSegmentClear(actual.world, route.profile, actual.toVector(), actual.toVector(), footprint, route.blocked)
         ) {
             npc.navigator.cancelNavigation()
             event("DEVIATED", route.profile, npc, route.destination, route.cells.size, "left-level-floor", actual)

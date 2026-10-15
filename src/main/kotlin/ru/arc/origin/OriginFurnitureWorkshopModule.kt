@@ -324,6 +324,8 @@ internal data class OriginFurnitureWorkshopSettings(
                 headingMaxTurnDegreesPerTick = source.real("$routeRoot.heading-max-turn-degrees-per-tick", 18.0).toFloat(),
                 cornerSmoothingDistance = source.real("$routeRoot.corner-smoothing-distance", 0.75),
                 cornerSmoothingLead = source.real("$routeRoot.corner-smoothing-lead", 0.30),
+                pathShortcutMaximumDeviation = source.real("$routeRoot.path-shortcut-max-deviation", 1.0),
+                obstacleClearance = source.real("$routeRoot.obstacle-clearance", 0.25),
                 maximumStepHeight = source.real("$routeRoot.maximum-step-height", 0.125),
             )
             val workers = OriginFurnitureWorkshopRole.entries.map { role -> parseWorker(source, "$root.actors.${role.key}", role) }

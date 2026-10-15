@@ -274,6 +274,12 @@ class NpcRouteControllerTest : FreeSpec({
         isNpcRouteSegmentClear(world, profile, entry, exit, body) shouldBe false
         isNpcRouteSegmentClear(world, profile, entry, Vector(1.5, 72.0, 0.5), body) shouldBe true
         isNpcRouteSegmentClear(world, profile, Vector(1.5, 72.0, 0.5), exit, body) shouldBe true
+        val route = listOf(Vector(0.5, 72.0, 0.5), Vector(1.5, 72.0, 0.5), Vector(1.5, 72.0, 1.5))
+        val safe: (Vector, Vector) -> Boolean = { from, to ->
+            isNpcRouteSegmentClear(world, profile, from, to, body, setOf(NpcRouteCell(0, 1)))
+        }
+        shortcutNpcRoutePoints(route, 0.8125, safe) shouldBe route
+        roundedNpcRoutePoints(route, 0.75, 0.30, safe).zipWithNext().all { (from, to) -> safe(from, to) } shouldBe true
     }
 
     "rounded movement completes every tick beside a wall without colliding or false blockage" {
@@ -458,7 +464,45 @@ class NpcRouteControllerTest : FreeSpec({
         findNpcGridPath(NpcRouteCell(0, 0), listOf(NpcRouteCell(2, 0)), profile) { true } shouldBe null
     }
 
-    "live hay-and-pumpkin corner is reachable only by a fully swept diagonal fallback" {
+    "safe diagonals take the short line across an open room" {
+        val profile = NpcRouteProfile("room", 72, NpcRouteBounds(0, 8, 0, 8))
+        val path = findNpcGridPath(NpcRouteCell(0, 0), listOf(NpcRouteCell(8, 8)), profile,
+            allowDiagonalConnections = true, isWalkable = { true })!!
+
+        path shouldBe (0..8).map { NpcRouteCell(it, it) }
+    }
+
+    "soft clearance leaves the wall when space exists but keeps a narrow passage usable" {
+        val room = NpcRouteProfile("room", 72, NpcRouteBounds(0, 8, 0, 2))
+        val start = NpcRouteCell(0, 0)
+        val goal = NpcRouteCell(8, 0)
+        val cost: (NpcRouteCell) -> Int = { if (it.z == 0) 50 else 40 }
+        val spacious = findNpcGridPath(start, listOf(goal), room,
+            allowDiagonalConnections = true, stepCost = cost, isWalkable = { true })!!
+        val narrow = findNpcGridPath(start, listOf(goal), room.copy(bounds = NpcRouteBounds(0, 8, 0, 0)),
+            allowDiagonalConnections = true, stepCost = cost, isWalkable = { true })!!
+
+        spacious.any { it.z > 0 } shouldBe true
+        narrow shouldBe (0..8).map { NpcRouteCell(it, 0) }
+    }
+
+    "continuous position is safe even when that cell center would touch an adjacent wall" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        val floor = routeTestBlock(Material.STONE, false, 1.0)
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
+            if (secondArg<Int>() == 71 || firstArg<Int>() == 2) floor else air
+        }
+        val profile = NpcRouteProfile("wide-body", 72, NpcRouteBounds(0, 2, 0, 2))
+        val body = NpcRouteFootprint(0.6, 0.6, 0.0, 1.8)
+        val actual = Vector(1.3, 72.0, 1.5)
+
+        isNpcRouteFootprintClear(world, NpcRouteCell(1, 1), 72.0, body, profile) shouldBe false
+        isNpcRouteSegmentClear(world, profile, actual, actual, body) shouldBe true
+        isNpcRouteSegmentClear(world, profile, actual, actual, body, setOf(NpcRouteCell(1, 1))) shouldBe false
+    }
+
+    "live hay-and-pumpkin corner is reachable only by a fully swept diagonal" {
         val world = mockk<World>()
         val air = routeTestBlock(Material.AIR, true)
         val floor = routeTestBlock(Material.STONE, false, 1.0)
@@ -507,11 +551,11 @@ class NpcRouteControllerTest : FreeSpec({
         ) shouldBe null
         findNpcGridPathToNearestCandidate(
             start, listOf(goal), profile, canTraverse,
-            allowDiagonalFallback = true, isWalkable = isWalkable,
+            allowDiagonalConnections = true, isWalkable = isWalkable,
         ) shouldBe listOf(start, goal)
     }
 
-    "diagonal fallback keeps forbidden cells, furniture, solid blocks, and liquids as hard guards" {
+    "diagonal routing keeps forbidden cells, furniture, solid blocks, and liquids as hard guards" {
         val world = mockk<World>()
         val air = routeTestBlock(Material.AIR, true)
         val floor = routeTestBlock(Material.STONE, false, 1.0)
@@ -576,7 +620,7 @@ class NpcRouteControllerTest : FreeSpec({
         route() shouldBe null
     }
 
-    "nearest-candidate fallback exhausts axial then diagonal for each goal in order" {
+    "nearest-candidate search prioritizes a safely diagonal nearby goal over a farther axial goal" {
         val start = NpcRouteCell(0, 0)
         val nearby = NpcRouteCell(1, 1)
         val farther = NpcRouteCell(2, 0)
@@ -594,7 +638,7 @@ class NpcRouteControllerTest : FreeSpec({
         ) shouldBe listOf(start, NpcRouteCell(1, 0), farther)
         findNpcGridPathToNearestCandidate(
             start, listOf(nearby, farther), profile, canTraverse,
-            allowDiagonalFallback = true, isWalkable = { it in walkable },
+            allowDiagonalConnections = true, isWalkable = { it in walkable },
         ) shouldBe listOf(start, nearby)
     }
 

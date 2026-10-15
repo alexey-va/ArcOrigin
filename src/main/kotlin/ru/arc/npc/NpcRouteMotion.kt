@@ -10,6 +10,56 @@ import kotlin.math.min
 private const val ROUTE_MOTION_EPSILON = 1.0e-9
 private const val ROUTE_ENDPOINT_EPSILON = 1.0e-3
 private const val ROUTE_CORNER_CLAMP_DEGREES = 45.0
+private const val ROUTE_SHORTCUT_MAX_SOURCE_EDGES = 16
+
+/**
+ * Shortens a cell route without moving it farther than [maximumDeviation]
+ * from the corresponding source subpath. A shortcut is accepted only when
+ * the caller's swept-body traversal check accepts the full segment.
+ */
+internal fun shortcutNpcRoutePoints(
+    points: List<Vector>,
+    maximumDeviation: Double,
+    canTraverse: (Vector, Vector) -> Boolean,
+): List<Vector> {
+    require(maximumDeviation.isFinite() && maximumDeviation >= 0.0)
+
+    val original = points.map { it.clone() }
+    if (original.size < 3 || maximumDeviation == 0.0) return original
+
+    val result = mutableListOf(original.first())
+    var start = 0
+    while (start < original.lastIndex) {
+        val farthest = minOf(original.lastIndex, start + ROUTE_SHORTCUT_MAX_SOURCE_EDGES)
+        var next = start + 1
+        for (candidate in farthest downTo start + 2) {
+            val level = original[start].y
+            if ((start..candidate).any { abs(original[it].y - level) > ROUTE_MOTION_EPSILON }) continue
+            // The D-capsule around the chord is convex, so containing every source vertex contains
+            // the whole subpath; continuity of its projection then bounds the chord back to it.
+            if ((start..candidate).any { index ->
+                    distanceToHorizontalSegment(original[index], original[start], original[candidate]) >
+                        maximumDeviation + ROUTE_MOTION_EPSILON
+                }
+            ) continue
+            if (!canTraverse(original[start].clone(), original[candidate].clone())) continue
+            next = candidate
+            break
+        }
+        result += original[next].clone()
+        start = next
+    }
+    return result
+}
+
+private fun distanceToHorizontalSegment(point: Vector, from: Vector, to: Vector): Double {
+    val dx = to.x - from.x
+    val dz = to.z - from.z
+    val lengthSquared = dx * dx + dz * dz
+    val progress = if (lengthSquared <= ROUTE_MOTION_EPSILON) 0.0 else
+        (((point.x - from.x) * dx + (point.z - from.z) * dz) / lengthSquared).coerceIn(0.0, 1.0)
+    return hypot(point.x - (from.x + progress * dx), point.z - (from.z + progress * dz))
+}
 
 /**
  * Replaces flat, horizontal corners with short quadratic curves.
