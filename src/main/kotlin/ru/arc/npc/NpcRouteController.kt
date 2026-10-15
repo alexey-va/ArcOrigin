@@ -232,7 +232,7 @@ private fun isNpcRoutePositionClear(
                 if (!npcRouteSweepOverlaps(x, z, toX, toZ, footprint,
                         blockX.toDouble(), blockX + 1.0, blockZ.toDouble(), blockZ + 1.0)) continue
                 val block = world.getBlockAt(blockX, y, blockZ)
-                if (block.isLiquid) return false
+                if (block.isLiquid && npcRouteRangesOverlap(minY, maxY, y.toDouble(), y + 1.0)) return false
                 for (box in block.collisionShape.boundingBoxes) {
                     val boxMinX = blockX + box.minX
                     val boxMaxX = blockX + box.maxX

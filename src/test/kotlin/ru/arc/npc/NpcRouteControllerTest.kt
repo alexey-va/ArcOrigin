@@ -299,6 +299,21 @@ class NpcRouteControllerTest : FreeSpec({
             NpcRouteFootprint(0.3, 0.3, 0.0, 1.8)) shouldBe false
     }
 
+    "liquid below solid support is not a body collision" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        val water = routeTestBlock(Material.WATER, true)
+        every { water.isLiquid } returns true
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } returns air
+        every { world.getBlockAt(0, 66, 0) } returns water
+        every { world.getBlockAt(0, 67, 0) } returns routeTestBlock(Material.FARMLAND, false, 0.9375)
+        isNpcRouteFootprintClear(world, NpcRouteCell(0, 0), 67.9375,
+            NpcRouteFootprint(0.3, 0.3, 0.0, 1.8)) shouldBe true
+        every { world.getBlockAt(0, 68, 0) } returns water
+        isNpcRouteFootprintClear(world, NpcRouteCell(0, 0), 67.9375,
+            NpcRouteFootprint(0.3, 0.3, 0.0, 1.8)) shouldBe false
+    }
+
     "hard no-go areas are never crossed" {
         val forbidden = NpcRouteBounds(1, 2, 1, 1)
         val profile = NpcRouteProfile(
