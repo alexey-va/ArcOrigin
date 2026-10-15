@@ -50,31 +50,6 @@ class NpcRouteControllerTest : FreeSpec({
         npcRouteHorizontalVelocity(0.0, 0.0, 0.05, 0.0, 0.2).x shouldBe 0.05
     }
 
-    "corner smoothing starts late and only leads into the next safe cell" {
-        val points = listOf(Vector(0.5, 72.0, 0.5), Vector(1.5, 72.0, 0.5), Vector(1.5, 72.0, 1.5))
-
-        smoothedNpcRouteTarget(points, 1, 0.6, 0.5, 0.35, 0.75, 0.30) shouldBe points[1]
-        smoothedNpcRouteTarget(points, 1, 1.15, 0.5, 0.35, 0.75, 0.30) shouldBe Vector(1.5, 72.0, 0.8)
-    }
-
-    "tight smoothing lead cannot keep a route point outside its advancement margin" {
-        val points = listOf(Vector(0.5, 72.0, 0.5), Vector(1.5, 72.0, 0.5), Vector(1.5, 72.0, 1.5))
-        var actualX = 1.15
-        var actualZ = 0.5
-        var index = 1
-
-        repeat(100) {
-            while (index < points.lastIndex && kotlin.math.hypot(actualX - points[index].x, actualZ - points[index].z) <= 0.20) index++
-            if (index == points.lastIndex) return@repeat
-            val target = smoothedNpcRouteTarget(points, index, actualX, actualZ, 0.20, 0.75, 0.30)
-            val velocity = npcRouteHorizontalVelocity(actualX, actualZ, target.x, target.z, 0.084)
-            actualX += velocity.x
-            actualZ += velocity.z
-        }
-
-        index shouldBe 2
-    }
-
     "thin carpets are valid route coverings but taller blocks are not" {
         isNpcRouteFloorCovering(Material.RED_CARPET, 0.0625, 0.125) shouldBe true
         isNpcRouteFloorCovering(Material.RED_CARPET, 0.5, 0.125) shouldBe false
@@ -229,6 +204,99 @@ class NpcRouteControllerTest : FreeSpec({
         val flat = NpcRouteProfile("flat", 69, NpcRouteBounds(0, 0, 0, 0))
         resolveSurfaceY(world, flat, NpcRouteCell(0, 0)) shouldBe 69.0
         isNpcRouteActualYAllowed(70.0, 69.0, flat) shouldBe false
+    }
+
+    "swept player body rejects an inside wall even when both endpoints are clear" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        val stone = routeTestBlock(Material.STONE, false, 1.0)
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
+            if (secondArg<Int>() == 71 || (firstArg<Int>() == 0 && thirdArg<Int>() == 1 && secondArg<Int>() in 72..73)) stone else air
+        }
+        val profile = NpcRouteProfile("restaurant", 72, NpcRouteBounds(-2, 4, -2, 4))
+        val body = NpcRouteFootprint(0.3, 0.3, 0.0, 1.8)
+        val entry = Vector(0.8, 72.0, 0.5)
+        val exit = Vector(1.5, 72.0, 1.2)
+
+        isNpcRouteFootprintClear(world, NpcRouteCell(0, 0), 72.0, body, profile) shouldBe true
+        isNpcRouteFootprintClear(world, NpcRouteCell(1, 1), 72.0, body, profile) shouldBe true
+        isNpcRouteSegmentClear(world, profile, entry, exit, body) shouldBe false
+        isNpcRouteSegmentClear(world, profile, entry, Vector(1.5, 72.0, 0.5), body) shouldBe true
+        isNpcRouteSegmentClear(world, profile, Vector(1.5, 72.0, 0.5), exit, body) shouldBe true
+    }
+
+    "rounded movement completes every tick beside a wall without colliding or false blockage" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        val stone = routeTestBlock(Material.STONE, false, 1.0)
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
+            if (secondArg<Int>() == 71 || (firstArg<Int>() == 2 && thirdArg<Int>() == 1 && secondArg<Int>() in 72..73)) stone else air
+        }
+        val profile = NpcRouteProfile("restaurant", 72, NpcRouteBounds(-2, 6, -2, 6))
+        val body = NpcRouteFootprint(0.3, 0.3, 0.0, 1.8)
+        val route = listOf(Vector(0.5, 72.0, 0.5), Vector(3.5, 72.0, 0.5), Vector(3.5, 72.0, 3.5))
+        val safe: (Vector, Vector) -> Boolean = { from, to ->
+            isNpcRouteSegmentClear(world, profile, from, to, body, setOf(NpcRouteCell(2, 1)))
+        }
+        val rounded = roundedNpcRoutePoints(route, 0.75, 0.30, safe)
+        (rounded.size > route.size) shouldBe true
+        for (speed in listOf(0.144, 0.084)) {
+            val motion = NpcRouteMotion(rounded)
+            var actual = route.first().clone()
+            repeat(160) {
+                val target = motion.target(actual, speed)
+                val next = actual.clone().add(npcRouteHorizontalVelocity(actual.x, actual.z, target.x, target.z, speed))
+                safe(actual, next) shouldBe true
+                actual = next
+            }
+            (actual.distance(route.last()) < 0.001) shouldBe true
+        }
+    }
+
+    "wide animals can traverse explicitly allowed farmland terraces" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        val farmland = routeTestBlock(Material.FARMLAND, false, 0.9375)
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
+            val floor = if (firstArg<Int>() <= 0) 67 else 68
+            if (secondArg<Int>() == floor) farmland else air
+        }
+        val field = NpcRouteProfile("field", 69, NpcRouteBounds(-3, 4, -3, 3), maximumStepHeight = 1.0,
+            maximumSurfaceDrop = 0.0625, surfaceSearchRange = 2, allowedSupportMaterials = setOf(Material.FARMLAND))
+        val body = NpcRouteFootprint(0.975, 0.975, 0.0, 1.8)
+        val low = Vector(0.5, 67.9375, 0.5)
+        val high = Vector(1.5, 68.9375, 0.5)
+        isNpcRouteSegmentClear(world, field, low, high, body) shouldBe true
+        isNpcRouteSegmentClear(world, field, high, low, body) shouldBe true
+        isNpcRouteSegmentClear(world, field.copy(maximumStepHeight = 0.125), low, high, body) shouldBe false
+    }
+
+    "swept routes preserve forbidden furniture cells and fixed floor step caps" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        val stone = routeTestBlock(Material.STONE, false, 1.0)
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
+            if (secondArg<Int>() == 71) stone else air
+        }
+        val profile = NpcRouteProfile("restaurant", 72, NpcRouteBounds(-2, 4, -2, 4))
+        val body = NpcRouteFootprint(0.3, 0.3, 0.0, 1.8)
+        val from = Vector(0.5, 72.0, 0.5)
+        val to = Vector(1.5, 72.0, 0.5)
+        isNpcRouteSegmentClear(world, profile, from, to, body) shouldBe true
+        isNpcRouteSegmentClear(world, profile, from, to, body, setOf(NpcRouteCell(1, 0))) shouldBe false
+        isNpcRouteSegmentClear(world, profile.copy(forbidden = listOf(NpcRouteBounds(1, 1, 0, 0))), from, to, body) shouldBe false
+        every { world.getBlockAt(1, 72, 0) } returns stone
+        isNpcRouteSegmentClear(world, profile, from, to, body) shouldBe false
+        profile.maximumStepHeight shouldBe 0.125
+    }
+
+    "a fence below feet cannot protrude into the moving body" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } returns air
+        every { world.getBlockAt(0, 71, 0) } returns routeTestBlock(Material.OAK_FENCE, false, 1.5)
+        isNpcRouteFootprintClear(world, NpcRouteCell(0, 0), 72.0,
+            NpcRouteFootprint(0.3, 0.3, 0.0, 1.8)) shouldBe false
     }
 
     "hard no-go areas are never crossed" {

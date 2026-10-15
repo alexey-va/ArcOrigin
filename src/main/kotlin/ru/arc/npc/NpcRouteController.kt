@@ -161,6 +161,29 @@ private const val NPC_ROUTE_COLLISION_EPSILON = 1.0e-6
 private fun npcRouteRangesOverlap(minA: Double, maxA: Double, minB: Double, maxB: Double): Boolean =
     minA < maxB - NPC_ROUTE_COLLISION_EPSILON && maxA > minB + NPC_ROUTE_COLLISION_EPSILON
 
+/** Segment versus a collision rectangle expanded by the actor's horizontal body. */
+private fun npcRouteSweepOverlaps(
+    fromX: Double, fromZ: Double, toX: Double, toZ: Double,
+    footprint: NpcRouteFootprint,
+    minX: Double, maxX: Double, minZ: Double, maxZ: Double,
+): Boolean {
+    var entry = 0.0
+    var exit = 1.0
+    fun overlapsAxis(from: Double, to: Double, low: Double, high: Double): Boolean {
+        val delta = to - from
+        if (abs(delta) <= NPC_ROUTE_COLLISION_EPSILON) return from > low && from < high
+        val first = (low - from) / delta
+        val second = (high - from) / delta
+        entry = maxOf(entry, minOf(first, second))
+        exit = minOf(exit, maxOf(first, second))
+        return entry < exit
+    }
+    return overlapsAxis(fromX, toX, minX - footprint.halfWidth + NPC_ROUTE_COLLISION_EPSILON,
+        maxX + footprint.halfWidth - NPC_ROUTE_COLLISION_EPSILON) &&
+        overlapsAxis(fromZ, toZ, minZ - footprint.halfDepth + NPC_ROUTE_COLLISION_EPSILON,
+            maxZ + footprint.halfDepth - NPC_ROUTE_COLLISION_EPSILON)
+}
+
 /**
  * Checks the entity-sized configuration-space footprint at one route cell.
  * Support below the feet is intentionally excluded when it only touches the
@@ -172,40 +195,53 @@ internal fun isNpcRouteFootprintClear(
     surfaceY: Double,
     footprint: NpcRouteFootprint,
     profile: NpcRouteProfile? = null,
+): Boolean = isNpcRoutePositionClear(world, cell.x + 0.5, cell.z + 0.5, surfaceY, footprint, profile)
+
+private fun isNpcRoutePositionClear(
+    world: World,
+    x: Double,
+    z: Double,
+    surfaceY: Double,
+    footprint: NpcRouteFootprint,
+    profile: NpcRouteProfile?,
+    toX: Double = x,
+    toZ: Double = z,
 ): Boolean {
     if (!surfaceY.isFinite()) return false
-    val minX = cell.x + 0.5 - footprint.halfWidth
-    val maxX = cell.x + 0.5 + footprint.halfWidth
-    val minZ = cell.z + 0.5 - footprint.halfDepth
-    val maxZ = cell.z + 0.5 + footprint.halfDepth
+    val minX = minOf(x, toX) - footprint.halfWidth
+    val maxX = maxOf(x, toX) + footprint.halfWidth
+    val minZ = minOf(z, toZ) - footprint.halfDepth
+    val maxZ = maxOf(z, toZ) + footprint.halfDepth
     val minY = surfaceY + footprint.minYOffset
     val maxY = surfaceY + footprint.maxYOffset + (profile?.maximumStepHeight ?: 0.0)
     if (!minY.isFinite() || !maxY.isFinite() || maxY <= minY + NPC_ROUTE_COLLISION_EPSILON) return false
 
     val minBlockX = floor(minX + NPC_ROUTE_COLLISION_EPSILON).toInt()
     val maxBlockX = ceil(maxX - NPC_ROUTE_COLLISION_EPSILON).toInt() - 1
-    val minBlockY = floor(minY + NPC_ROUTE_COLLISION_EPSILON).toInt()
+    // Fences and walls can extend above their owning block into the feet plane.
+    val minBlockY = floor(minY + NPC_ROUTE_COLLISION_EPSILON).toInt() - 1
     val maxBlockY = ceil(maxY - NPC_ROUTE_COLLISION_EPSILON).toInt() - 1
     val minBlockZ = floor(minZ + NPC_ROUTE_COLLISION_EPSILON).toInt()
     val maxBlockZ = ceil(maxZ - NPC_ROUTE_COLLISION_EPSILON).toInt() - 1
 
     val collisions = mutableListOf<BoundingBox>()
     var standingY = surfaceY
-    for (x in minBlockX..maxBlockX) {
+    for (blockX in minBlockX..maxBlockX) {
         for (y in minBlockY..maxBlockY) {
-            for (z in minBlockZ..maxBlockZ) {
-                val block = world.getBlockAt(x, y, z)
+            for (blockZ in minBlockZ..maxBlockZ) {
+                if (!npcRouteSweepOverlaps(x, z, toX, toZ, footprint,
+                        blockX.toDouble(), blockX + 1.0, blockZ.toDouble(), blockZ + 1.0)) continue
+                val block = world.getBlockAt(blockX, y, blockZ)
                 if (block.isLiquid) return false
                 for (box in block.collisionShape.boundingBoxes) {
-                    val boxMinX = x + box.minX
-                    val boxMaxX = x + box.maxX
+                    val boxMinX = blockX + box.minX
+                    val boxMaxX = blockX + box.maxX
                     val boxMinY = y + box.minY
                     val boxMaxY = y + box.maxY
-                    val boxMinZ = z + box.minZ
-                    val boxMaxZ = z + box.maxZ
+                    val boxMinZ = blockZ + box.minZ
+                    val boxMaxZ = blockZ + box.maxZ
                     if (
-                        npcRouteRangesOverlap(minX, maxX, boxMinX, boxMaxX) &&
-                        npcRouteRangesOverlap(minZ, maxZ, boxMinZ, boxMaxZ)
+                        npcRouteSweepOverlaps(x, z, toX, toZ, footprint, boxMinX, boxMaxX, boxMinZ, boxMaxZ)
                     ) {
                         collisions += BoundingBox(boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY, boxMaxZ)
                         val allowedStep = profile != null &&
@@ -223,33 +259,42 @@ internal fun isNpcRouteFootprintClear(
     }
 }
 
-internal fun smoothedNpcRouteTarget(
-    points: List<Vector>,
-    index: Int,
-    actualX: Double,
-    actualZ: Double,
-    pathDistanceMargin: Double,
-    smoothingDistance: Double,
-    smoothingLead: Double,
-): Vector {
-    val current = points[index]
-    if (index == 0 || index >= points.lastIndex || smoothingDistance <= pathDistanceMargin || smoothingLead <= 0.0) {
-        return current
+/** Swept body check: a clear center cell alone does not make a turn safe. */
+internal fun isNpcRouteSegmentClear(
+    world: World,
+    profile: NpcRouteProfile,
+    from: Vector,
+    to: Vector,
+    footprint: NpcRouteFootprint,
+    blocked: Set<NpcRouteCell> = emptySet(),
+): Boolean {
+    val minX = minOf(from.x, to.x) - footprint.halfWidth
+    val maxX = maxOf(from.x, to.x) + footprint.halfWidth
+    val minZ = minOf(from.z, to.z) - footprint.halfDepth
+    val maxZ = maxOf(from.z, to.z) + footprint.halfDepth
+    for (x in floor(minX + NPC_ROUTE_COLLISION_EPSILON).toInt()..ceil(maxX - NPC_ROUTE_COLLISION_EPSILON).toInt() - 1) {
+        for (z in floor(minZ + NPC_ROUTE_COLLISION_EPSILON).toInt()..ceil(maxZ - NPC_ROUTE_COLLISION_EPSILON).toInt() - 1) {
+            val cell = NpcRouteCell(x, z)
+            if ((!profile.allows(cell) || cell in blocked) && npcRouteSweepOverlaps(
+                    from.x, from.z, to.x, to.z, footprint, x.toDouble(), x + 1.0, z.toDouble(), z + 1.0,
+                )) return false
+        }
     }
-    val previous = points[index - 1]
-    val next = points[index + 1]
-    val incomingX = current.x - previous.x
-    val incomingZ = current.z - previous.z
-    val outgoingX = next.x - current.x
-    val outgoingZ = next.z - current.z
-    if (abs(incomingX * outgoingX + incomingZ * outgoingZ) > 1.0e-6) return current
-    val remaining = hypot(current.x - actualX, current.z - actualZ)
-    if (remaining >= smoothingDistance) return current
-    val progress = ((smoothingDistance - remaining) / (smoothingDistance - pathDistanceMargin)).coerceIn(0.0, 1.0)
-    val outgoingLength = hypot(outgoingX, outgoingZ)
-    if (outgoingLength <= 1.0e-6) return current
-    val lead = minOf(smoothingLead, outgoingLength, (pathDistanceMargin * 0.9).coerceAtLeast(0.0)) * progress
-    return Vector(current.x + outgoingX / outgoingLength * lead, current.y, current.z + outgoingZ / outgoingLength * lead)
+    val samples = ceil(hypot(to.x - from.x, to.z - from.z) / 0.1).toInt().coerceAtLeast(1)
+    val surfaces = mutableMapOf<NpcRouteCell, Double?>()
+    var previousY: Double? = null
+    var lowestY = Double.POSITIVE_INFINITY
+    for (index in 0..samples) {
+        val progress = index.toDouble() / samples
+        val x = from.x + (to.x - from.x) * progress
+        val z = from.z + (to.z - from.z) * progress
+        val cell = NpcRouteCell(floor(x).toInt(), floor(z).toInt())
+        val surface = surfaces.getOrPut(cell) { resolveSurfaceY(world, profile, cell) } ?: return false
+        if (previousY?.let { abs(it - surface) > profile.maximumStepHeight + NPC_ROUTE_COLLISION_EPSILON } == true) return false
+        previousY = surface
+        lowestY = minOf(lowestY, surface)
+    }
+    return isNpcRoutePositionClear(world, from.x, from.z, lowestY, footprint, profile, to.x, to.z)
 }
 
 internal fun isNpcRouteFloorCovering(type: Material, collisionHeight: Double, maximumStepHeight: Double): Boolean =
@@ -409,7 +454,6 @@ private data class ActiveNpcRoute(
     var stalledPolls: Int = 0,
     var previousX: Double,
     var previousZ: Double,
-    var headingIndex: Int,
     var headingYaw: Float,
     val recoveries: Int = 0,
 )
@@ -430,14 +474,12 @@ private class FixedLevelPathStrategy(
     private val npc: NPC,
     private val world: World,
     private val points: List<Vector>,
-    private val pathDistanceMargin: Double,
     private val destinationMargin: Double,
     private val speedModifier: Float,
-    private val cornerSmoothingDistance: Double,
-    private val cornerSmoothingLead: Double,
     private val maximumStepHeight: Double,
+    private val canTraverse: (Vector, Vector) -> Boolean,
 ) : AbstractPathStrategy(TargetType.LOCATION) {
-    private var index = 0
+    private val motion = NpcRouteMotion(points)
     private val stepHeight = (npc.entity as? LivingEntity)?.getAttribute(Attribute.STEP_HEIGHT)
     private val originalStepHeight = stepHeight?.baseValue
     private var restoredStepHeight = false
@@ -446,9 +488,9 @@ private class FixedLevelPathStrategy(
         stepHeight?.baseValue = maximumStepHeight
     }
 
-    override fun getCurrentDestination(): Location = points[index.coerceAtMost(points.lastIndex)].toLocation(world)
+    override fun getCurrentDestination(): Location = points[motion.index.coerceAtMost(points.lastIndex)].toLocation(world)
 
-    override fun getPath(): Iterable<Vector> = points.drop(index)
+    override fun getPath(): Iterable<Vector> = points.drop(motion.index)
 
     override fun getTargetAsLocation(): Location = points.last().toLocation(world)
 
@@ -477,28 +519,18 @@ private class FixedLevelPathStrategy(
             return true
         }
         val actual = entity.location
-        while (
-            index < points.lastIndex &&
-            horizontalDistanceSquared(actual, points[index]) <= pathDistanceMargin * pathDistanceMargin
-        ) {
-            index++
-        }
-        val routePoint = points[index]
-        val distanceSquared = horizontalDistanceSquared(actual, routePoint)
-        if (index == points.lastIndex && distanceSquared <= destinationMargin * destinationMargin) {
+        if (motion.index >= points.lastIndex && horizontalDistanceSquared(actual, points.last()) <= destinationMargin * destinationMargin) {
             stop()
             return true
         }
-        val target = smoothedNpcRouteTarget(
-            points,
-            index,
-            actual.x,
-            actual.z,
-            pathDistanceMargin,
-            cornerSmoothingDistance,
-            cornerSmoothingLead,
-        )
+        val target = motion.target(actual.toVector(), 0.2 * speedModifier)
         val horizontal = npcRouteHorizontalVelocity(actual.x, actual.z, target.x, target.z, 0.2 * speedModifier)
+        val next = actual.toVector().add(horizontal)
+        if (!canTraverse(actual.toVector(), next)) {
+            stop()
+            setCancelReason(CancelReason.STUCK)
+            return true
+        }
         horizontal.y = entity.velocity.y.coerceAtMost(0.0)
         entity.velocity = horizontal
         return false
@@ -587,6 +619,7 @@ internal class CitizensNpcRouteController(
             return false
         }
         val path = mutableListOf(start)
+        val traversalCache = mutableMapOf<Pair<NpcRouteCell, NpcRouteCell>, Boolean>()
         for (anchor in via + destination) {
             val goals = candidates(anchor.blockX, anchor.blockZ, profile, blocked, surfaceY, footprintClear)
             val exact = NpcRouteCell(anchor.blockX, anchor.blockZ)
@@ -594,7 +627,12 @@ internal class CitizensNpcRouteController(
             val canTraverse: (NpcRouteCell, NpcRouteCell) -> Boolean = { from, to ->
                 val fromY = surfaceY(from)
                 val toY = surfaceY(to)
-                fromY != null && toY != null && abs(fromY - toY) <= profile.maximumStepHeight + 1.0e-6
+                traversalCache.getOrPut(from to to) {
+                    fromY != null && toY != null && abs(fromY - toY) <= profile.maximumStepHeight + 1.0e-6 &&
+                        isNpcRouteSegmentClear(world, profile,
+                            Vector(from.x + 0.5, fromY, from.z + 0.5),
+                            Vector(to.x + 0.5, toY, to.z + 0.5), footprint, blocked)
+                }
             }
             val orderedGoals = exact.takeIf { it in goals }?.let { listOf(it) + goals.filterNot { goal -> goal == it } } ?: goals
             val segment = if (path.last() == exact) listOf(exact) else {
@@ -638,12 +676,20 @@ internal class CitizensNpcRouteController(
             event("RECOVERED", profile, npc, destination, path.size, "off-floor-start", actual)
         }
         configure(npc, profile)
-        val vectors = path.map { Vector(it.x + 0.5, surfaceYs.getValue(it), it.z + 0.5) }
-        val initialHeadingYaw = path.drop(1).firstOrNull()?.let { cell ->
-            npcRouteYaw(actual.x, actual.z, cell.x + 0.5, cell.z + 0.5)
-        } ?: actual.yaw
-        npc.getOrAddTrait(RotationTrait::class.java).physicalSession.rotateToHave(initialHeadingYaw, 0f)
-        npc.entity.setRotation(initialHeadingYaw, 0f)
+        val canTraverse: (Vector, Vector) -> Boolean = { from, to ->
+            isNpcRouteSegmentClear(world, profile, from, to, footprint, active[npc.id]?.blocked ?: blocked)
+        }
+        val gridPoints = path.map { Vector(it.x + 0.5, surfaceYs.getValue(it), it.z + 0.5) }.toMutableList()
+        // Continue from the real position instead of walking back to the start-cell center on every leg.
+        val routeStart = npc.entity.location.toVector()
+        if (gridPoints.size > 1 && canTraverse(routeStart, gridPoints[1])) gridPoints[0] = routeStart
+        val vectors = roundedNpcRoutePoints(
+            gridPoints,
+            if (footprint.halfWidth > 0.5) 0.0 else profile.cornerSmoothingDistance,
+            profile.cornerSmoothingLead,
+            canTraverse,
+        )
+        val initialHeadingYaw = npc.entity.location.yaw
         npc.navigator.setTarget { params ->
             // Change only this route's cloned parameters; preserve the NPC's persisted defaults.
             params.range(maxOf(params.range(), npcRouteRequiredRange(actual.toVector(), vectors, profile.distanceMargin)))
@@ -651,12 +697,10 @@ internal class CitizensNpcRouteController(
                 npc = npc,
                 world = world,
                 points = vectors,
-                pathDistanceMargin = params.pathDistanceMargin(),
                 destinationMargin = params.distanceMargin(),
                 speedModifier = params.speedModifier(),
-                cornerSmoothingDistance = if (footprint.halfWidth > 0.5) 0.0 else profile.cornerSmoothingDistance,
-                cornerSmoothingLead = profile.cornerSmoothingLead,
                 maximumStepHeight = profile.maximumStepHeight,
+                canTraverse = canTraverse,
             )
         }
         val route = ActiveNpcRoute(
@@ -670,7 +714,6 @@ internal class CitizensNpcRouteController(
             surfaceYs.toMap(),
             previousX = npc.entity.location.x,
             previousZ = npc.entity.location.z,
-            headingIndex = 0,
             headingYaw = initialHeadingYaw,
             recoveries = recoveries,
         )
@@ -717,21 +760,12 @@ internal class CitizensNpcRouteController(
         if (!npc.navigator.isNavigating || npc.entity.world != route.destination.world) return
         // Citizens gates NPC movement on activatedTick; refresh it only for this live route heartbeat.
         NMS.activate(npc.entity)
-        val actual = npc.entity.location
-        val searchEnd = (route.headingIndex + route.profile.headingLookAheadCells + 2).coerceAtMost(route.cells.lastIndex)
-        route.headingIndex =
-            (route.headingIndex..searchEnd).minBy { index ->
-                val cell = route.cells[index]
-                val dx = actual.x - (cell.x + 0.5)
-                val dz = actual.z - (cell.z + 0.5)
-                dx * dx + dz * dz
-            }
-        val targetIndex = (route.headingIndex + route.profile.headingLookAheadCells).coerceAtMost(route.cells.lastIndex)
-        val target = route.cells[targetIndex]
-        val dx = target.x + 0.5 - actual.x
-        val dz = target.z + 0.5 - actual.z
+        // Face the same continuous trajectory that moves the body, not a separate cell lookahead.
+        val velocity = npc.entity.velocity
+        val dx = velocity.x
+        val dz = velocity.z
         if (dx * dx + dz * dz > 0.0025) {
-            val desiredYaw = npcRouteYaw(actual.x, actual.z, target.x + 0.5, target.z + 0.5)
+            val desiredYaw = npcRouteYaw(0.0, 0.0, dx, dz)
             route.headingYaw = turnNpcYawToward(
                 route.headingYaw,
                 desiredYaw,
