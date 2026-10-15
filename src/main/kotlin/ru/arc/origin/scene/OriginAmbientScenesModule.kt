@@ -382,7 +382,7 @@ private class OriginSceneService(
             is OriginSceneStep.Wait -> later(running, step.ticks) { runStep(running, index + 1) }
             is OriginSceneStep.LookAtAnchor -> {
                 npc(step.actorId)?.takeIf(NPC::isSpawned)?.let { actor ->
-                    running.resources.facePoint(actor, running.scene.anchors.getValue(step.anchor).inWorld(actor.entity.world))
+                    running.resources.faceHorizontal(actor, running.scene.anchors.getValue(step.anchor).inWorld(actor.entity.world))
                 }
                 runStep(running, index + 1)
             }
@@ -398,7 +398,8 @@ private class OriginSceneService(
                 val target = npc(step.targetActorId)?.takeIf(NPC::isSpawned)
                 if (target == null) finish(running, "look-target-missing")
                 else {
-                    npc(step.actorId)?.takeIf(NPC::isSpawned)?.let { running.resources.facePoint(it, target.entity.location) }
+                    npc(step.actorId)?.takeIf { it.isSpawned && it.entity.world == target.entity.world }
+                        ?.let { running.resources.faceHorizontal(it, target.entity.location) }
                     runStep(running, index + 1)
                 }
             }
