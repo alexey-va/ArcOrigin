@@ -1163,22 +1163,35 @@ private class OriginFurnitureWorkshopRuntime private constructor(
     }
 
     private fun startRouteLeg(cycle: ActiveWorkshopCycle) {
-        val leg = cycle.route[cycle.routeIndex]
+        val remainingLegs = cycle.route.drop(cycle.routeIndex)
+        val leg = remainingLegs.last()
+        val arrivalLookAt = when (cycle.afterRoute) {
+            WorkshopAfterRoute.PICKUP -> cycle.worker.pickupSource
+            WorkshopAfterRoute.WORK_RETURN -> cycle.worker.beats.getOrNull(cycle.beatIndex)?.focus ?: cycle.worker.restFocus
+            WorkshopAfterRoute.WORKSTATION -> cycle.worker.beats[cycle.beatIndex].focus
+            WorkshopAfterRoute.OUTPUT -> cycle.worker.output
+            WorkshopAfterRoute.HOME -> cycle.worker.restFocus
+        }
         if (!cycle.actor.isSpawned || cycle.actor.entity.world != world) {
             abort(cycle, "actor-unavailable-before-route")
             return
         }
-        if (!routeController.navigate(cycle.actor, leg.point.inWorld(world), settings.routeProfile)) {
+        if (!routeController.navigate(
+                cycle.actor, leg.point.inWorld(world), settings.routeProfile,
+                via = remainingLegs.dropLast(1).map { it.point.inWorld(world) },
+                arrivalLookAt = arrivalLookAt.inWorld(world),
+            )) {
             abort(cycle, "route-rejected-${cycle.afterRoute.name.lowercase(Locale.ROOT)}-${cycle.routeIndex + 1}")
             return
         }
         cycle.routeStarted = true
-        cycle.legDeadlineTick = tick + leg.timeoutTicks
+        val timeoutTicks = remainingLegs.sumOf { it.timeoutTicks }
+        cycle.legDeadlineTick = tick + timeoutTicks
         cycle.legMaxPitchDegrees = 0.0
         log(
             "ROUTE_START",
             cycle,
-            "leg=${cycle.routeIndex + 1}/${cycle.route.size} purpose=${cycle.afterRoute.name.lowercase(Locale.ROOT)} target=${pointText(leg.point)} timeout_ticks=${leg.timeoutTicks}",
+            "legs=${remainingLegs.size} purpose=${cycle.afterRoute.name.lowercase(Locale.ROOT)} target=${pointText(leg.point)} timeout_ticks=$timeoutTicks",
         )
     }
 
@@ -1239,11 +1252,10 @@ private class OriginFurnitureWorkshopRuntime private constructor(
         log(
             "ROUTE_FINISHED",
             cycle,
-            "leg=${cycle.routeIndex + 1}/${cycle.route.size} purpose=${cycle.afterRoute.name.lowercase(Locale.ROOT)} target=${pointText(cycle.route[cycle.routeIndex].point)} max_abs_pitch_degrees=${"%.3f".format(Locale.ROOT, cycle.legMaxPitchDegrees)}",
+            "legs=${cycle.route.size} purpose=${cycle.afterRoute.name.lowercase(Locale.ROOT)} target=${pointText(cycle.route.last().point)} max_abs_pitch_degrees=${"%.3f".format(Locale.ROOT, cycle.legMaxPitchDegrees)}",
         )
-        cycle.routeIndex++
-        if (cycle.routeIndex < cycle.route.size) startRouteLeg(cycle)
-        else completeRoute(cycle)
+        cycle.routeIndex = cycle.route.size
+        completeRoute(cycle)
     }
 
     private fun completeRoute(cycle: ActiveWorkshopCycle) {
@@ -1265,7 +1277,6 @@ private class OriginFurnitureWorkshopRuntime private constructor(
 
     private fun beginAssembly(cycle: ActiveWorkshopCycle) {
         val worker = cycle.worker
-        face(cycle.actor, worker.restFocus)
         val rawRoot = createItemDisplay(
             ItemStack(if (worker.deliverOutput) worker.rawRootMaterial else Material.AIR),
             worker.bench.inWorld(world),

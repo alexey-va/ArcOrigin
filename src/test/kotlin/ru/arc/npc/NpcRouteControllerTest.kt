@@ -253,6 +253,57 @@ class NpcRouteControllerTest : FreeSpec({
         }
     }
 
+    "wide animals round open corners and keep every physical step inside the route corridor" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        val floor = routeTestBlock(Material.STONE, false, 1.0)
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
+            if (secondArg<Int>() == 71) floor else air
+        }
+        val profile = NpcRouteProfile("animals", 72, NpcRouteBounds(-2, 7, -2, 7))
+        val route = listOf(Vector(0.5, 72.0, 0.5), Vector(4.5, 72.0, 0.5), Vector(4.5, 72.0, 4.5))
+        for (halfWidth in listOf(0.7, 0.975)) {
+            val body = NpcRouteFootprint(halfWidth, halfWidth, 0.0, 1.8)
+            val safe: (Vector, Vector) -> Boolean = { from, to -> isNpcRouteSegmentClear(world, profile, from, to, body) }
+            val rounded = roundedNpcRoutePoints(route, 0.75, 0.30, safe)
+            (rounded.size > route.size) shouldBe true
+            val motion = NpcRouteMotion(rounded)
+            var actual = route.first().clone()
+            repeat(160) {
+                val target = motion.target(actual, 0.084)
+                val next = actual.clone().add(npcRouteHorizontalVelocity(actual.x, actual.z, target.x, target.z, 0.084))
+                safe(actual, next) shouldBe true
+                minOf(kotlin.math.abs(next.z - 0.5), kotlin.math.abs(next.x - 4.5)).let { (it <= 0.30) shouldBe true }
+                actual = next
+            }
+            (actual.distance(route.last()) < 0.001) shouldBe true
+        }
+    }
+
+    "narrow search bounds allow wide bodies but adjacent walls and forbidden furniture still block them" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        val stone = routeTestBlock(Material.STONE, false, 1.0)
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
+            if (secondArg<Int>() == 71) stone else air
+        }
+        val profile = NpcRouteProfile("pen", 72, NpcRouteBounds(0, 4, 0, 0))
+        val body = NpcRouteFootprint(0.7, 0.7, 0.0, 1.8)
+        val from = Vector(0.5, 72.0, 0.5)
+        val to = Vector(4.5, 72.0, 0.5)
+        isNpcRouteSegmentClear(world, profile, from, to, body) shouldBe true
+        isNpcRouteSegmentClear(world, profile, from, Vector(4.5, 72.0, 1.1), body) shouldBe false
+        val blocked = setOf(NpcRouteCell(2, 1))
+        isNpcRouteSegmentClear(world, profile, from, to, body, blocked) shouldBe false
+        val forbidden = profile.copy(forbidden = listOf(NpcRouteBounds(2, 2, 1, 1)))
+        isNpcRouteSegmentClear(world, forbidden, from, to, body) shouldBe false
+        val beside = Vector(2.5, 72.0, 0.5)
+        isNpcRouteSegmentClear(world, forbidden, beside, beside, body) shouldBe false
+        every { world.getBlockAt(2, 72, 1) } returns stone
+        isNpcRouteSegmentClear(world, profile, from, to, body) shouldBe false
+        npcRouteObstacleProfile(profile, body).bounds shouldBe NpcRouteBounds(-1, 5, -1, 1)
+    }
+
     "wide animals can traverse explicitly allowed farmland terraces" {
         val world = mockk<World>()
         val air = routeTestBlock(Material.AIR, true)

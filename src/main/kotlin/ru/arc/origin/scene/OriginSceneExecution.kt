@@ -67,6 +67,19 @@ internal class OriginSceneExecution(
         guarded("step") { effects.execute(nextIndex) }
     }
 
+    /** Advances past the steps covered by one completed scene operation. */
+    fun advanceAfterCompletedSteps(expectedIndex: Int, nextIndex: Int) {
+        if (
+            phase != OriginSceneExecutionPhase.RUNNING ||
+            expectedIndex < 0 ||
+            stepIndex != expectedIndex ||
+            nextIndex <= expectedIndex ||
+            nextIndex > stepIds.size
+        ) return
+        stepIndex = nextIndex - 1
+        advance(nextIndex)
+    }
+
     fun after(ticks: Long, allowReturning: Boolean = false, action: () -> Unit) {
         val expectedPhase = if (allowReturning) OriginSceneExecutionPhase.RETURNING else OriginSceneExecutionPhase.RUNNING
         if (phase != expectedPhase) return

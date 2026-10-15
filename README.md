@@ -42,10 +42,18 @@ usual 0.75 / 0.30 settings a quadratic corner departs by at most 0.1875 blocks.
 Unsafe corners and height transitions stay sharp. Every physical movement step
 is checked again; rejected steps stop instead of pushing into an obstacle.
 
-Heading follows the movement velocity using the existing per-tick yaw cap.
+The same swept-body checks apply to humans, horses and larger animals. Search
+bounds constrain the path center; forbidden cells, adjacent furniture and native
+collision shapes constrain the whole body. Consecutive transit legs share a path;
+a pickup, wait or other scene action remains an explicit boundary.
+
+One route-scoped rotation session turns physical and rendered body/head together,
+starting from the actual body yaw and following velocity with the per-tick yaw cap.
+Final authored poses and workshop focus points are reached with the same bounded
+turn before the scene advances; no endpoint snap is needed.
 `heading-look-ahead-cells` is retained for configuration compatibility but no
 longer drives a separate direction that can disagree with the moving body.
 NPC step height is still restricted only during the route and restored afterward.
 Focused verification: `./gradlew test --tests ru.arc.npc.NpcRouteControllerTest
---tests ru.arc.npc.NpcRouteMotionTest`. Passing geometry tests does not establish
+--tests ru.arc.npc.NpcRouteMotionTest --tests ru.arc.npc.NpcRouteRotationTest`. Passing geometry tests does not establish
 native-client visual acceptance.

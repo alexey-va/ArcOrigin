@@ -2,11 +2,11 @@ package ru.arc.npc
 
 import net.citizensnpcs.api.CitizensAPI
 import net.citizensnpcs.api.ai.AbstractPathStrategy
+import net.citizensnpcs.api.ai.NavigatorParameters
 import net.citizensnpcs.api.ai.PathfinderType
 import net.citizensnpcs.api.ai.TargetType
 import net.citizensnpcs.api.ai.event.CancelReason
 import net.citizensnpcs.api.npc.NPC
-import net.citizensnpcs.trait.RotationTrait
 import net.citizensnpcs.util.NMS
 import org.bukkit.Location
 import org.bukkit.Material
@@ -143,17 +143,25 @@ internal data class NpcRouteFootprint(
     }
 }
 
-internal fun npcRouteFootprint(entity: Entity, margin: Double = 0.0): NpcRouteFootprint {
+internal fun npcRouteFootprint(entity: Entity): NpcRouteFootprint {
     val originY = entity.location.y
     val box = entity.boundingBox
     val bodyHalfExtent = maxOf(box.maxX - box.minX, box.maxZ - box.minZ) / 2.0
-    val halfExtent = bodyHalfExtent + if (bodyHalfExtent > 0.5) margin else 0.0
     return NpcRouteFootprint(
-        halfWidth = halfExtent,
-        halfDepth = halfExtent,
+        halfWidth = bodyHalfExtent,
+        halfDepth = bodyHalfExtent,
         minYOffset = box.minY - originY,
         maxYOffset = box.maxY - originY,
     )
+}
+
+/** Furniture just outside the path search area can still intersect the actor's body. */
+internal fun npcRouteObstacleProfile(profile: NpcRouteProfile, footprint: NpcRouteFootprint): NpcRouteProfile {
+    val padding = ceil(maxOf(footprint.halfWidth, footprint.halfDepth)).toInt()
+    val bounds = profile.bounds
+    return profile.copy(bounds = NpcRouteBounds(
+        bounds.minX - padding, bounds.maxX + padding, bounds.minZ - padding, bounds.maxZ + padding,
+    ))
 }
 
 private const val NPC_ROUTE_COLLISION_EPSILON = 1.0e-6
@@ -275,7 +283,7 @@ internal fun isNpcRouteSegmentClear(
     for (x in floor(minX + NPC_ROUTE_COLLISION_EPSILON).toInt()..ceil(maxX - NPC_ROUTE_COLLISION_EPSILON).toInt() - 1) {
         for (z in floor(minZ + NPC_ROUTE_COLLISION_EPSILON).toInt()..ceil(maxZ - NPC_ROUTE_COLLISION_EPSILON).toInt() - 1) {
             val cell = NpcRouteCell(x, z)
-            if ((!profile.allows(cell) || cell in blocked) && npcRouteSweepOverlaps(
+            if ((profile.forbidden.any { cell in it } || cell in blocked) && npcRouteSweepOverlaps(
                     from.x, from.z, to.x, to.z, footprint, x.toDouble(), x + 1.0, z.toDouble(), z + 1.0,
                 )) return false
         }
@@ -289,6 +297,8 @@ internal fun isNpcRouteSegmentClear(
         val x = from.x + (to.x - from.x) * progress
         val z = from.z + (to.z - from.z) * progress
         val cell = NpcRouteCell(floor(x).toInt(), floor(z).toInt())
+        // Bounds constrain path centers; walls, furniture and no-go cells constrain the entire body.
+        if (!profile.allows(cell)) return false
         val surface = surfaces.getOrPut(cell) { resolveSurfaceY(world, profile, cell) } ?: return false
         if (previousY?.let { abs(it - surface) > profile.maximumStepHeight + NPC_ROUTE_COLLISION_EPSILON } == true) return false
         previousY = surface
@@ -450,11 +460,12 @@ private data class ActiveNpcRoute(
     var blocked: Set<NpcRouteCell>,
     val cells: List<NpcRouteCell>,
     val surfaceYs: Map<NpcRouteCell, Double>,
+    val faceOnArrival: Boolean,
+    val arrivalLookAt: Location?,
     var obstaclePolls: Int = 0,
     var stalledPolls: Int = 0,
     var previousX: Double,
     var previousZ: Double,
-    var headingYaw: Float,
     val recoveries: Int = 0,
 )
 
@@ -477,9 +488,13 @@ private class FixedLevelPathStrategy(
     private val destinationMargin: Double,
     private val speedModifier: Float,
     private val maximumStepHeight: Double,
+    maximumTurnDegreesPerTick: Float,
+    private val finalFacing: Location?,
+    private val arrivalLookAt: Location?,
     private val canTraverse: (Vector, Vector) -> Boolean,
 ) : AbstractPathStrategy(TargetType.LOCATION) {
     private val motion = NpcRouteMotion(points)
+    private val rotation = NpcRouteRotation(npc, maximumTurnDegreesPerTick)
     private val stepHeight = (npc.entity as? LivingEntity)?.getAttribute(Attribute.STEP_HEIGHT)
     private val originalStepHeight = stepHeight?.baseValue
     private var restoredStepHeight = false
@@ -495,6 +510,7 @@ private class FixedLevelPathStrategy(
     override fun getTargetAsLocation(): Location = points.last().toLocation(world)
 
     override fun stop() {
+        rotation.close()
         if (!restoredStepHeight) {
             restoredStepHeight = true
             if (stepHeight?.baseValue == maximumStepHeight && originalStepHeight != null) {
@@ -520,6 +536,14 @@ private class FixedLevelPathStrategy(
         }
         val actual = entity.location
         if (motion.index >= points.lastIndex && horizontalDistanceSquared(actual, points.last()) <= destinationMargin * destinationMargin) {
+            val velocity = entity.velocity
+            entity.velocity = Vector(0.0, velocity.y, 0.0)
+            val facing = arrivalLookAt?.let { target ->
+                val eye = (entity as? LivingEntity)?.eyeLocation ?: actual
+                val direction = target.toVector().subtract(eye.toVector())
+                if (direction.lengthSquared() < 1e-8) null else eye.clone().setDirection(direction)
+            } ?: finalFacing
+            if (facing != null && !rotation.turnToward(facing.yaw, facing.pitch)) return false
             stop()
             return true
         }
@@ -533,6 +557,9 @@ private class FixedLevelPathStrategy(
         }
         horizontal.y = entity.velocity.y.coerceAtMost(0.0)
         entity.velocity = horizontal
+        if (horizontal.x * horizontal.x + horizontal.z * horizontal.z > 1.0e-8) {
+            rotation.turnToward(npcRouteYaw(0.0, 0.0, horizontal.x, horizontal.z))
+        }
         return false
     }
 
@@ -561,7 +588,9 @@ internal class CitizensNpcRouteController(
         profile: NpcRouteProfile,
         via: List<Location> = emptyList(),
         extraBlocked: Set<NpcRouteCell> = emptySet(),
-    ): Boolean = navigate(npc, destination, profile, via, extraBlocked, 0)
+        faceOnArrival: Boolean = false,
+        arrivalLookAt: Location? = null,
+    ): Boolean = navigate(npc, destination, profile, via, extraBlocked, faceOnArrival, arrivalLookAt, 0)
 
     fun isNavigating(npc: NPC): Boolean = npc.id in active || npc.navigator.isNavigating
 
@@ -578,6 +607,8 @@ internal class CitizensNpcRouteController(
         profile: NpcRouteProfile,
         via: List<Location>,
         extraBlocked: Set<NpcRouteCell>,
+        faceOnArrival: Boolean,
+        arrivalLookAt: Location?,
         recoveries: Int,
     ): Boolean {
         stop(npc)
@@ -586,12 +617,14 @@ internal class CitizensNpcRouteController(
         if (
             !npc.isSpawned ||
             npc.entity.world != destination.world ||
+            (arrivalLookAt != null && arrivalLookAt.world != destination.world) ||
             destination.blockY !in authoredLevel ||
             via.any { it.world != destination.world || it.blockY !in authoredLevel }
         ) return false
         val world = destination.world
-        val blocked = obstacleSource.blockedCells(world, profile) + extraBlocked
         val actual = npc.entity.location
+        val footprint = npcRouteFootprint(npc.entity)
+        val blocked = obstacleSource.blockedCells(world, npcRouteObstacleProfile(profile, footprint)) + extraBlocked
         val surfaceCache = mutableMapOf<NpcRouteCell, Double?>()
         val surfaceY: (NpcRouteCell) -> Double? = { cell ->
             if (surfaceCache.containsKey(cell)) {
@@ -600,14 +633,14 @@ internal class CitizensNpcRouteController(
                 resolveSurfaceY(world, profile, cell).also { surfaceCache[cell] = it }
             }
         }
-        val footprint = npcRouteFootprint(npc.entity, maxOf(profile.pathDistanceMargin, profile.distanceMargin))
         val footprintCache = mutableMapOf<NpcRouteCell, Boolean>()
         val footprintClear: (NpcRouteCell) -> Boolean = { cell ->
             if (footprintCache.containsKey(cell)) {
                 footprintCache.getValue(cell)
             } else {
                 val surface = surfaceY(cell)
-                (surface != null && isNpcRouteFootprintClear(world, cell, surface, footprint, profile)).also {
+                val point = surface?.let { Vector(cell.x + 0.5, it, cell.z + 0.5) }
+                (point != null && isNpcRouteSegmentClear(world, profile, point, point, footprint, blocked)).also {
                     footprintCache[cell] = it
                 }
             }
@@ -675,7 +708,6 @@ internal class CitizensNpcRouteController(
             npc.entity.teleport(recovered)
             event("RECOVERED", profile, npc, destination, path.size, "off-floor-start", actual)
         }
-        configure(npc, profile)
         val canTraverse: (Vector, Vector) -> Boolean = { from, to ->
             isNpcRouteSegmentClear(world, profile, from, to, footprint, active[npc.id]?.blocked ?: blocked)
         }
@@ -685,13 +717,13 @@ internal class CitizensNpcRouteController(
         if (gridPoints.size > 1 && canTraverse(routeStart, gridPoints[1])) gridPoints[0] = routeStart
         val vectors = roundedNpcRoutePoints(
             gridPoints,
-            if (footprint.halfWidth > 0.5) 0.0 else profile.cornerSmoothingDistance,
+            profile.cornerSmoothingDistance,
             profile.cornerSmoothingLead,
             canTraverse,
         )
-        val initialHeadingYaw = npc.entity.location.yaw
         npc.navigator.setTarget { params ->
             // Change only this route's cloned parameters; preserve the NPC's persisted defaults.
+            configure(params, profile)
             params.range(maxOf(params.range(), npcRouteRequiredRange(actual.toVector(), vectors, profile.distanceMargin)))
             FixedLevelPathStrategy(
                 npc = npc,
@@ -700,6 +732,9 @@ internal class CitizensNpcRouteController(
                 destinationMargin = params.distanceMargin(),
                 speedModifier = params.speedModifier(),
                 maximumStepHeight = profile.maximumStepHeight,
+                maximumTurnDegreesPerTick = profile.headingMaxTurnDegreesPerTick,
+                finalFacing = destination.takeIf { faceOnArrival },
+                arrivalLookAt = arrivalLookAt?.clone(),
                 canTraverse = canTraverse,
             )
         }
@@ -712,15 +747,16 @@ internal class CitizensNpcRouteController(
             blocked,
             path,
             surfaceYs.toMap(),
+            faceOnArrival,
+            arrivalLookAt?.clone(),
             previousX = npc.entity.location.x,
             previousZ = npc.entity.location.z,
-            headingYaw = initialHeadingYaw,
             recoveries = recoveries,
         )
         active[npc.id] = route
         event("STARTED", profile, npc, destination, path.size)
         monitor(npc.id, route.token)
-        monitorHeading(npc.id, route.token)
+        activate(npc.id, route.token)
         return true
     }
 
@@ -737,44 +773,25 @@ internal class CitizensNpcRouteController(
             .filter { it !in blocked && profile.allows(it) && surfaceY(it) != null && footprintClear(it) }
             .sortedWith(compareBy({ (it.x - centerX) * (it.x - centerX) + (it.z - centerZ) * (it.z - centerZ) }, { it.x }, { it.z }))
 
-    private fun configure(npc: NPC, profile: NpcRouteProfile) {
-        npc.navigator.localParameters
+    private fun configure(params: NavigatorParameters, profile: NpcRouteProfile) {
+        params
             .distanceMargin(profile.distanceMargin)
             .pathDistanceMargin(profile.pathDistanceMargin)
             .speedModifier(profile.speedModifier)
             .pathfinderType(PathfinderType.CITIZENS)
             .stationaryTicks(Int.MAX_VALUE)
             .stuckAction(null)
-            .lookAtFunction { current ->
-                val entity = current.npc.entity
-                val eye = (entity as? LivingEntity)?.eyeLocation ?: entity.location.clone().add(0.0, 1.6, 0.0)
-                val heading = active[current.npc.id]?.headingYaw ?: entity.yaw
-                val radians = Math.toRadians(heading.toDouble())
-                eye.clone().add(-kotlin.math.sin(radians) * 3.0, 0.0, kotlin.math.cos(radians) * 3.0)
-            }
+            // The route owns one rotation session; navigator look-at would create a competing one.
+            .lookAtFunction(null)
     }
 
-    private fun monitorHeading(npcId: Int, token: UUID) {
+    private fun activate(npcId: Int, token: UUID) {
         val route = active[npcId]?.takeIf { it.token == token } ?: return
         val npc = runCatching { CitizensAPI.getNPCRegistry().getById(npcId) }.getOrNull()?.takeIf { it.isSpawned } ?: return
         if (!npc.navigator.isNavigating || npc.entity.world != route.destination.world) return
         // Citizens gates NPC movement on activatedTick; refresh it only for this live route heartbeat.
         NMS.activate(npc.entity)
-        // Face the same continuous trajectory that moves the body, not a separate cell lookahead.
-        val velocity = npc.entity.velocity
-        val dx = velocity.x
-        val dz = velocity.z
-        if (dx * dx + dz * dz > 0.0025) {
-            val desiredYaw = npcRouteYaw(0.0, 0.0, dx, dz)
-            route.headingYaw = turnNpcYawToward(
-                route.headingYaw,
-                desiredYaw,
-                route.profile.headingMaxTurnDegreesPerTick * route.profile.headingUpdateTicks,
-            )
-        }
-        npc.getOrAddTrait(RotationTrait::class.java).physicalSession.rotateToHave(route.headingYaw, 0f)
-        npc.entity.setRotation(route.headingYaw, 0f)
-        tasks.runLater(route.profile.headingUpdateTicks) { monitorHeading(npcId, token) }
+        tasks.runLater(1L) { activate(npcId, token) }
     }
 
     private fun monitor(npcId: Int, token: UUID) {
@@ -800,14 +817,15 @@ internal class CitizensNpcRouteController(
                 resolveSurfaceY(actual.world, route.profile, cell).also { surfaceCache[cell] = it }
             }
         }
-        val footprint = npcRouteFootprint(npc.entity, maxOf(route.profile.pathDistanceMargin, route.profile.distanceMargin))
+        val footprint = npcRouteFootprint(npc.entity)
         val footprintCache = mutableMapOf<NpcRouteCell, Boolean>()
         val footprintClear: (NpcRouteCell) -> Boolean = { cell ->
             if (footprintCache.containsKey(cell)) {
                 footprintCache.getValue(cell)
             } else {
                 val surface = surfaceY(cell)
-                (surface != null && isNpcRouteFootprintClear(actual.world, cell, surface, footprint, route.profile)).also {
+                val point = surface?.let { Vector(cell.x + 0.5, it, cell.z + 0.5) }
+                (point != null && isNpcRouteSegmentClear(actual.world, route.profile, point, point, footprint, route.blocked)).also {
                     footprintCache[cell] = it
                 }
             }
@@ -824,7 +842,7 @@ internal class CitizensNpcRouteController(
             if (route.recoveries < 2) {
                 tasks.runLater(1L) {
                     if (active[npcId] === route) {
-                        navigate(npc, route.destination, route.profile, route.via, route.extraBlocked, route.recoveries + 1)
+                        navigate(npc, route.destination, route.profile, route.via, route.extraBlocked, route.faceOnArrival, route.arrivalLookAt, route.recoveries + 1)
                     }
                 }
             } else {
@@ -835,7 +853,7 @@ internal class CitizensNpcRouteController(
         }
         route.obstaclePolls++
         if (route.obstaclePolls >= route.profile.obstacleRefreshPolls) {
-            route.blocked = obstacleSource.blockedCells(actual.world, route.profile) + route.extraBlocked
+            route.blocked = obstacleSource.blockedCells(actual.world, npcRouteObstacleProfile(route.profile, footprint)) + route.extraBlocked
             route.obstaclePolls = 0
         }
         val routeSurfaceInvalid = route.cells.any { cell ->
@@ -858,7 +876,7 @@ internal class CitizensNpcRouteController(
             event("REPLANNING", route.profile, npc, route.destination, route.cells.size, "terrain-changed", actual)
             tasks.runLater(1L) {
                 if (active[npcId] === route) {
-                    navigate(npc, route.destination, route.profile, route.via, route.extraBlocked, route.recoveries)
+                    navigate(npc, route.destination, route.profile, route.via, route.extraBlocked, route.faceOnArrival, route.arrivalLookAt, route.recoveries)
                 }
             }
             return
@@ -878,7 +896,10 @@ internal class CitizensNpcRouteController(
             return
         }
         val movement = hypot(actual.x - route.previousX, actual.z - route.previousZ)
-        if (movement > 0.025) route.stalledPolls = 0 else route.stalledPolls++
+        val turningAtDestination = (route.faceOnArrival || route.arrivalLookAt != null) && isNpcRouteResolvedEndpointReached(
+            actual.x, actual.z, route.cells.last(), route.profile.distanceMargin + 1.0e-3,
+        )
+        if (movement > 0.025 || turningAtDestination) route.stalledPolls = 0 else route.stalledPolls++
         route.previousX = actual.x
         route.previousZ = actual.z
         if (route.stalledPolls >= route.profile.stallPolls) {

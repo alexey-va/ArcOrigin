@@ -460,19 +460,27 @@ private class OriginSceneService(
             finish(running, "move-actor-missing")
             return
         }
+        val moves = consecutiveOriginSceneMoves(running.cycle.steps, index)
+        val finalMove = moves.last()
+        val finalPoint = running.scene.anchors.getValue(finalMove.anchor)
         running.resources.clearMovementPose(actor)
-        val destination = running.scene.anchors.getValue(step.anchor).inWorld(world)
-        if (!routeController.navigate(actor, destination, running.scene.routeProfiles.getValue(step.routeProfile))) {
+        val destination = finalPoint.inWorld(world)
+        val via = moves.dropLast(1).map { running.scene.anchors.getValue(it.anchor).inWorld(world) }
+        val profile = running.scene.routeProfiles.getValue(step.routeProfile)
+        if (!routeController.navigate(
+                actor,
+                destination,
+                profile,
+                via = via,
+                faceOnArrival = finalPoint.explicitPose,
+            )
+        ) {
             finish(running, "route-unavailable")
             return
         }
-        awaitRoute(running, actor, destination, step.timeoutTicks) { success ->
-            if (success) {
-                if (running.scene.anchors.getValue(step.anchor).explicitPose) {
-                    actor.entity.setRotation(destination.yaw, destination.pitch)
-                }
-                runStep(running, index + 1)
-            } else finish(running, "route-timeout")
+        awaitRoute(running, actor, destination, moves.sumOf { it.timeoutTicks }) { success ->
+            if (success) running.execution.advanceAfterCompletedSteps(index, index + moves.size)
+            else finish(running, "route-timeout")
         }
     }
 
@@ -500,7 +508,13 @@ private class OriginSceneService(
         }
         var routeFailed = false
         resolvedRoutes.forEach { route ->
-            if (!routeController.navigate(route.actor, route.destination, profile)) routeFailed = true
+            if (!routeController.navigate(
+                    route.actor,
+                    route.destination,
+                    profile,
+                    faceOnArrival = route.explicitPose,
+                )
+            ) routeFailed = true
         }
         if (routeFailed) {
             resolvedRoutes.forEach { routeController.stop(it.actor) }
@@ -539,12 +553,6 @@ private class OriginSceneService(
                 completed += route.actor.id
             }
             if (completed.size == routes.size) {
-                routes.forEach { route ->
-                    val anchor = route.destination
-                    if (route.explicitPose) {
-                        route.actor.entity.setRotation(anchor.yaw, anchor.pitch)
-                    }
-                }
                 runStep(running, index + 1)
             } else if (remainingTicks <= 2L) {
                 routes.forEach { routeController.stop(it.actor) }
@@ -944,12 +952,12 @@ private class OriginSceneService(
             val actor = npc(actorId)?.takeIf(NPC::isSpawned) ?: return@forEach
             val home = running.scene.actors.getValue(actorId).home.inWorld(world)
             val profile = selectOriginSceneHomeProfile(running.scene.routeProfiles, running.cycle, actorId, home)
-            if (profile == null || actor.entity.location.distanceSquared(home) < 0.8) {
+            if (profile == null) {
                 check(actor.entity.teleport(home)) { "NPC $actorId home teleport rejected" }
                 return@forEach
             }
             running.resources.clearMovementPose(actor)
-            if (routeController.navigate(actor, home, profile)) pending++
+            if (routeController.navigate(actor, home, profile, faceOnArrival = true)) pending++
             else check(actor.entity.teleport(home)) { "NPC $actorId home teleport rejected" }
         }
         if (pending == 0) {

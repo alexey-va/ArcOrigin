@@ -143,6 +143,35 @@ class OriginSceneExecutionTest : FreeSpec({
         run.close()
     }
 
+    "completed multi-step route advances once within its expected step range" {
+        val scheduler = TestTaskScheduler()
+        val effects = RecordingSceneEffects()
+        val run = OriginSceneExecution(listOf("move-a", "move-b", "wait", "move-c"), 100, effects, scheduler)
+        run.start()
+
+        run.advanceAfterCompletedSteps(expectedIndex = 0, nextIndex = 2)
+        run.stepIndex shouldBe 2
+        run.stepId shouldBe "wait"
+        effects.executed shouldBe listOf(0, 2)
+
+        run.advanceAfterCompletedSteps(expectedIndex = -1, nextIndex = 1)
+        run.advanceAfterCompletedSteps(expectedIndex = 0, nextIndex = 3)
+        run.advanceAfterCompletedSteps(expectedIndex = 2, nextIndex = 2)
+        run.advanceAfterCompletedSteps(expectedIndex = 2, nextIndex = 5)
+        run.stepIndex shouldBe 2
+        effects.executed shouldBe listOf(0, 2)
+
+        run.advance(3)
+        run.advanceAfterCompletedSteps(expectedIndex = 3, nextIndex = 4)
+        run.phase shouldBe OriginSceneExecutionPhase.RETURNING
+        run.advanceAfterCompletedSteps(expectedIndex = 3, nextIndex = 4)
+        effects.executed shouldBe listOf(0, 2, 3)
+        effects.cleanups shouldBe listOf(true)
+        run.completeReturn("complete")
+        run.advanceAfterCompletedSteps(expectedIndex = 3, nextIndex = 4)
+        effects.releases shouldBe listOf("complete")
+    }
+
     "a repeating callback is fenced when the execution is interrupted" {
         val scheduler = TestTaskScheduler()
         val effects = RecordingSceneEffects()

@@ -881,6 +881,7 @@ private data class OriginDiningAmbientRoute(
     val collecting: Boolean,
     val drink: DiningDrinkOrder? = null,
     var waypoint: Int = 0,
+    var routeStartIndex: Int = 0,
     var atTable: Boolean = false,
 )
 
@@ -2250,6 +2251,8 @@ private class OriginDiningService : AutoCloseable {
     private fun navigateLevel(
         npc: net.citizensnpcs.api.npc.NPC,
         destination: Location,
+        via: List<Location> = emptyList(),
+        faceOnArrival: Boolean = false,
     ): Boolean {
         val profile = OriginDiningLayout.routeProfile(destination)
         if (profile == null) {
@@ -2261,7 +2264,7 @@ private class OriginDiningService : AutoCloseable {
             )
             return false
         }
-        return routeController.navigate(npc, destination, profile)
+        return routeController.navigate(npc, destination, profile, via = via, faceOnArrival = faceOnArrival)
     }
 
     private fun logRouteEvent(event: NpcRouteEvent) {
@@ -2368,7 +2371,7 @@ private class OriginDiningService : AutoCloseable {
         val state = OriginDiningWaiterReturn(token, home, restMillis, reason)
         waiterReturns[waiterId] = state
         npc.entity.addScoreboardTag(WAITER_BUSY_TAG)
-        if (!navigateLevel(npc, home)) {
+        if (!navigateLevel(npc, home, faceOnArrival = true)) {
             finishWaiterReturn(waiterId, token, arrived = false, reason = "route-unavailable")
             return
         }
@@ -2419,8 +2422,7 @@ private class OriginDiningService : AutoCloseable {
             }
             val distance = npc.entity.location.distance(state.home)
             val outcome = routeController.consumeOutcome(npc)
-            if (OriginDiningReliabilityPolicy.hasArrivedHome(distance)) {
-                stopWaiterNavigation(npc)
+            if (outcome?.successful == true && OriginDiningReliabilityPolicy.hasArrivedHome(distance)) {
                 finishWaiterReturn(waiterId, token, arrived = true, reason = state.reason)
                 return@runLater
             }
@@ -2429,7 +2431,7 @@ private class OriginDiningService : AutoCloseable {
                 finishWaiterReturn(waiterId, token, arrived = false, reason = outcome?.reason ?: "return-timeout")
                 return@runLater
             }
-            if (!isWaiterNavigating(npc) && !navigateLevel(npc, state.home)) {
+            if (!isWaiterNavigating(npc) && !navigateLevel(npc, state.home, faceOnArrival = true)) {
                 finishWaiterReturn(waiterId, token, arrived = false, reason = "route-unavailable")
                 return@runLater
             }
@@ -2458,10 +2460,6 @@ private class OriginDiningService : AutoCloseable {
             return
         }
         state.arrived = true
-        waiter(waiterId)?.takeIf { it.isSpawned }?.let { npc ->
-            npc.getOrAddTrait(RotationTrait::class.java).physicalSession.rotateToHave(state.home.yaw, 0f)
-            npc.entity.setRotation(state.home.yaw, 0f)
-        }
         clearWaiterCarry(waiterId)
         val now = System.currentTimeMillis()
         if (state.restMillis > 0L) {
@@ -3224,13 +3222,16 @@ private class OriginDiningService : AutoCloseable {
             table.transit?.let { add(it.inWorld(world)) }
             add(table.waiterStop.inWorld(world))
         }
-        val route = OriginDiningAmbientRoute(UUID.randomUUID(), table, dish, waypoints, collecting)
+        val route = OriginDiningAmbientRoute(
+            UUID.randomUUID(), table, dish, waypoints, collecting,
+            waypoint = waypoints.lastIndex,
+        )
         ambientRoutes[waiterId] = route
         waiterOperationTokens[waiterId] = route.token
         life.preempt(waiterId)
         if (collecting) clearWaiterCarry(waiterId) else setWaiterCarry(waiterId, dish)
         npc.entity.addScoreboardTag(WAITER_BUSY_TAG)
-        navigateLevel(npc, waypoints.first())
+        navigateAmbientRouteSegment(npc, route)
         info("ORIGIN_DINING phase=AMBIENT_ROUTE_STARTED npc={} table={} guest={} dish={} reason={} target={}", waiterId, table.id, table.npcId, dish.id, reason, location(waypoints.last()))
         monitorAmbientRoute(waiterId, route.token, 0)
         return true
@@ -3259,7 +3260,7 @@ private class OriginDiningService : AutoCloseable {
         life.preempt(waiterId)
         clearWaiterCarry(waiterId)
         npc.entity.addScoreboardTag(WAITER_BUSY_TAG)
-        navigateLevel(npc, pickup)
+        navigateAmbientRouteSegment(npc, route)
         info("ORIGIN_DINING_DRINK phase=ROUTE_STARTED bar={} waiter={} table={}", drink.bar.actorId, waiterId, table.id)
         monitorAmbientRoute(waiterId, route.token, 0)
         return true
@@ -3277,13 +3278,12 @@ private class OriginDiningService : AutoCloseable {
                 cancelAmbientRoute(waiterId, "world-changed")
                 return@runLater
             }
-            val distance = npc.entity.location.distance(destination)
             val outcome = routeController.consumeOutcome(npc)
             if (outcome?.successful == false) {
                 cancelAmbientRoute(waiterId, outcome.reason ?: "route-failed")
                 return@runLater
             }
-            if (distance <= OriginDiningLayout.waiterReadyMargin) {
+            if (outcome?.successful == true) {
                 if (route.waypoint == 0 && route.drink != null) {
                     val stack = runCatching { life.drinks.pickup(route.drink) }.getOrElse {
                         warn("ORIGIN_DINING_DRINK phase=PICKUP_FAILED waiter=$waiterId table=${route.table.id}", it)
@@ -3299,12 +3299,12 @@ private class OriginDiningService : AutoCloseable {
                     (npc.entity as? LivingEntity)?.swingMainHand()
                 }
                 if (route.waypoint + 1 < route.waypoints.size) {
-                    route.waypoint++
-                    navigateLevel(npc, route.waypoints[route.waypoint])
+                    route.routeStartIndex = route.waypoint + 1
+                    route.waypoint = route.waypoints.lastIndex
+                    navigateAmbientRouteSegment(npc, route)
                     monitorAmbientRoute(waiterId, token, 0)
                     return@runLater
                 }
-                stopWaiterNavigation(npc)
                 route.atTable = true
                 serveAmbientTable(waiterId, route, npc)
                 return@runLater
@@ -3313,9 +3313,23 @@ private class OriginDiningService : AutoCloseable {
                 cancelAmbientRoute(waiterId, "stalled")
                 return@runLater
             }
-            if (!isWaiterNavigating(npc)) navigateLevel(npc, destination)
+            if (!isWaiterNavigating(npc)) navigateAmbientRouteSegment(npc, route)
             monitorAmbientRoute(waiterId, token, poll + 1)
         }
+    }
+
+    private fun navigateAmbientRouteSegment(
+        npc: net.citizensnpcs.api.npc.NPC,
+        route: OriginDiningAmbientRoute,
+    ) {
+        val destination = route.waypoints[route.waypoint]
+        val via = route.waypoints.subList(route.routeStartIndex, route.waypoint)
+        navigateLevel(
+            npc,
+            destination,
+            via = via,
+            faceOnArrival = route.waypoint == route.waypoints.lastIndex,
+        )
     }
 
     private fun serveAmbientTable(waiterId: Int, route: OriginDiningAmbientRoute, npc: net.citizensnpcs.api.npc.NPC) {
