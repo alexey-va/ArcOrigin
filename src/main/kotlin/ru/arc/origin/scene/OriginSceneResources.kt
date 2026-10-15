@@ -2,7 +2,6 @@ package ru.arc.origin.scene
 
 import net.citizensnpcs.api.npc.NPC
 import net.citizensnpcs.trait.LookClose
-import net.citizensnpcs.trait.RotationTrait
 import net.citizensnpcs.api.trait.trait.Equipment as CitizensEquipment
 import org.bukkit.Location
 import org.bukkit.Material
@@ -21,7 +20,9 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
 import org.joml.AxisAngle4f
 import org.joml.Vector3f
+import ru.arc.npc.NpcRouteRotation
 import ru.arc.npc.npcRouteYaw
+import ru.arc.npc.smoothNpcRotation
 
 /** A failure retained by [OriginSceneResources] for an explicit cleanup retry. */
 internal data class OriginSceneCleanupFailure(
@@ -39,7 +40,18 @@ internal data class OriginSceneCleanupFailure(
  * permits it, so a partial operation remains retryable instead of becoming a
  * leaked world side effect.
  */
-internal class OriginSceneResources {
+internal class OriginSceneResources(
+    private val smoothRotation: (NPC, Float, Float) -> NpcRouteRotation = ::smoothNpcRotation,
+) {
+    private data class RotationSnapshot(
+        val actor: NPC,
+        val entity: Entity,
+        val world: World,
+        val yaw: Float,
+        val pitch: Float,
+        var owner: NpcRouteRotation? = null,
+    )
+
     private data class HandSnapshot(
         val id: Int,
         val npc: NPC,
@@ -62,8 +74,7 @@ internal class OriginSceneResources {
     private val containers = linkedSetOf<Location>()
     private val displays = linkedMapOf<String, BlockDisplay>()
     private val items = linkedMapOf<String, ItemDisplay>()
-    private val rotations = linkedMapOf<Int, Pair<NPC, Location>>()
-    private val explicitRotations = mutableSetOf<Int>()
+    private val rotations = linkedMapOf<Int, RotationSnapshot>()
     private val lookClose = linkedMapOf<Int, Pair<LookClose, Boolean>>()
     private val usingItems = linkedMapOf<Int, LivingEntity>()
 
@@ -92,8 +103,7 @@ internal class OriginSceneResources {
     /** Owns the original facing for a seated gesture or workstation action. */
     fun face(actor: NPC, target: Location) {
         check(actor.isSpawned && actor.entity.world == target.world)
-        captureFacing(actor)
-        actor.faceLocation(target)
+        facePoint(actor, target)
     }
 
     /** Conversation yaw is independent of mounted eye offsets and target-height compensation. */
@@ -106,20 +116,30 @@ internal class OriginSceneResources {
 
     /** Absolute work point, measured from eyes, never from Citizens' feet-based target. */
     fun facePoint(actor: NPC, target: Location) {
+        check(actor.isSpawned && actor.entity.world == target.world)
         captureFacing(actor)
-        explicitRotations += actor.id
-        faceOriginScenePoint(actor, target)
+        faceOriginScenePoint(actor, target, smoothRotation)?.let { owner ->
+            rotations.getValue(actor.id).owner = owner
+        }
     }
 
     private fun faceRotation(actor: NPC, yaw: Float, pitch: Float) {
         captureFacing(actor)
-        explicitRotations += actor.id
-        actor.getOrAddTrait(RotationTrait::class.java).physicalSession.rotateToHave(yaw, pitch)
-        actor.entity.setRotation(yaw, pitch)
+        rotations.getValue(actor.id).owner = smoothRotation(actor, yaw, pitch)
     }
 
     private fun captureFacing(actor: NPC) {
-        rotations.putIfAbsent(actor.id, actor to actor.entity.location.clone())
+        val entity = actor.entity
+        rotations.putIfAbsent(
+            actor.id,
+            RotationSnapshot(
+                actor = actor,
+                entity = entity,
+                world = entity.world,
+                yaw = (entity as? LivingEntity)?.bodyYaw ?: entity.yaw,
+                pitch = entity.pitch,
+            ),
+        )
         if (actor.id !in lookClose && actor.hasTrait(LookClose::class.java)) {
             val trait = actor.getTraitNullable(LookClose::class.java)
             if (trait != null) {
@@ -461,13 +481,16 @@ internal class OriginSceneResources {
         }
         rotations.toMap().forEach { (id, snapshot) ->
             try {
-                val (actor, original) = snapshot
-                if (actor.isSpawned && actor.entity.world == original.world) {
-                    if (id in explicitRotations) actor.getOrAddTrait(RotationTrait::class.java).physicalSession
-                        .rotateToHave(original.yaw, original.pitch)
-                    actor.entity.setRotation(original.yaw, original.pitch)
+                val actor = snapshot.actor
+                if (
+                    actor.isSpawned &&
+                    actor.entity === snapshot.entity &&
+                    actor.entity.world == snapshot.world &&
+                    snapshot.owner?.isLatestOwner == true &&
+                    !actor.navigator.isNavigating
+                ) {
+                    smoothRotation(actor, snapshot.yaw, snapshot.pitch)
                 }
-                explicitRotations.remove(id)
                 rotations.remove(id)
             } catch (failure: Exception) {
                 failures += OriginSceneCleanupFailure("rotation", id.toString(), failure)
@@ -541,12 +564,15 @@ internal class OriginSceneResources {
 }
 
 /** Caller owns the actor's lifecycle; the target is an absolute world point. */
-internal fun faceOriginScenePoint(actor: NPC, target: Location) {
+internal fun faceOriginScenePoint(
+    actor: NPC,
+    target: Location,
+    smoothRotation: (NPC, Float, Float) -> NpcRouteRotation = ::smoothNpcRotation,
+): NpcRouteRotation? {
     check(actor.isSpawned && actor.entity.world == target.world)
     val eye = (actor.entity as? LivingEntity)?.eyeLocation ?: actor.entity.location
     val direction = target.toVector().subtract(eye.toVector())
-    if (direction.lengthSquared() < 1e-8) return
+    if (direction.lengthSquared() < 1e-8) return null
     val look = eye.clone().setDirection(direction)
-    actor.getOrAddTrait(RotationTrait::class.java).physicalSession.rotateToHave(look.yaw, look.pitch)
-    actor.entity.setRotation(look.yaw, look.pitch)
+    return smoothRotation(actor, look.yaw, look.pitch)
 }

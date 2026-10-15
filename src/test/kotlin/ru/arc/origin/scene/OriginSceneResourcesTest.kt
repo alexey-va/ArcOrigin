@@ -11,10 +11,10 @@ import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import net.citizensnpcs.api.ai.Navigator
 import net.citizensnpcs.api.npc.NPC
 import net.citizensnpcs.api.trait.trait.Equipment as CitizensEquipment
 import net.citizensnpcs.trait.LookClose
-import net.citizensnpcs.trait.RotationTrait
 import org.bukkit.Bukkit
 import org.bukkit.Location
 import org.bukkit.Material
@@ -25,7 +25,6 @@ import org.bukkit.block.Lidded
 import org.bukkit.block.data.BlockData
 import org.bukkit.entity.BlockDisplay
 import org.bukkit.entity.Cat
-import org.bukkit.entity.Entity
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Pose as BukkitPose
@@ -41,6 +40,7 @@ import org.mockito.kotlin.times
 import org.mockito.kotlin.verify as mockitoVerify
 import org.mockito.kotlin.whenever
 import ru.arc.paper.testing.MockBukkitTestRuntime
+import ru.arc.npc.NpcRouteRotation
 import java.util.function.Consumer
 
 class OriginSceneResourcesTest : StringSpec({
@@ -94,78 +94,126 @@ class OriginSceneResourcesTest : StringSpec({
         equipped.firstValue.amount shouldBe 3
     }
 
-    "face restores the original native rotation during cleanup" {
+    "face restores the original body yaw and pitch through a smooth rotation lease" {
         val npc = mockk<NPC>()
-        val entity = mockitoMock<Entity>()
+        val entity = mockitoMock<LivingEntity>()
         val world = mockk<World>(relaxed = true)
+        val navigator = mockk<Navigator>()
         val lookClose = mockk<LookClose>()
-        val original = Location(world, 12.0, 64.0, -4.0, 37.0f, 11.0f)
+        val original = Location(world, 12.0, 64.0, -4.0, -118.0f, 3.0f)
         val target = Location(world, 20.0, 64.0, -4.0)
         every { npc.id } returns 23
         every { npc.isSpawned } returns true
         every { npc.entity } returns entity
+        every { npc.navigator } returns navigator
+        every { navigator.isNavigating } returns false
         every { npc.hasTrait(LookClose::class.java) } returns true
         every { npc.getTraitNullable(LookClose::class.java) } returns lookClose
-        every { npc.faceLocation(target) } just runs
         every { lookClose.isEnabled } returns true
         every { lookClose.lookClose(any()) } just runs
         whenever(entity.world).thenReturn(world)
         whenever(entity.location).thenReturn(original)
+        whenever(entity.eyeLocation).thenReturn(Location(world, 12.0, 65.6, -4.0))
+        whenever(entity.bodyYaw).thenReturn(37.0f)
+        whenever(entity.pitch).thenReturn(11.0f)
+        val rotations = SmoothRotationRecorder()
 
-        val resources = OriginSceneResources()
+        val resources = OriginSceneResources(rotations.turn)
         resources.face(npc, target)
         resources.cleanup() shouldBe emptyList()
 
-        verify(exactly = 1) { npc.faceLocation(target) }
+        rotations.turns.size shouldBe 2
+        rotations.turns.last() shouldBe (37.0f to 11.0f)
         verify(exactly = 1) { lookClose.lookClose(false) }
         verify(exactly = 1) { lookClose.lookClose(true) }
-        mockitoVerify(entity).setRotation(37.0f, 11.0f)
-    }
-
-    "horizontal conversation ignores partner height and restores its rotation owner" {
-        val npc = mockk<NPC>()
-        val entity = mockitoMock<Entity>()
-        val world = mockk<World>(relaxed = true)
-        val rotation = mockk<RotationTrait>(relaxed = true)
-        every { npc.id } returns 419
-        every { npc.isSpawned } returns true
-        every { npc.entity } returns entity
-        every { npc.hasTrait(LookClose::class.java) } returns false
-        every { npc.getOrAddTrait(RotationTrait::class.java) } returns rotation
-        whenever(entity.world).thenReturn(world)
-        whenever(entity.location).thenReturn(Location(world, 0.0, 70.0, 0.0, 37f, 0f))
-        val resources = OriginSceneResources()
-        resources.faceHorizontal(npc, Location(world, 2.0, 74.0, 0.0))
-        resources.faceHorizontal(npc, Location(world, 2.0, 74.0, 0.0), pitch = 6f)
-        resources.cleanup() shouldBe emptyList()
-        verify { rotation.physicalSession.rotateToHave(-90f, 0f) }
-        verify { rotation.physicalSession.rotateToHave(-90f, 6f) }
-        verify { rotation.physicalSession.rotateToHave(37f, 0f) }
         verify(exactly = 0) { npc.faceLocation(any()) }
-        mockitoVerify(entity).setRotation(-90f, 0f)
-        mockitoVerify(entity).setRotation(37f, 0f)
+        mockitoVerify(entity, times(0)).setRotation(any(), any())
     }
 
-    "work point above feet but below eyes makes a seated guest look down" {
+    "horizontal conversation ignores partner height and restores body yaw through the latest lease" {
         val npc = mockk<NPC>()
         val entity = mockitoMock<LivingEntity>()
         val world = mockk<World>(relaxed = true)
-        val rotation = mockk<RotationTrait>(relaxed = true)
+        val navigator = mockk<Navigator>()
         every { npc.id } returns 419
         every { npc.isSpawned } returns true
         every { npc.entity } returns entity
+        every { npc.navigator } returns navigator
+        every { navigator.isNavigating } returns false
         every { npc.hasTrait(LookClose::class.java) } returns false
-        every { npc.getOrAddTrait(RotationTrait::class.java) } returns rotation
+        whenever(entity.world).thenReturn(world)
+        whenever(entity.location).thenReturn(Location(world, 0.0, 70.0, 0.0, -122f, 0f))
+        whenever(entity.bodyYaw).thenReturn(37f)
+        whenever(entity.pitch).thenReturn(4f)
+        val rotations = SmoothRotationRecorder()
+        val resources = OriginSceneResources(rotations.turn)
+        resources.faceHorizontal(npc, Location(world, 2.0, 74.0, 0.0))
+        resources.faceHorizontal(npc, Location(world, 2.0, 74.0, 0.0), pitch = 6f)
+        resources.cleanup() shouldBe emptyList()
+        rotations.turns shouldContainExactly listOf(-90f to 0f, -90f to 6f, 37f to 4f)
+        verify(exactly = 0) { npc.faceLocation(any()) }
+        mockitoVerify(entity, times(0)).setRotation(any(), any())
+    }
+
+    "work point above feet but below eyes makes a seated guest look down smoothly" {
+        val npc = mockk<NPC>()
+        val entity = mockitoMock<LivingEntity>()
+        val world = mockk<World>(relaxed = true)
+        val navigator = mockk<Navigator>()
+        every { npc.id } returns 419
+        every { npc.isSpawned } returns true
+        every { npc.entity } returns entity
+        every { npc.navigator } returns navigator
+        every { navigator.isNavigating } returns false
+        every { npc.hasTrait(LookClose::class.java) } returns false
         whenever(entity.world).thenReturn(world)
         whenever(entity.location).thenReturn(Location(world, 0.0, 70.0, 0.0, 0f, 0f))
         whenever(entity.eyeLocation).thenReturn(Location(world, 0.0, 71.5, 0.0))
-        val resources = OriginSceneResources()
+        whenever(entity.bodyYaw).thenReturn(12f)
+        whenever(entity.pitch).thenReturn(3f)
+        val rotations = SmoothRotationRecorder()
+        val resources = OriginSceneResources(rotations.turn)
         resources.facePoint(npc, Location(world, 0.0, 71.0, 0.5))
-        verify { rotation.physicalSession.rotateToHave(0f, 45f) }
-        mockitoVerify(entity).setRotation(0f, 45f)
+        rotations.turns.first() shouldBe (0f to 45f)
         verify(exactly = 0) { npc.faceLocation(any()) }
         resources.cleanup() shouldBe emptyList()
-        verify { rotation.physicalSession.rotateToHave(0f, 0f) }
+        rotations.turns.last() shouldBe (12f to 3f)
+        mockitoVerify(entity, times(0)).setRotation(any(), any())
+    }
+
+    "cleanup does not overwrite a newer rotation owner" {
+        val npc = mockFacingNpc(420)
+        val rotations = SmoothRotationRecorder()
+        val resources = OriginSceneResources(rotations.turn)
+        resources.faceHorizontal(npc, Location(npc.entity.world, 1.0, 64.0, 0.0))
+        val routeOwner = rotations.turn(npc, 90f, 0f)
+
+        resources.cleanup() shouldBe emptyList()
+
+        routeOwner.isLatestOwner shouldBe true
+        rotations.turns.size shouldBe 2
+    }
+
+    "cleanup does not restore rotation while navigation owns the actor" {
+        val npc = mockFacingNpc(421, navigating = true)
+        val rotations = SmoothRotationRecorder()
+        val resources = OriginSceneResources(rotations.turn)
+        resources.faceHorizontal(npc, Location(npc.entity.world, 1.0, 64.0, 0.0))
+
+        resources.cleanup() shouldBe emptyList()
+
+        rotations.turns.size shouldBe 1
+    }
+
+    "standalone scene facing is a no-op when the target equals the eyes" {
+        val npc = mockFacingNpc(422)
+        val eye = Location(npc.entity.world, 0.0, 65.6, 0.0)
+        whenever((npc.entity as LivingEntity).eyeLocation).thenReturn(eye)
+        val rotations = SmoothRotationRecorder()
+
+        faceOriginScenePoint(npc, eye, rotations.turn) shouldBe null
+
+        rotations.turns shouldBe emptyList()
     }
 
     "use item is cleared during cleanup" {
@@ -462,6 +510,38 @@ class OriginSceneResourcesTest : StringSpec({
         sitting shouldBe false
     }
 })
+
+private class SmoothRotationRecorder {
+    val turns = mutableListOf<Pair<Float, Float>>()
+    private var latest: NpcRouteRotation? = null
+    val turn: (NPC, Float, Float) -> NpcRouteRotation = { _, yaw, pitch ->
+        turns += yaw to pitch
+        mockk<NpcRouteRotation>(relaxed = true).also { lease ->
+            every { lease.isLatestOwner } answers { latest === lease }
+            latest = lease
+        }
+    }
+}
+
+private fun mockFacingNpc(id: Int, navigating: Boolean = false): NPC {
+    val entity = mockitoMock<LivingEntity>()
+    val world = mockk<World>(relaxed = true)
+    val navigator = mockk<Navigator>()
+    val location = Location(world, 0.0, 64.0, 0.0, 0f, 0f)
+    every { navigator.isNavigating } returns navigating
+    val npc = mockk<NPC>()
+    every { npc.id } returns id
+    every { npc.isSpawned } returns true
+    every { npc.entity } returns entity
+    every { npc.navigator } returns navigator
+    every { npc.hasTrait(LookClose::class.java) } returns false
+    whenever(entity.world).thenReturn(world)
+    whenever(entity.location).thenReturn(location)
+    whenever(entity.eyeLocation).thenReturn(Location(world, 0.0, 65.6, 0.0))
+    whenever(entity.bodyYaw).thenReturn(0f)
+    whenever(entity.pitch).thenReturn(0f)
+    return npc
+}
 
 private fun mockNpc(id: Int): NPC = mockk {
     every { this@mockk.id } returns id

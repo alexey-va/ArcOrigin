@@ -12,6 +12,7 @@ import org.bukkit.Color
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.Particle
+import org.bukkit.World
 import org.bukkit.entity.BlockDisplay
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.LivingEntity
@@ -34,6 +35,7 @@ import ru.arc.npc.NpcRouteCell
 import ru.arc.npc.NpcRouteEvent
 import ru.arc.npc.NpcRouteObstacleSource
 import ru.arc.npc.NpcRouteProfile
+import ru.arc.npc.smoothNpcRotation
 import ru.arc.observability.StructuredDebugLine
 import ru.arc.logging.ArcLogging.info
 import ru.arc.logging.ArcLogging.warn
@@ -947,40 +949,77 @@ private class OriginSceneService(
             running.execution.completeReturn(reason)
             return
         }
-        var pending = 0
+        val routedActorIds = linkedSetOf<Int>()
         originSceneReturnActorIds(running.cycle.actorIds, running.mountedPairs, keepMounted).forEach { actorId ->
             val actor = npc(actorId)?.takeIf(NPC::isSpawned) ?: return@forEach
             val home = running.scene.actors.getValue(actorId).home.inWorld(world)
             val profile = selectOriginSceneHomeProfile(running.scene.routeProfiles, running.cycle, actorId, home)
             if (profile == null) {
-                check(actor.entity.teleport(home)) { "NPC $actorId home teleport rejected" }
+                teleportHome(running, actorId, world)
                 return@forEach
             }
             running.resources.clearMovementPose(actor)
-            if (routeController.navigate(actor, home, profile, faceOnArrival = true)) pending++
-            else check(actor.entity.teleport(home)) { "NPC $actorId home teleport rejected" }
+            if (routeController.navigate(actor, home, profile, faceOnArrival = true)) routedActorIds += actorId
+            else teleportHome(running, actorId, world)
         }
-        if (pending == 0) {
+        if (routedActorIds.isEmpty()) {
             running.resources.restorePoses()
             running.execution.completeReturn(reason)
             return
         }
-        awaitReturns(running, reason, 400L, keepMounted)
+        awaitReturns(running, reason, 400L, world, routedActorIds, mutableSetOf())
     }
 
-    private fun awaitReturns(running: ActiveOriginSceneCycle, reason: String, remainingTicks: Long, keepMounted: Boolean) {
+    private fun awaitReturns(
+        running: ActiveOriginSceneCycle,
+        reason: String,
+        remainingTicks: Long,
+        world: World,
+        routedActorIds: Set<Int>,
+        completedActorIds: MutableSet<Int>,
+    ) {
         later(running, 4L, allowReturning = true) {
-            val moving = running.cycle.actorIds.mapNotNull(::npc).filter(routeController::isNavigating)
-            if (moving.isEmpty()) {
-                restoreHomePoses(running, keepMounted)
-                running.execution.completeReturn(reason)
+            routedActorIds.filterNot(completedActorIds::contains).forEach { actorId ->
+                val actor = npc(actorId)?.takeIf(NPC::isSpawned)
+                if (actor == null) {
+                    completedActorIds += actorId
+                } else if (!routeController.isNavigating(actor)) {
+                    val successful = routeController.consumeOutcome(actor)?.successful == true
+                    if (!successful) teleportHome(running, actorId, world)
+                    completedActorIds += actorId
+                }
             }
-            else if (remainingTicks <= 4L) {
-                moving.forEach(routeController::stop)
-                restoreHomePoses(running, keepMounted)
+            if (completedActorIds.containsAll(routedActorIds)) {
+                running.resources.restorePoses()
+                running.execution.completeReturn(reason)
+            } else if (remainingTicks <= 4L) {
+                routedActorIds.filterNot(completedActorIds::contains).forEach { actorId ->
+                    npc(actorId)?.takeIf(NPC::isSpawned)?.let { actor ->
+                        routeController.stop(actor)
+                        routeController.consumeOutcome(actor)
+                    }
+                    teleportHome(running, actorId, world)
+                    completedActorIds += actorId
+                }
+                running.resources.restorePoses()
                 running.execution.completeReturn("$reason-return-timeout")
-            } else awaitReturns(running, reason, remainingTicks - 4L, keepMounted)
+            } else awaitReturns(running, reason, remainingTicks - 4L, world, routedActorIds, completedActorIds)
         }
+    }
+
+    private fun teleportHome(running: ActiveOriginSceneCycle, actorId: Int, world: World) {
+        val actor = npc(actorId)?.takeIf(NPC::isSpawned) ?: return
+        val home = running.scene.actors.getValue(actorId).home.inWorld(world)
+        val entity = actor.entity
+        val current = entity.location
+        if (current.world != home.world || current.distanceSquared(home) > 1.0e-8) {
+            val destination = home.clone().apply {
+                yaw = (entity as? LivingEntity)?.bodyYaw ?: entity.yaw
+                pitch = entity.pitch
+            }
+            check(entity.teleport(destination)) { "NPC $actorId home teleport rejected" }
+        }
+        smoothNpcRotation(actor, home.yaw, home.pitch)
     }
 
     private fun restoreHomePoses(running: ActiveOriginSceneCycle, keepMounted: Boolean) {

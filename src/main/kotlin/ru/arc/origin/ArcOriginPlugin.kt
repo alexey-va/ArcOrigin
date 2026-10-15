@@ -144,7 +144,11 @@ open class ArcOriginPlugin : JavaPlugin() {
     }
 
     override fun onDisable() {
-        ModuleRegistry.shutdownAll()
+        try {
+            ModuleRegistry.shutdownAll()
+        } finally {
+            ru.arc.npc.NpcRouteRotation.closeAll()
+        }
         OriginMenus.close()
         commandService = null
         server.servicesManager.unregisterAll(this)

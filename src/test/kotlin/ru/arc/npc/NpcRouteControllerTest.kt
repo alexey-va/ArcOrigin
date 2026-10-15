@@ -150,6 +150,57 @@ class NpcRouteControllerTest : FreeSpec({
         isNpcRouteFootprintClear(world, cell, 69.0, ravager, field) shouldBe false
     }
 
+    "field profile lifts a small solid edge but keeps center support and hard blockers" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        val crop = routeTestBlock(Material.WHEAT, true)
+        val farmland = routeTestBlock(Material.FARMLAND, false, 0.9375)
+        val dirtLip = routeTestBlock(Material.DIRT, false, 1.0)
+        val wall = routeTestBlock(Material.STONE, false, 1.0)
+        val water = routeTestBlock(Material.WATER, true)
+        every { water.isLiquid } returns true
+        var neighbor: Block = dirtLip
+        var upper: Block = air
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
+            when (Triple(firstArg<Int>(), secondArg<Int>(), thirdArg<Int>())) {
+                Triple(0, 67, 0) -> farmland
+                Triple(0, 68, 0) -> crop
+                Triple(1, 67, 0) -> neighbor
+                Triple(1, 68, 0) -> upper
+                else -> air
+            }
+        }
+        val field = NpcRouteProfile(
+            "field", 69, NpcRouteBounds(0, 1, 0, 0), maximumStepHeight = 1.0,
+            maximumSurfaceDrop = 0.0625, surfaceSearchRange = 2,
+            allowedSupportMaterials = setOf(Material.FARMLAND),
+        )
+        val body = NpcRouteFootprint(0.7, 0.7, 0.0, 1.6)
+        val cell = NpcRouteCell(0, 0)
+        val surface = 67.9375
+
+        // The adjacent full block raises the effective standing plane to 68.0;
+        // its collision is not simply ignored as a clipped overlap.
+        isNpcRouteFootprintClear(world, cell, surface, body, field) shouldBe true
+        resolveSurfaceY(world, field, NpcRouteCell(1, 0)) shouldBe null
+
+        isNpcRouteFootprintClear(world, cell, surface, body, field.copy(maximumSurfaceDrop = 0.0)) shouldBe false
+        upper = wall
+        isNpcRouteFootprintClear(
+            world, cell, surface, body, field.copy(maximumSurfaceDrop = 0.5),
+        ) shouldBe false
+        upper = air
+
+        val from = Vector(0.5, surface, 0.5)
+        val to = Vector(0.6, surface, 0.5)
+        isNpcRouteSegmentClear(
+            world, field.copy(forbidden = listOf(NpcRouteBounds(1, 1, 0, 0))), from, to, body,
+        ) shouldBe false
+
+        neighbor = water
+        isNpcRouteFootprintClear(world, cell, surface, body, field) shouldBe false
+    }
+
     "wide footprint remains clear above an allowed farmland step and plants" {
         val world = mockk<World>()
         val air = routeTestBlock(Material.AIR, true)

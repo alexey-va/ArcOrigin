@@ -47,8 +47,10 @@ bounds constrain the path center; forbidden cells, adjacent furniture and native
 collision shapes constrain the whole body. Consecutive transit legs share a path;
 a pickup, wait or other scene action remains an explicit boundary.
 
-One route-scoped rotation session turns physical and rendered body/head together,
+One NPC rotation owner turns physical and rendered body/head together,
 starting from the actual body yaw and following velocity with the per-tick yaw cap.
+Stationary scene actions share that owner and tick budget with navigation, so
+serving, gestures and cleanup cannot snap the body or double-turn during a handoff.
 Final authored poses and workshop focus points are reached with the same bounded
 turn before the scene advances; no endpoint snap is needed.
 `heading-look-ahead-cells` is retained for configuration compatibility but no

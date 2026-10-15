@@ -165,6 +165,7 @@ internal fun npcRouteObstacleProfile(profile: NpcRouteProfile, footprint: NpcRou
 }
 
 private const val NPC_ROUTE_COLLISION_EPSILON = 1.0e-6
+private const val NPC_ROUTE_MAX_EDGE_LIFT = 1.0 / 16.0
 
 private fun npcRouteRangesOverlap(minA: Double, maxA: Double, minB: Double, maxB: Double): Boolean =
     minA < maxB - NPC_ROUTE_COLLISION_EPSILON && maxA > minB + NPC_ROUTE_COLLISION_EPSILON
@@ -233,6 +234,10 @@ private fun isNpcRoutePositionClear(
     val maxBlockZ = ceil(maxZ - NPC_ROUTE_COLLISION_EPSILON).toInt() - 1
 
     val collisions = mutableListOf<BoundingBox>()
+    val edgeLiftTops = mutableListOf<Double>()
+    val edgeLiftAllowance = profile?.takeIf {
+        it.allowedSupportMaterials.isNotEmpty() && it.maximumSurfaceDrop > 0.0
+    }?.let { minOf(it.maximumSurfaceDrop, it.maximumStepHeight, NPC_ROUTE_MAX_EDGE_LIFT) } ?: 0.0
     var standingY = surfaceY
     for (blockX in minBlockX..maxBlockX) {
         for (y in minBlockY..maxBlockY) {
@@ -257,15 +262,37 @@ private fun isNpcRoutePositionClear(
                                 isNpcRouteFloorCovering(block.type, box.maxY, profile.maximumStepHeight)) &&
                             boxMaxY <= surfaceY + profile.maximumStepHeight + NPC_ROUTE_COLLISION_EPSILON
                         if (allowedStep) standingY = maxOf(standingY, boxMaxY)
+                        else if (
+                            edgeLiftAllowance > NPC_ROUTE_COLLISION_EPSILON &&
+                            isNpcRouteFullTopSolidBox(block.type, box)
+                        ) {
+                            edgeLiftTops += boxMaxY
+                        }
                     }
                 }
             }
         }
     }
+    val supportedStandingY = standingY
+    val maximumStandingY = surfaceY + (profile?.maximumStepHeight ?: 0.0)
+    standingY = maxOf(
+        standingY,
+        edgeLiftTops.filter { top ->
+            top > supportedStandingY + NPC_ROUTE_COLLISION_EPSILON &&
+                top <= supportedStandingY + edgeLiftAllowance + NPC_ROUTE_COLLISION_EPSILON &&
+                top <= maximumStandingY + NPC_ROUTE_COLLISION_EPSILON
+        }.maxOrNull() ?: supportedStandingY,
+    )
     return collisions.none { box ->
         npcRouteRangesOverlap(standingY + footprint.minYOffset, standingY + footprint.maxYOffset, box.minY, box.maxY)
     }
 }
+
+private fun isNpcRouteFullTopSolidBox(type: Material, box: BoundingBox): Boolean =
+    type.isSolid &&
+        box.minX <= NPC_ROUTE_COLLISION_EPSILON && box.maxX >= 1.0 - NPC_ROUTE_COLLISION_EPSILON &&
+        box.minY <= NPC_ROUTE_COLLISION_EPSILON && box.maxY >= 1.0 - NPC_ROUTE_COLLISION_EPSILON &&
+        box.minZ <= NPC_ROUTE_COLLISION_EPSILON && box.maxZ >= 1.0 - NPC_ROUTE_COLLISION_EPSILON
 
 /** Swept body check: a clear center cell alone does not make a turn safe. */
 internal fun isNpcRouteSegmentClear(
