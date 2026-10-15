@@ -33,8 +33,11 @@ Dining, ambient scenes and the furniture workshop share
 `plugins/ARC/modules/origin-dining.yml`, `origin-scenes.yml` and
 `origin-furniture-workshop.yml`, not an `ArcOrigin/modules` directory.
 
-Four-way routing, ordered waypoints, forbidden cells, furniture obstacles and
-per-profile surface/step limits remain authoritative. Short flat corners are
+Routing first searches four-way paths. If a candidate cannot be reached that way,
+a second bounded search may connect diagonally only through the same full-body
+swept collision check. This admits real gaps between offset obstacles without
+cutting through their corners. Ordered waypoints, forbidden cells, furniture
+obstacles and per-profile surface/step limits remain authoritative. Short flat corners are
 rounded only after checking the swept body against collision shapes and blocked
 cells. `corner-smoothing-distance` bounds the approach; the existing
 `corner-smoothing-lead` bounds departure from the original polyline. With the
@@ -44,8 +47,10 @@ is checked again; rejected steps stop instead of pushing into an obstacle.
 
 The same swept-body checks apply to humans, horses and larger animals. Search
 bounds constrain the path center; forbidden cells, adjacent furniture and native
-collision shapes constrain the whole body. Consecutive transit legs share a path;
-a pickup, wait or other scene action remains an explicit boundary.
+collision shapes constrain the whole body. Consecutive transit legs share a path,
+including group moves with the same ordered actors and route profile. Intermediate
+waypoints do not stop the actors or apply an idle pose; a pickup, wait or other
+scene action remains an explicit boundary.
 
 One NPC rotation owner turns physical and rendered body/head together,
 starting from the actual body yaw and following velocity with the per-tick yaw cap.

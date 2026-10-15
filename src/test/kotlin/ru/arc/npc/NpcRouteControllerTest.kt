@@ -458,6 +458,146 @@ class NpcRouteControllerTest : FreeSpec({
         findNpcGridPath(NpcRouteCell(0, 0), listOf(NpcRouteCell(2, 0)), profile) { true } shouldBe null
     }
 
+    "live hay-and-pumpkin corner is reachable only by a fully swept diagonal fallback" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        val floor = routeTestBlock(Material.STONE, false, 1.0)
+        val hay = routeTestBlock(Material.HAY_BLOCK, false, 1.0)
+        val pumpkin = routeTestBlock(Material.PUMPKIN, false, 1.0)
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
+            when (Triple(firstArg<Int>(), secondArg<Int>(), thirdArg<Int>())) {
+                Triple(64, 70, -143), Triple(64, 70, -142) -> hay
+                Triple(67, 70, -146) -> pumpkin
+                else -> if (secondArg<Int>() == 69) floor else air
+            }
+        }
+        val start = NpcRouteCell(66, -144)
+        val goal = NpcRouteCell(65, -145)
+        val profile = NpcRouteProfile(
+            "caravan-gap", 70, NpcRouteBounds(65, 66, -145, -144), maximumStepHeight = 0.125,
+        )
+        val body = NpcRouteFootprint(0.6982422, 0.6982422, 0.0, 1.5)
+        fun center(cell: NpcRouteCell) = Vector(cell.x + 0.5, 70.0, cell.z + 0.5)
+        val canTraverse: (NpcRouteCell, NpcRouteCell) -> Boolean = { from, to ->
+            isNpcRouteSegmentClear(world, profile, center(from), center(to), body)
+        }
+        val isWalkable: (NpcRouteCell) -> Boolean = { cell ->
+            profile.allows(cell) && resolveSurfaceY(world, profile, cell)?.let { surface ->
+                isNpcRouteFootprintClear(world, cell, surface, body, profile)
+            } == true
+        }
+
+        resolveSurfaceY(world, profile, start) shouldBe 70.0
+        resolveSurfaceY(world, profile, goal) shouldBe 70.0
+        canTraverse(start, NpcRouteCell(66, -145)) shouldBe false // pumpkin clips the north edge
+        canTraverse(start, NpcRouteCell(65, -144)) shouldBe false // hay clips the west edge
+        canTraverse(start, goal) shouldBe true
+        isWalkable(start) shouldBe true
+        isWalkable(goal) shouldBe true
+
+        findNpcGridPath(
+            start, listOf(goal), profile, canTraverse = canTraverse, isWalkable = isWalkable,
+        ) shouldBe null
+        findNpcGridPath(
+            start, listOf(goal), profile, canTraverse,
+            allowDiagonalConnections = true, isWalkable = isWalkable,
+        ) shouldBe listOf(start, goal)
+        findNpcGridPathToNearestCandidate(
+            start, listOf(goal), profile, canTraverse, isWalkable = isWalkable,
+        ) shouldBe null
+        findNpcGridPathToNearestCandidate(
+            start, listOf(goal), profile, canTraverse,
+            allowDiagonalFallback = true, isWalkable = isWalkable,
+        ) shouldBe listOf(start, goal)
+    }
+
+    "diagonal fallback keeps forbidden cells, furniture, solid blocks, and liquids as hard guards" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        val floor = routeTestBlock(Material.STONE, false, 1.0)
+        val hay = routeTestBlock(Material.HAY_BLOCK, false, 1.0)
+        val pumpkin = routeTestBlock(Material.PUMPKIN, false, 1.0)
+        val wall = routeTestBlock(Material.STONE, false, 1.0)
+        val water = routeTestBlock(Material.WATER, true)
+        every { water.isLiquid } returns true
+        var diagonalObstacle: Block = air
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
+            val x = firstArg<Int>()
+            val y = secondArg<Int>()
+            val z = thirdArg<Int>()
+            when {
+                Triple(x, y, z) == Triple(64, 70, -143) || Triple(x, y, z) == Triple(64, 70, -142) -> hay
+                Triple(x, y, z) == Triple(67, 70, -146) -> pumpkin
+                Triple(x, y, z) == Triple(66, 70, -145) -> diagonalObstacle
+                y == 69 -> floor
+                else -> air
+            }
+        }
+        val start = NpcRouteCell(66, -144)
+        val goal = NpcRouteCell(65, -145)
+        val profile = NpcRouteProfile(
+            "caravan-gap", 70, NpcRouteBounds(65, 66, -145, -144), maximumStepHeight = 0.125,
+        )
+        val body = NpcRouteFootprint(0.6982422, 0.6982422, 0.0, 1.5)
+        fun center(cell: NpcRouteCell) = Vector(cell.x + 0.5, 70.0, cell.z + 0.5)
+        fun route(
+            candidateProfile: NpcRouteProfile = profile,
+            blockedFurniture: Set<NpcRouteCell> = emptySet(),
+        ): List<NpcRouteCell>? = findNpcGridPath(
+            start, listOf(goal), candidateProfile,
+            canTraverse = { from, to ->
+                isNpcRouteSegmentClear(
+                    world, candidateProfile, center(from), center(to), body, blockedFurniture,
+                )
+            },
+            allowDiagonalConnections = true,
+            isWalkable = { cell ->
+                candidateProfile.allows(cell) &&
+                    resolveSurfaceY(world, candidateProfile, cell)?.let { surface ->
+                        isNpcRouteFootprintClear(world, cell, surface, body, candidateProfile)
+                    } == true
+            },
+        )
+
+        val forbidden = profile.copy(forbidden = listOf(NpcRouteBounds(66, 66, -145, -145)))
+        isNpcRouteSegmentClear(world, forbidden, center(start), center(goal), body) shouldBe false
+        route(forbidden) shouldBe null
+
+        val furniture = setOf(NpcRouteCell(66, -145))
+        isNpcRouteSegmentClear(world, profile, center(start), center(goal), body, furniture) shouldBe false
+        route(blockedFurniture = furniture) shouldBe null
+
+        diagonalObstacle = wall
+        isNpcRouteSegmentClear(world, profile, center(start), center(goal), body) shouldBe false
+        route() shouldBe null
+
+        diagonalObstacle = water
+        isNpcRouteSegmentClear(world, profile, center(start), center(goal), body) shouldBe false
+        route() shouldBe null
+    }
+
+    "nearest-candidate fallback exhausts axial then diagonal for each goal in order" {
+        val start = NpcRouteCell(0, 0)
+        val nearby = NpcRouteCell(1, 1)
+        val farther = NpcRouteCell(2, 0)
+        val profile = NpcRouteProfile("snap", 72, NpcRouteBounds(0, 2, 0, 1))
+        val blockedEdges = setOf(
+            NpcRouteCell(1, 0) to nearby,
+        )
+        val walkable = setOf(start, NpcRouteCell(1, 0), farther, nearby)
+        val canTraverse: (NpcRouteCell, NpcRouteCell) -> Boolean = { from, to ->
+            (from to to) !in blockedEdges
+        }
+
+        findNpcGridPathToNearestCandidate(
+            start, listOf(nearby, farther), profile, canTraverse, isWalkable = { it in walkable },
+        ) shouldBe listOf(start, NpcRouteCell(1, 0), farther)
+        findNpcGridPathToNearestCandidate(
+            start, listOf(nearby, farther), profile, canTraverse,
+            allowDiagonalFallback = true, isWalkable = { it in walkable },
+        ) shouldBe listOf(start, nearby)
+    }
+
     "snapped endpoint cannot report the current cell as progress" {
         val profile = NpcRouteProfile(
             id = "hall",

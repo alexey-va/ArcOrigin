@@ -12,7 +12,7 @@ private const val ROUTE_ENDPOINT_EPSILON = 1.0e-3
 private const val ROUTE_CORNER_CLAMP_DEGREES = 45.0
 
 /**
- * Replaces flat, horizontal right-angle corners with short quadratic curves.
+ * Replaces flat, horizontal corners with short quadratic curves.
  * Each curve chord is checked independently so callers can use the same
  * footprint and obstacle rules as the source route.
  */
@@ -54,7 +54,7 @@ internal fun roundedNpcRoutePoints(
         val outgoingUnitX = outgoingX / outgoingLength
         val outgoingUnitZ = outgoingZ / outgoingLength
         val dot = incomingUnitX * outgoingUnitX + incomingUnitZ * outgoingUnitZ
-        if (abs(dot) > 1.0e-6) continue
+        if (abs(dot) >= 1.0 - 1.0e-6) continue
 
         val radius = minOf(
             smoothingDistance,

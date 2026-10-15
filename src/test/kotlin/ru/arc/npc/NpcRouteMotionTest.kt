@@ -26,11 +26,23 @@ class NpcRouteMotionTest : FreeSpec({
         }
     }
 
-    "keeps non-right-angle and non-flat corners sharp" {
-        val diagonal = listOf(Vector(0.0, 72.0, 0.0), Vector(1.0, 72.0, 0.0), Vector(2.0, 72.0, 1.0))
+    "rounds diagonal fallback joins within the same departure bound" {
+        for (endX in listOf(0.0, 4.0)) {
+            val route = listOf(Vector(0.0, 72.0, 0.0), Vector(2.0, 72.0, 0.0), Vector(endX, 72.0, 2.0))
+            val rounded = roundedNpcRoutePoints(route, 0.75, 0.3) { _, _ -> true }
+
+            rounded.first() shouldBe route.first()
+            rounded.last() shouldBe route.last()
+            rounded.size shouldBe 11
+            routePolylineDeviation(rounded, route).maxOf { it } shouldBeLessThan 0.1876
+        }
+    }
+
+    "keeps reversals and non-flat corners sharp" {
+        val reversal = listOf(Vector(0.0, 72.0, 0.0), Vector(1.0, 72.0, 0.0), Vector(0.0, 72.0, 0.0))
         val vertical = listOf(Vector(0.0, 72.0, 0.0), Vector(1.0, 72.5, 0.0), Vector(1.0, 72.5, 1.0))
 
-        roundedNpcRoutePoints(diagonal, 0.8, 0.3) { _, _ -> true } shouldBe diagonal
+        roundedNpcRoutePoints(reversal, 0.8, 0.3) { _, _ -> true } shouldBe reversal
         roundedNpcRoutePoints(vertical, 0.8, 0.3) { _, _ -> true } shouldBe vertical
     }
 

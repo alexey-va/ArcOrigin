@@ -179,6 +179,7 @@ private data class OriginSceneGroupRoute(
     val actor: NPC,
     val destination: Location,
     val explicitPose: Boolean,
+    val via: List<Location>,
 )
 
 private data class OriginSceneSpeech(val display: TextDisplay, val owner: UUID)
@@ -380,14 +381,16 @@ private class OriginSceneService(
             is OriginSceneStep.MoveGroup -> moveGroup(running, index, step)
             is OriginSceneStep.Wait -> later(running, step.ticks) { runStep(running, index + 1) }
             is OriginSceneStep.LookAtAnchor -> {
-                npc(step.actorId)?.faceLocation(running.scene.anchors.getValue(step.anchor).inWorld(Bukkit.getWorld(plan.world)!!))
+                npc(step.actorId)?.takeIf(NPC::isSpawned)?.let { actor ->
+                    running.resources.facePoint(actor, running.scene.anchors.getValue(step.anchor).inWorld(actor.entity.world))
+                }
                 runStep(running, index + 1)
             }
             is OriginSceneStep.LookAtSurface -> {
                 val target = resolveSurfaceLookLocation(running, step.surface)
                 if (target == null) finish(running, "look-surface-missing")
                 else {
-                    npc(step.actorId)?.faceLocation(target)
+                    npc(step.actorId)?.takeIf(NPC::isSpawned)?.let { running.resources.facePoint(it, target) }
                     runStep(running, index + 1)
                 }
             }
@@ -395,7 +398,7 @@ private class OriginSceneService(
                 val target = npc(step.targetActorId)?.takeIf(NPC::isSpawned)
                 if (target == null) finish(running, "look-target-missing")
                 else {
-                    npc(step.actorId)?.faceLocation(target.entity.location)
+                    npc(step.actorId)?.takeIf(NPC::isSpawned)?.let { running.resources.facePoint(it, target.entity.location) }
                     runStep(running, index + 1)
                 }
             }
@@ -492,11 +495,16 @@ private class OriginSceneService(
             finish(running, "group-world-missing")
             return
         }
+        val groups = consecutiveOriginSceneMoveGroups(running.cycle.steps, index)
+        val finalGroup = groups.last()
         val routes = step.actorIds.mapIndexed { offset, actorId ->
             val actor = npc(actorId)?.takeIf(NPC::isSpawned)
             actor?.let {
-                val point = running.scene.anchors.getValue(step.targetAnchors[offset])
-                OriginSceneGroupRoute(it, point.inWorld(world), point.explicitPose)
+                val point = running.scene.anchors.getValue(finalGroup.targetAnchors[offset])
+                val via = groups.dropLast(1).map { group ->
+                    running.scene.anchors.getValue(group.targetAnchors[offset]).inWorld(world)
+                }
+                OriginSceneGroupRoute(it, point.inWorld(world), point.explicitPose, via)
             }
         }
         if (routes.any { it == null }) {
@@ -514,6 +522,7 @@ private class OriginSceneService(
                     route.actor,
                     route.destination,
                     profile,
+                    via = route.via,
                     faceOnArrival = route.explicitPose,
                 )
             ) routeFailed = true
@@ -523,12 +532,20 @@ private class OriginSceneService(
             finish(running, "group-route-unavailable")
             return
         }
-        awaitGroupRoutes(running, index, resolvedRoutes, step.timeoutTicks, mutableSetOf())
+        awaitGroupRoutes(
+            running,
+            index,
+            index + groups.size,
+            resolvedRoutes,
+            groups.sumOf(OriginSceneStep.MoveGroup::timeoutTicks),
+            mutableSetOf(),
+        )
     }
 
     private fun awaitGroupRoutes(
         running: ActiveOriginSceneCycle,
         index: Int,
+        nextIndex: Int,
         routes: List<OriginSceneGroupRoute>,
         remainingTicks: Long,
         completed: MutableSet<Int>,
@@ -555,12 +572,12 @@ private class OriginSceneService(
                 completed += route.actor.id
             }
             if (completed.size == routes.size) {
-                runStep(running, index + 1)
+                running.execution.advanceAfterCompletedSteps(index, nextIndex)
             } else if (remainingTicks <= 2L) {
                 routes.forEach { routeController.stop(it.actor) }
                 finish(running, "group-route-timeout")
             } else {
-                awaitGroupRoutes(running, index, routes, remainingTicks - 2L, completed)
+                awaitGroupRoutes(running, index, nextIndex, routes, remainingTicks - 2L, completed)
             }
         }
     }
@@ -608,7 +625,7 @@ private class OriginSceneService(
         // Citizens or a nearby player may alter the head pose between strikes. The
         // strike target owns the work pose, so reacquire it for every animation beat.
         if (lookLocation != null && (step.feedbackAnchor != null || step.feedbackSurface != null)) {
-            actor?.faceLocation(lookLocation)
+            actor?.let { running.resources.facePoint(it, lookLocation) }
         }
         (actor?.entity as? LivingEntity)?.swingMainHand()
         if (step.damageTargetNpcId != null && step.damageAmount > 0.0) {

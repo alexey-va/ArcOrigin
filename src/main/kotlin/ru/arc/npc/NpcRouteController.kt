@@ -415,12 +415,13 @@ internal class NpcRouteOutcomeTracker {
     fun clear() = outcomes.clear()
 }
 
-/** Bounded four-way A*: no diagonal corner cutting; callers may constrain edge height changes. */
+/** Bounded A*: diagonals are opt-in and callers constrain every swept edge. */
 internal fun findNpcGridPath(
     start: NpcRouteCell,
     goals: List<NpcRouteCell>,
     profile: NpcRouteProfile,
     canTraverse: (NpcRouteCell, NpcRouteCell) -> Boolean = { _, _ -> true },
+    allowDiagonalConnections: Boolean = false,
     isWalkable: (NpcRouteCell) -> Boolean,
 ): List<NpcRouteCell>? {
     if (!profile.allows(start) || !isWalkable(start)) return null
@@ -442,15 +443,21 @@ internal fun findNpcGridPath(
             while (path.last() != start) path += previous.getValue(path.last())
             return path.asReversed()
         }
-        val neighbors = arrayOf(
-            NpcRouteCell(current.cell.x + 1, current.cell.z),
-            NpcRouteCell(current.cell.x - 1, current.cell.z),
-            NpcRouteCell(current.cell.x, current.cell.z + 1),
-            NpcRouteCell(current.cell.x, current.cell.z - 1),
-        )
-        for (next in neighbors) {
+        val neighbors = buildList {
+            add(NpcRouteCell(current.cell.x + 1, current.cell.z) to false)
+            add(NpcRouteCell(current.cell.x - 1, current.cell.z) to false)
+            add(NpcRouteCell(current.cell.x, current.cell.z + 1) to false)
+            add(NpcRouteCell(current.cell.x, current.cell.z - 1) to false)
+            if (allowDiagonalConnections) {
+                add(NpcRouteCell(current.cell.x + 1, current.cell.z + 1) to true)
+                add(NpcRouteCell(current.cell.x + 1, current.cell.z - 1) to true)
+                add(NpcRouteCell(current.cell.x - 1, current.cell.z + 1) to true)
+                add(NpcRouteCell(current.cell.x - 1, current.cell.z - 1) to true)
+            }
+        }
+        for ((next, diagonal) in neighbors) {
             if (!profile.allows(next) || next in closed || !isWalkable(next) || !canTraverse(current.cell, next)) continue
-            val nextCost = current.cost + profile.stepCost(next)
+            val nextCost = current.cost + profile.stepCost(next) * (if (diagonal) 2 else 1)
             if (nextCost >= costs.getOrDefault(next, Int.MAX_VALUE)) continue
             costs[next] = nextCost
             previous[next] = current.cell
@@ -471,11 +478,24 @@ internal fun findNpcGridPathToNearestCandidate(
     goals: List<NpcRouteCell>,
     profile: NpcRouteProfile,
     canTraverse: (NpcRouteCell, NpcRouteCell) -> Boolean = { _, _ -> true },
+    allowDiagonalFallback: Boolean = false,
     isWalkable: (NpcRouteCell) -> Boolean,
 ): List<NpcRouteCell>? =
     goals.asSequence()
         .filter { it != start }
-        .mapNotNull { goal -> findNpcGridPath(start, listOf(goal), profile, canTraverse, isWalkable) }
+        .mapNotNull { goal ->
+            findNpcGridPath(
+                start, listOf(goal), profile, canTraverse,
+                allowDiagonalConnections = false,
+                isWalkable = isWalkable,
+            ) ?: if (allowDiagonalFallback) {
+                findNpcGridPath(
+                    start, listOf(goal), profile, canTraverse,
+                    allowDiagonalConnections = true,
+                    isWalkable = isWalkable,
+                )
+            } else null
+        }
         .firstOrNull()
 
 private data class ActiveNpcRoute(
@@ -701,6 +721,7 @@ internal class CitizensNpcRouteController(
                     orderedGoals,
                     profile,
                     canTraverse = canTraverse,
+                    allowDiagonalFallback = true,
                     isWalkable = walkable,
                 )
             }
