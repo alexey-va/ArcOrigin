@@ -268,7 +268,9 @@ internal object OriginDiningReliabilityPolicy {
     fun ambientAvailableAtArrival(arrivalAt: Long, restMillis: Long): Long = arrivalAt + restMillis
 
     // The bar can resolve to an adjacent walkable cell; a distant snapped endpoint is not home.
-    fun hasArrivedHome(distance: Double): Boolean = distance.isFinite() && distance in 0.0..HOME_ARRIVAL_RADIUS
+    fun hasArrivedHome(distance: Double, routeSucceeded: Boolean, routeDistanceMargin: Double): Boolean =
+        routeSucceeded && distance.isFinite() && routeDistanceMargin.isFinite() && routeDistanceMargin >= 0.0 &&
+            distance in 0.0..(HOME_ARRIVAL_RADIUS + routeDistanceMargin)
 
     fun ownsWaiterCallback(callbackToken: UUID, currentToken: UUID?): Boolean = callbackToken == currentToken
 
@@ -2424,7 +2426,13 @@ private class OriginDiningService : AutoCloseable {
             }
             val distance = npc.entity.location.distance(state.home)
             val outcome = routeController.consumeOutcome(npc)
-            if (outcome?.successful == true && OriginDiningReliabilityPolicy.hasArrivedHome(distance)) {
+            val routeDistanceMargin = OriginDiningLayout.routeProfile(state.home)?.distanceMargin ?: Double.NaN
+            if (OriginDiningReliabilityPolicy.hasArrivedHome(
+                    distance,
+                    routeSucceeded = outcome?.successful == true,
+                    routeDistanceMargin = routeDistanceMargin,
+                )
+            ) {
                 finishWaiterReturn(waiterId, token, arrived = true, reason = state.reason)
                 return@runLater
             }

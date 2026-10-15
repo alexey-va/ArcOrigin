@@ -220,6 +220,18 @@ class NpcRouteMotionTest : FreeSpec({
         positions.last().distance(points.last()) shouldBeLessThan 1.0e-6
     }
 
+    "safe intermediate point remains within the sharp-corner lookahead clamp" {
+        val points = listOf(Vector(0.0, 72.0, 0.0), Vector(1.0, 72.0, 0.0), Vector(1.0, 72.0, 1.0))
+        val motion = NpcRouteMotion(points)
+
+        motion.target(points.first(), 1.5) shouldBe points[1]
+        motion.safeIntermediateTarget(points.first()) { _, _ -> true } shouldBe points[1]
+
+        val blockedMotion = NpcRouteMotion(points)
+        blockedMotion.target(points.first(), 1.5)
+        blockedMotion.safeIntermediateTarget(points.first()) { _, _ -> false } shouldBe null
+    }
+
     "collinear unit-grid samples compress before rounding and reduce sharp turn steps" {
         val gridRoute = listOf(
             Vector(0.5, 72.0, 0.5), Vector(1.5, 72.0, 0.5), Vector(1.5, 72.0, 1.5),
@@ -241,6 +253,33 @@ class NpcRouteMotionTest : FreeSpec({
             smooth.endpointDistance shouldBeLessThan speed + 1.0e-5
         }
     }
+
+    "obstacle fallback follows a safe rounded vertex when lookahead cuts inside the hay corner" {
+        val cells = listOf(
+            56 to -142, 57 to -141, 58 to -141, 59 to -141, 60 to -141, 61 to -141,
+            62 to -140, 63 to -140, 64 to -140, 65 to -141, 66 to -141, 67 to -141,
+            67 to -142, 67 to -143, 67 to -144,
+        )
+        val gridRoute = cells.map { (x, z) -> Vector(x + 0.5, 70.0, z + 0.5) }.toMutableList()
+        gridRoute[0] = Vector(56.5, 70.0, -141.164964)
+        val canTraverse: (Vector, Vector) -> Boolean = { from, to ->
+            !sweptBodyHitsHay(from, to, halfWidth = 0.3)
+        }
+        val shortcutBudget = 1.0 - minOf(0.3, 0.75 / 4.0)
+        val shortened = shortcutNpcRoutePoints(gridRoute, shortcutBudget, canTraverse)
+        val route = roundedNpcRoutePoints(shortened, 0.75, 0.3, canTraverse)
+
+        val oldMovement = simulateObstacleRoute(route, 0.116, canTraverse, useFallback = false)
+        oldMovement.failed shouldBe true
+        abs(oldMovement.actual.x - 64.2) shouldBeLessThan 0.05
+        abs(oldMovement.actual.z - -139.676) shouldBeLessThan 0.03
+
+        val recoveredMovement = simulateObstacleRoute(route, 0.116, canTraverse, useFallback = true)
+        recoveredMovement.failed shouldBe false
+        (recoveredMovement.fallbacks > 0) shouldBe true
+        recoveredMovement.positions.zipWithNext().all { (from, to) -> canTraverse(from, to) } shouldBe true
+        hypot(recoveredMovement.actual.x - route.last().x, recoveredMovement.actual.z - route.last().z) shouldBeLessThan 0.55
+    }
 })
 
 private data class RouteSimulation(
@@ -248,6 +287,65 @@ private data class RouteSimulation(
     val largestTurnDegrees: Double,
     val endpointDistance: Double,
 )
+
+private data class ObstacleRouteSimulation(
+    val positions: List<Vector>,
+    val actual: Vector,
+    val failed: Boolean,
+    val fallbacks: Int,
+)
+
+private fun simulateObstacleRoute(
+    route: List<Vector>,
+    speed: Double,
+    canTraverse: (Vector, Vector) -> Boolean,
+    useFallback: Boolean,
+): ObstacleRouteSimulation {
+    val motion = NpcRouteMotion(route)
+    var actual = route.first().clone()
+    val positions = mutableListOf(actual.clone())
+    var fallbacks = 0
+    repeat(600) {
+        val target = motion.target(actual, speed)
+        var velocity = npcRouteHorizontalVelocity(actual.x, actual.z, target.x, target.z, speed)
+        var next = actual.clone().add(velocity)
+        if (!canTraverse(actual, next)) {
+            if (!useFallback) return ObstacleRouteSimulation(positions, actual, true, fallbacks)
+            val intermediate = motion.safeIntermediateTarget(actual, canTraverse)
+                ?: return ObstacleRouteSimulation(positions, actual, true, fallbacks)
+            velocity = npcRouteHorizontalVelocity(actual.x, actual.z, intermediate.x, intermediate.z, speed)
+            next = actual.clone().add(velocity)
+            if (!canTraverse(actual, next)) return ObstacleRouteSimulation(positions, actual, true, fallbacks)
+            fallbacks++
+        }
+        actual = next
+        positions += actual.clone()
+        if (motion.index == route.lastIndex && hypot(actual.x - route.last().x, actual.z - route.last().z) <= 0.55) {
+            return ObstacleRouteSimulation(positions, actual, false, fallbacks)
+        }
+    }
+    return ObstacleRouteSimulation(positions, actual, true, fallbacks)
+}
+
+/** The snapshot's hay block at (63, 70, -141), expanded by the 0.3-block body. */
+private fun sweptBodyHitsHay(from: Vector, to: Vector, halfWidth: Double): Boolean {
+    var entry = 0.0
+    var exit = 1.0
+
+    fun overlapsAxis(start: Double, end: Double, low: Double, high: Double): Boolean {
+        val delta = end - start
+        if (abs(delta) <= 1.0e-6) return start > low && start < high
+        val first = (low - start) / delta
+        val second = (high - start) / delta
+        entry = maxOf(entry, minOf(first, second))
+        exit = minOf(exit, maxOf(first, second))
+        return entry < exit
+    }
+
+    val epsilon = 1.0e-6
+    return overlapsAxis(from.x, to.x, 63.0 - halfWidth + epsilon, 64.0 + halfWidth - epsilon) &&
+        overlapsAxis(from.z, to.z, -141.0 - halfWidth + epsilon, -140.0 + halfWidth - epsilon)
+}
 
 private fun simulateMotion(points: List<Vector>, speed: Double): RouteSimulation {
     val motion = NpcRouteMotion(points)

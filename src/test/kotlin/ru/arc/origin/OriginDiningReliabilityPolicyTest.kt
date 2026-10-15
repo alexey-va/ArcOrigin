@@ -25,12 +25,18 @@ class OriginDiningReliabilityPolicyTest : FreeSpec({
         ) shouldBe 60_000L
     }
 
-    "home arrival accepts the adjacent bar cell but rejects distant snapped routes" {
-        OriginDiningReliabilityPolicy.hasArrivedHome(1.07) shouldBe true
-        OriginDiningReliabilityPolicy.hasArrivedHome(1.25) shouldBe true
-        OriginDiningReliabilityPolicy.hasArrivedHome(1.251) shouldBe false
-        OriginDiningReliabilityPolicy.hasArrivedHome(3.01) shouldBe false
-        OriginDiningReliabilityPolicy.hasArrivedHome(Double.NaN) shouldBe false
+    "home arrival applies route tolerance only after successful completion" {
+        OriginDiningReliabilityPolicy.hasArrivedHome(1.07, routeSucceeded = true, routeDistanceMargin = 0.0) shouldBe true
+        OriginDiningReliabilityPolicy.hasArrivedHome(1.25, routeSucceeded = true, routeDistanceMargin = 0.0) shouldBe true
+        OriginDiningReliabilityPolicy.hasArrivedHome(1.251, routeSucceeded = true, routeDistanceMargin = 0.0) shouldBe false
+        OriginDiningReliabilityPolicy.hasArrivedHome(1.308, routeSucceeded = true, routeDistanceMargin = 0.35) shouldBe true
+        OriginDiningReliabilityPolicy.hasArrivedHome(1.60, routeSucceeded = true, routeDistanceMargin = 0.35) shouldBe true
+        OriginDiningReliabilityPolicy.hasArrivedHome(1.601, routeSucceeded = true, routeDistanceMargin = 0.35) shouldBe false
+        OriginDiningReliabilityPolicy.hasArrivedHome(1.308, routeSucceeded = false, routeDistanceMargin = 0.35) shouldBe false
+        OriginDiningReliabilityPolicy.hasArrivedHome(3.01, routeSucceeded = true, routeDistanceMargin = 0.35) shouldBe false
+        OriginDiningReliabilityPolicy.hasArrivedHome(Double.NaN, routeSucceeded = true, routeDistanceMargin = 0.35) shouldBe false
+        OriginDiningReliabilityPolicy.hasArrivedHome(1.308, routeSucceeded = true, routeDistanceMargin = -0.35) shouldBe false
+        OriginDiningReliabilityPolicy.hasArrivedHome(1.308, routeSucceeded = true, routeDistanceMargin = Double.NaN) shouldBe false
     }
 
     "stale waiter callbacks lose ownership after a replacement operation" {

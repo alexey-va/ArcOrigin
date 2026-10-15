@@ -606,13 +606,25 @@ private class FixedLevelPathStrategy(
             stop()
             return true
         }
-        val target = motion.target(actual.toVector(), 0.2 * speedModifier)
-        val horizontal = npcRouteHorizontalVelocity(actual.x, actual.z, target.x, target.z, 0.2 * speedModifier)
-        val next = actual.toVector().add(horizontal)
+        val actualVector = actual.toVector()
+        val travelDistance = 0.2 * speedModifier
+        val target = motion.target(actualVector, travelDistance)
+        var horizontal = npcRouteHorizontalVelocity(actual.x, actual.z, target.x, target.z, travelDistance)
+        var next = actualVector.clone().add(horizontal)
         if (!canTraverse(actual.toVector(), next)) {
-            stop()
-            setCancelReason(CancelReason.STUCK)
-            return true
+            val intermediate = motion.safeIntermediateTarget(actualVector, canTraverse)
+            if (intermediate == null) {
+                stop()
+                setCancelReason(CancelReason.STUCK)
+                return true
+            }
+            horizontal = npcRouteHorizontalVelocity(actual.x, actual.z, intermediate.x, intermediate.z, travelDistance)
+            next = actualVector.clone().add(horizontal)
+            if (!canTraverse(actualVector, next)) {
+                stop()
+                setCancelReason(CancelReason.STUCK)
+                return true
+            }
         }
         horizontal.y = entity.velocity.y.coerceAtMost(0.0)
         entity.velocity = horizontal

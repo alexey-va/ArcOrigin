@@ -234,6 +234,7 @@ internal class NpcRouteMotion(points: List<Vector>) {
     private val totalDistance: Double
     private var cursorDistance = 0.0
     private var previousActual: Vector? = null
+    private var lastTargetDistance = 0.0
 
     /** Endpoint index of the segment containing the physical route cursor. */
     var index: Int = 0
@@ -256,6 +257,7 @@ internal class NpcRouteMotion(points: List<Vector>) {
         if (points.size == 1 || totalDistance <= ROUTE_MOTION_EPSILON) {
             previousActual = actual.clone()
             index = points.lastIndex
+            lastTargetDistance = totalDistance
             return points.last().clone()
         }
 
@@ -282,7 +284,30 @@ internal class NpcRouteMotion(points: List<Vector>) {
                 break
             }
         }
+        lastTargetDistance = targetDistance
         return pointAt(targetDistance)
+    }
+
+    /**
+     * Returns the farthest validated route vertex within the most recent
+     * look-ahead. Used only when the physical step toward the look-ahead
+     * target would hit an obstacle, so ordinary movement keeps the same path.
+     */
+    fun safeIntermediateTarget(
+        actual: Vector,
+        canTraverse: (Vector, Vector) -> Boolean,
+    ): Vector? {
+        if (points.size < 2 || lastTargetDistance <= cursorDistance + ROUTE_MOTION_EPSILON) return null
+        var safeTarget: Vector? = null
+        for (pointIndex in index..points.lastIndex) {
+            val pointDistance = cumulativeDistance[pointIndex]
+            if (pointDistance > lastTargetDistance + ROUTE_MOTION_EPSILON) break
+            if (pointDistance <= cursorDistance + ROUTE_MOTION_EPSILON) continue
+            val candidate = points[pointIndex]
+            if (horizontalDistance(actual, candidate) <= ROUTE_MOTION_EPSILON) continue
+            if (canTraverse(actual.clone(), candidate.clone())) safeTarget = candidate.clone()
+        }
+        return safeTarget
     }
 
     private fun projectActualForward(actual: Vector, maximumProgress: Double): Double? {
