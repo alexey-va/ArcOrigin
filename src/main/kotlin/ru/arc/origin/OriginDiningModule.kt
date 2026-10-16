@@ -1189,7 +1189,8 @@ private class OriginDiningService : AutoCloseable {
             else -> "brewery"
         } },
         debounce = ::debounce,
-        carry = OriginWaiterCarry(item = { id -> BreweryTableDialogs.food.firstOrNull { it.id == id }?.let(::dishItem) }),
+        carry = OriginWaiterCarry(item = { id -> (BreweryTableDialogs.food + BreweryTableDialogs.drinks)
+            .firstOrNull { it.id == id }?.let(::dishItem) }),
     )
     private var nextAmbientAt = 0L
     private var nextGuestSeatReconcileAt = 0L
@@ -3158,8 +3159,11 @@ private class OriginDiningService : AutoCloseable {
             if (choices.isEmpty()) continue
             val lease = diningCoordinator.tryAcquire("player-waiter", id, setOf(table.npcId), now) ?: continue
             val dish = choices.random()
+            val drink = BreweryTableDialogs.drinks.filter { dishItem(it) != null }.randomOrNull()
+            val replacement = choices.filter { it.id != dish.id }.randomOrNull()
             return OriginWaiterTarget(lease, venue.id, venue.staffId, table.npcId,
-                waiterNpcName(waiterName(table.npcId) ?: table.npcId.toString()), id, dish.id, dish.label)
+                waiterNpcName(waiterName(table.npcId) ?: table.npcId.toString()), id, dish.id, dish.label,
+                drink?.let { OriginWaiterDish(it.id, it.label) }, replacement?.let { OriginWaiterDish(it.id, it.label) })
         }
         return null
     }
@@ -3173,7 +3177,7 @@ private class OriginDiningService : AutoCloseable {
     private fun servePlayerWaiterTarget(target: OriginWaiterTarget): Boolean {
         if (!playerWaiterTargetValid(target)) return false
         val table = OriginDiningAmbientLayout.guestTables.first { it.id == target.tableId }
-        val dish = BreweryTableDialogs.food.firstOrNull { it.id == target.dishId } ?: return false
+        val dish = (BreweryTableDialogs.food + BreweryTableDialogs.drinks).firstOrNull { it.id == target.dishId } ?: return false
         return replaceGuestMeal(table, dish, "player-waiter")
     }
 

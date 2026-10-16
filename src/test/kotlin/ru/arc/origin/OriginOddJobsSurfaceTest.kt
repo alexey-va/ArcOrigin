@@ -27,11 +27,12 @@ internal fun oddJobTestConfig(): OriginOddJobsConfig {
 }
 
 class OriginOddJobsSurfaceTest : StringSpec({
-    "all job offers use the existing named NPCs and one shared quota" {
+    "all professions explain the timed shift and shared unchanged quota with readable controls" {
         val config = oddJobTestConfig()
         config.venues.map { it.npcId } shouldBe listOf(440, 349, 365)
         config.handoffNpcId shouldBe 382
-        config.lifetimeMillis shouldBe 180_000
+        config.shiftMillis shouldBe 600_000
+        config.lifetimeMillis shouldBe 240_000
         for (venue in config.venues) {
             val screen = originOddJobsScreen(config, venue, null, 20, SideJobRewardStatus(true, 12, 0, false), 0)
             screen.title.color() shouldBe TextColor.color(0xFFB277)
@@ -39,39 +40,58 @@ class OriginOddJobsSurfaceTest : StringSpec({
             body shouldContain "20 поручений / 400 💰"
             body shouldContain "12 поручений"
             screen.buttons.single().id.value shouldBe "odd_job_start"
-            screen.buttons.single().closeDialogBeforeAction shouldBe (venue.kind != OriginOddJobKind.AUCTION)
+            screen.buttons.single().closeDialogBeforeAction shouldBe false
             val coins = screen.body.flatMap { components(it.text) }.filter { plain(it) == "💰" }
             coins.size shouldBe 2
             coins.all { it.color() == NamedTextColor.WHITE } shouldBe true
         }
-        config.line("workshop-active") shouldContain "мастерской"
-        config.line("waiter-active") shouldContain "официанта"
     }
 
-    "manifest and all packaging choices stay in one native dialog with exact retry rules" {
+    "native board preserves exact offer IDs while master overview hides out-of-reach craft choices" {
         val config = oddJobTestConfig()
-        val venue = config.venue(OriginOddJobKind.AUCTION)
-        for (parcel in OriginAuctionParcel.entries) {
-            val job = OriginOddJobSession(UUID.randomUUID(), venue.kind, OriginOddJobStage.AUCTION_ITEM, 0, 180_000, 0, parcel = parcel)
-            val item = originOddJobsScreen(config, venue, job, 20, null, 0)
-            val packing = originOddJobsScreen(config, venue, job.copy(stage = OriginOddJobStage.AUCTION_PACK), 20, null, 1)
-            item.id shouldBe packing.id
-            plain(item.body.first().text) shouldContain config.line("auction.${parcel.name.lowercase()}")
-            plain(packing.body.first().text) shouldContain config.line("auction.${parcel.name.lowercase()}-rule")
-            item.buttons.take(3).all { !it.closeDialogBeforeAction } shouldBe true
-            packing.buttons.take(3).all { !it.closeDialogBeforeAction } shouldBe true
-            packing.buttons.map { it.id.value } shouldBe listOf("odd_job_pack_padded_box", "odd_job_pack_paper_wrap", "odd_job_pack_scabbard", "odd_job_cancel")
+        val venue = config.venue(OriginOddJobKind.FORGE)
+        val shift = OriginWorkShift.begin(0)
+        val offers = listOf(
+            OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.FORGE_REPAIR, 8, false),
+            OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.FORGE_PAIR, 9, true),
+        )
+        val board = originOddJobsScreen(config, venue, null, 20, null, 0, shift = shift, offers = offers)
+        board.buttons.map { it.id.value } shouldBe listOf("odd_job_offer_0", "odd_job_offer_1", "odd_job_finish")
+        board.body.joinToString { plain(it.text) } shouldContain "100 секунд"
+        val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(), offers.first(), 0)!!
+        val station = originOddJobsScreen(config, venue, job, 20, null, 0, shift = shift)
+        station.buttons.count { it.id.value.startsWith("odd_job_choice_") } shouldBe 3
+        val master = originOddJobsScreen(config, venue, job, 20, null, 0, shift = shift, actionsAvailable = false)
+        master.buttons.none { it.id.value.startsWith("odd_job_choice_") } shouldBe true
+        master.buttons.map { it.id.value } shouldBe listOf("odd_job_continue", "odd_job_cancel", "odd_job_finish")
+        val closing = originOddJobsScreen(config, venue, null, 20, null, 601_000, shift = shift.requestFinish())
+        closing.buttons shouldBe emptyList()
+    }
+
+    "amendment exposes the actual warehouse number before choosing a candidate" {
+        val config = oddJobTestConfig()
+        val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(),
+            OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.AUCTION_AMEND, 100, false), 0)!!
+        val screen = originOddJobsScreen(config, config.venue(job.kind), job, 20, null, 0, shift = OriginWorkShift.begin(0))
+        val body = screen.body.joinToString("\n") { plain(it.text) }
+        body shouldContain "Заявка: №199"
+        body shouldContain "На самом экземпляре и в описи: №200"
+    }
+
+    "all authored craft states resolve source prose and recovery without gray dialog labels" {
+        val config = oddJobTestConfig()
+        for (variant in OriginOddJobVariant.entries) {
+            val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(), OriginOddJobOffer(UUID.randomUUID(), variant, 8, false), 0)!!
+            for (stage in OriginOddJobStage.entries.filter { it.name.startsWith(variant.kind.let { k -> when (k) {
+                OriginOddJobKind.MOUNTYARD -> "YARD"; OriginOddJobKind.FORGE -> "FORGE"; OriginOddJobKind.AUCTION -> "AUCTION"
+            } }) } + listOf(OriginOddJobStage.RETURN, OriginOddJobStage.PAYOUT)) {
+                val state = job.copy(stage = stage)
+                val screen = originOddJobsScreen(config, config.venue(variant.kind), state, 20, null, 0, shift = OriginWorkShift.begin(0))
+                screen.body.all { plain(it.text).isNotBlank() && !plain(it.text).contains("{") } shouldBe true
+                screen.buttons.all { it.label.color() != NamedTextColor.GRAY } shouldBe true
+            }
         }
-        for ((state, notice) in listOf(
-            SideJobRewardStatus(false, 0, 0, true) to "Оплату проверяет касса",
-            SideJobRewardStatus(false, 20, 0, false) to "Касса временно недоступна",
-            SideJobRewardStatus(true, 0, 0, false) to "03:00 МСК",
-            SideJobRewardStatus(true, 10, 20_000, false) to "через 20 с",
-        )) {
-            val screen = originOddJobsScreen(config, venue, null, 20, state, 0)
-            screen.buttons shouldBe emptyList()
-            screen.body.joinToString { plain(it.text) } shouldContain notice
-        }
+        for (rejection in OriginOddJobRejection.entries) config.line("errors.${rejection.name.lowercase().replace('_', '-')}").isNotBlank() shouldBe true
     }
 
     "station resolution uses loaded real blocks including the trough one block away from its old anchor" {

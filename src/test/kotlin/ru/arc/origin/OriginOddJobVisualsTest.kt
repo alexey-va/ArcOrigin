@@ -22,6 +22,7 @@ import ru.arc.paper.display.PacketTextDisplay
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.testing.MockBukkitTestRuntime
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
+import java.nio.file.Path
 import java.util.UUID
 import kotlin.math.abs
 
@@ -55,6 +56,28 @@ class OriginOddJobVisualsTest : StringSpec({
             abs(pieces.minOf { it.center.y - it.size.y / 2.0 }) shouldBeLessThan 1e-6
             pieces.forEach { check(it.size.x > 0f && it.size.y > 0f && it.size.z > 0f) }
         }
+    }
+
+    "forge profile dimensions and cleaning bands use production state geometry at the contact plane" {
+        val target = listOf(2, 3, 2)
+        val damaged = OriginForgeWork(target, listOf(0, 3, 2))
+        val repaired = damaged.copy(shape = target)
+        val before = originOddJobForgePieces(damaged, true)
+        val after = originOddJobForgePieces(repaired, true)
+        before[3].size.z shouldBe 0.19f
+        after[3].size.z shouldBe 0.28f
+        before[4] shouldBe after[4]
+        after.map(::shape) shouldBe originOddJobForgePieces(repaired, false).map(::shape)
+        for (shape in listOf(before, after, originOddJobCleaningPieces(0), originOddJobCleaningPieces(7))) {
+            abs(shape.minOf { it.center.y - it.size.y / 2.0 }) shouldBeLessThan 1e-6
+            shape.all { it.size.x > 0f && it.size.y > 0f && it.size.z > 0f } shouldBe true
+        }
+        val dirty = originOddJobCleaningPieces(0)
+        val partlyClean = originOddJobCleaningPieces(2)
+        dirty.map(::shape) shouldBe partlyClean.map(::shape)
+        partlyClean.map { it.material } shouldBe listOf(Material.BROWN_CONCRETE, Material.LIGHT_BLUE_CONCRETE, Material.BROWN_CONCRETE)
+        dirty.map { it.center.x } shouldBe listOf(-0.3, 0.0, 0.3)
+        OddJobsPreviewExport.write(Path.of("build/odd-jobs-preview/scene.json"))
     }
 
     "carry uses the body heading keeps the rear edge ahead of the torso and lowers with sneaking" {

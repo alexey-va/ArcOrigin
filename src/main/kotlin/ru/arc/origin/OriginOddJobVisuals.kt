@@ -101,6 +101,29 @@ internal fun originOddJobPropPieces(prop: OriginJobProp): List<OriginWorkshopWor
     }
 }
 
+/** The same three dimensions used by the forge rules change the actual crown and branches. */
+internal fun originOddJobForgePieces(work: OriginForgeWork, heated: Boolean): List<OriginWorkshopWorkpiecePiece> {
+    val iron = if (heated) Material.ORANGE_TERRACOTTA else Material.IRON_BLOCK
+    val crown = 0.22 + (work.shape[1] - 2) * 0.035
+    val left = 0.28 + (work.shape[0] - 2) * 0.045
+    val right = 0.28 + (work.shape[2] - 2) * 0.045
+    val x = crown / 2 + 0.11
+    return listOf(
+        oddJobPiece(iron, 0.0, 0.045, -0.22, crown.toFloat(), 0.09f, 0.11f),
+        oddJobPiece(iron, -crown / 2 - 0.055, 0.045, -0.165, 0.11f, 0.09f, 0.11f),
+        oddJobPiece(iron, crown / 2 + 0.055, 0.045, -0.165, 0.11f, 0.09f, 0.11f),
+        oddJobPiece(iron, -x, 0.045, -0.11 + left / 2, 0.11f, 0.09f, left.toFloat()),
+        oddJobPiece(iron, x, 0.045, -0.11 + right / 2, 0.11f, 0.09f, right.toFloat()),
+        oddJobPiece(iron, -x, 0.045, left - 0.055, 0.085f, 0.09f, 0.11f),
+        oddJobPiece(iron, x, 0.045, right - 0.055, 0.085f, 0.09f, 0.11f),
+    )
+}
+
+internal fun originOddJobCleaningPieces(mask: Int): List<OriginWorkshopWorkpiecePiece> = (0..2).map { zone ->
+    oddJobPiece(if (mask and (1 shl zone) == 0) Material.BROWN_CONCRETE else Material.LIGHT_BLUE_CONCRETE,
+        (zone - 1) * 0.30, 0.012, 0.0, 0.23f, 0.024f, 0.30f)
+}
+
 private fun oddJobPiece(material: Material, x: Double, y: Double, z: Double, w: Float, h: Float, d: Float) =
     OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(x, y, z), OriginWorkshopGamePartSize(w, h, d), material)
 
@@ -152,6 +175,26 @@ internal class OriginOddJobVisuals(
         val rendered = workpiece(player, state, prop, location)
         rendered.place(location, Quaternionf().rotationY(-Math.toRadians(location.yaw.toDouble()).toFloat()))
         state.carried = false
+    }
+
+    fun forgeProfile(player: Player, requestId: UUID, location: Location, work: OriginForgeWork, heated: Boolean) =
+        profile(player, requestId, location, originOddJobForgePieces(work, heated), heated)
+
+    fun forgeCarry(player: Player, requestId: UUID, work: OriginForgeWork, heated: Boolean) =
+        profile(player, requestId, player.location, originOddJobForgePieces(work, heated), heated, carried = true)
+
+    fun cleaning(player: Player, requestId: UUID, location: Location, mask: Int) =
+        profile(player, requestId, location, originOddJobCleaningPieces(mask), false)
+
+    private fun profile(player: Player, requestId: UUID, location: Location, pieces: List<OriginWorkshopWorkpiecePiece>, heated: Boolean, carried: Boolean = false) = change(player, requestId) { state ->
+        require(location.world?.uid == state.worldId)
+        val prop = state.prop ?: OriginWorkshopProp(renderer(), location, pieces, privateViewer = player,
+            onSpawn = { display -> state.handles += display; display.isVisibleByDefault = false }).also { state.prop = it }
+        if (state.geometry != pieces) prop.update(pieces)
+        state.geometry = pieces; state.kind = null; state.carried = carried
+        if (carried) prop.carry(player, originOddJobCarryPose(player.bodyYaw.toDouble(), player.isSneaking, pieces))
+        else prop.place(location, Quaternionf().rotationY(-Math.toRadians(location.yaw.toDouble()).toFloat()))
+        prop.pieces.forEach { it.display?.brightness = if (heated) Display.Brightness(12, 8) else null }
     }
 
     /** A single personal next-action cue, separate from the game's forgiving interaction hit area. */
