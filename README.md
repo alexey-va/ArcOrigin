@@ -72,3 +72,50 @@ NPC step height is still restricted only during the route and restored afterward
 Focused verification: `./gradlew test --tests ru.arc.npc.NpcRouteControllerTest
 --tests ru.arc.npc.NpcRouteMotionTest --tests ru.arc.npc.NpcRouteRotationTest`. Passing geometry tests does not establish
 native-client visual acceptance.
+
+## Player waiter work
+
+`OriginWaiterGame` adds repeatable deliveries to the existing dining scene in
+`modules/origin-dining.yml` (`waiter-game`). At brewery bartender Remi, NPC 405,
+sneak and right-click to work; an ordinary right-click keeps the Citizens drink
+shop. At restaurant bartender Mateo, NPC 439, right-click normally. Both are
+Villagers and use the same guarded Bukkit/Citizens interaction path.
+
+The bartender reserves one existing guest through `OriginSceneCoordinator`.
+Visit that guest to take the order, return to the same bartender after ten
+seconds of kitchen preparation, collect the dish, then deliver it to that exact
+guest. The order expires after 180 seconds. Personal glow and the action bar
+identify the next actor; the native dialog exposes pickup and cancellation.
+Ordinary dining, the configured menu, table ownership and ambient meal lifecycle
+remain owned by `OriginDiningModule`. A failed serving display cannot trigger
+payment.
+
+`OriginWaiterProgress` owns the transient ordered handoffs and exact request ID.
+`OriginWaiterCarry` mounts one shared, non-pickupable packet ItemDisplay to the
+player and updates its body-relative pose, including crouching. It reuses each
+dining dish's verified GROUND transform, scale and surface correction; it never
+adds an inventory item. Cancellation, timeout, leaving the venue, teleport,
+quit and module reload release the reservation, remove the prop and clear
+personal glow. Pending callbacks are fenced by the lifecycle epoch and request.
+
+`OriginWaiterRewards` owns the asynchronous Redis quota at
+`arc.origin-waiter-rewards.v1`: 20 coins per order, at most 20 orders (400 coins)
+per UTC day across both venues, and at least 20 seconds between reserved or
+completed payouts. Its status is checked before assigning a guest. The durable
+claim is acknowledged before the host economy call on the server thread; an
+unconfirmed outcome remains reserved and is never automatically retried. The
+host reason string is an audit label, not a provider idempotency guarantee.
+There are no item rewards, XP or earning multipliers.
+
+Focused verification covers both Villager entry routes, preserved trading,
+duplicate clicks, exact recipient and kitchen, pickup timing, failed displays,
+cleanup, late dialog replies, and durable payout failures:
+
+```bash
+./gradlew test --tests 'ru.arc.origin.OriginWaiter*Test' \
+  --tests 'ru.arc.origin.OriginDining*Test' \
+  --tests ru.arc.origin.scene.OriginSceneCoordinatorTest
+```
+
+Packet and model checks establish source behavior and geometry. They do not
+establish native-client interaction, attachment motion or visual acceptance.

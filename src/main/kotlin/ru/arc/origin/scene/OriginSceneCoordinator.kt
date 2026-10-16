@@ -51,6 +51,9 @@ internal class OriginSceneCoordinator {
 
     fun busyActors(): Set<Int> = actorOwners.keys.toSet()
 
+    fun owns(lease: OriginSceneLease): Boolean = leases[lease.token] == lease &&
+        lease.actorIds.all { actorOwners[it] == lease.token }
+
     fun cooldownRemainingMillis(sceneId: String, cycleId: String, nowMillis: Long): Long =
         (dueAt.getOrDefault(sceneId to cycleId, 0L) - nowMillis).coerceAtLeast(0L)
 

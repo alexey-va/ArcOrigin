@@ -1,5 +1,53 @@
 # ARC owns the interactive meals in both Origin restaurants.
 
+waiter-game:
+  # Both entrances share the durable reward quota. Ordinary Remi clicks keep his drink shop.
+  venue-ids: [brewery, restaurant]
+  venues:
+    brewery: {staff-id: 405, sneak-only: true}
+    restaurant: {staff-id: 439, sneak-only: false}
+  timeout-seconds: 180
+  preparation-seconds: 10
+  interaction-range: 4.5
+  text:
+    title: "Работа официантом"
+    introduction: "Прими заказ у гостя, забери блюдо на кухне и отнеси к его столу. Подсветка покажет, к кому подойти."
+    pay: "За доставленный заказ — {amount} 💰."
+    remaining: "Сегодня можно выполнить ещё {count} заказов."
+    checking: "Проверяем доступные заказы…"
+    start: "Начать работу"
+    pickup: "Забрать заказ"
+    cancel: "Отменить заказ"
+    guest: "Гость: {guest}"
+    dish: "Блюдо: {dish}"
+    kitchen: "бармену"
+    take-order: "Подойди к подсвеченному гостю и нажми ПКМ, чтобы принять заказ."
+    pickup-ready: "Блюдо готово. Забери его и отнеси гостю."
+    preparing: "Кухня готовит блюдо. Ещё {seconds} с."
+    deliver: "Отнеси блюдо гостю {guest} и нажми по нему ПКМ."
+    order-taken: "Заказ принят: {dish}. Вернись на кухню."
+    guide-order: "Прими заказ · {guest} · ПКМ"
+    guide-pickup: "Забери блюдо · {staff} · {control}"
+    guide-deliver: "Неси заказ · {guest} · ПКМ"
+    paying: "Заказ доставлен. Подтверждаем оплату…"
+    paid: "Заказ доставлен · +{amount} 💰 · За новым — к бармену"
+    cancelled: "Заказ отменён. Новую работу можно взять у бармена."
+    expired: "Гость не дождался заказа. Подойди к бармену за новым."
+    left-venue: "Ты покинул заведение. Заказ отменён."
+    target-gone: "Этот стол сейчас недоступен. Возьми другой заказ у бармена."
+    dish-unavailable: "Кухня не смогла выдать блюдо. Возьми новый заказ позже."
+    no-guests: "Все гости пока заняты. Подойди за заказом чуть позже."
+    come-closer: "Подойди ближе к собеседнику."
+    other-venue: "Твой заказ находится в другом заведении. Вернись к своему гостю."
+    wrong-guest: "Этот заказ для гостя {guest}. Он подсвечен."
+    wrong-staff: "Забери заказ у бармена своего заведения."
+    pickup-first: "Сначала забери блюдо на кухне."
+    cooldown: "Следующий заказ можно взять через {seconds} с."
+    payment-cooldown: "Оплата этого заказа не подтверждена: слишком рано после предыдущего."
+    daily-limit: "На сегодня все заказы выполнены. Возвращайся завтра."
+    unconfirmed: "Оплату проверяет касса. Сообщи администрации, если деньги не пришли."
+    unavailable: "Касса временно недоступна. Попробуй позже."
+
 # Small, bounded choreography. ARC owns these props; no Denizen tasks.
 life:
   audience-range: 24.0
