@@ -354,7 +354,7 @@ internal class OriginWaiterGame(
     /** The same action handles right-clicking a visible prop or its underlying counter. */
     fun interactWorkstation(player: Player): Boolean {
         val session = sessions[player.uniqueId] ?: return false
-        if (closed || session.endedAt != null || playerVenue(player) != session.venue.id) return false
+        if (closed || session.endedAt != null || !present(player, session.venue)) return false
         val hit = stations.aimed(player, config.interactionRange) ?: return false
         if (debounce(player)) return true
         val now = clock()
@@ -622,7 +622,7 @@ internal class OriginWaiterGame(
                     player == null || !player.isOnline -> "offline"
                     player.isDead -> "cancelled"
                     now >= session.shift.hardStopAt -> "shift-ended"
-                    playerVenue(player) != session.venue.id && !near(player, session.venue.staffId) -> "left-venue"
+                    !present(player, session.venue) -> "left-venue"
                     else -> null
                 }
                 if (reason != null) stop(playerId, reason)
@@ -767,6 +767,10 @@ internal class OriginWaiterGame(
 
     private fun actor(id: Int): LivingEntity? = CitizensAPI.getNPCRegistry().getById(id)
         ?.takeIf { it.isSpawned && it.entity.world.name == OriginDiningLayout.WORLD }?.entity as? LivingEntity
+
+    private fun present(player: Player, venue: OriginWaiterVenue): Boolean =
+        player.isOnline && !player.isDead && player.world.name == OriginDiningLayout.WORLD &&
+            (playerVenue(player) == venue.id || near(player, venue.staffId))
 
     private fun near(player: Player, npcId: Int): Boolean {
         if (!player.isOnline || player.isDead || player.world.name != OriginDiningLayout.WORLD) return false

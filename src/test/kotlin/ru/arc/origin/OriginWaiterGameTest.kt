@@ -73,7 +73,7 @@ class OriginWaiterGameTest : StringSpec({
         }
     }
 
-    "assembly and washing clear the previous NPC glow without looking up a negative Citizens id" {
+    "workstations outside the dynamic venue stay usable near own staff through assembly washing and payment" {
         failOnUnsupportedMockBukkitOperation {
             val previousGuest = f.entity(434)
             val staff = f.entity(439)
@@ -88,7 +88,10 @@ class OriginWaiterGameTest : StringSpec({
             f.clickNpc(434)
             f.stationChoices.map { it.id } shouldBe listOf("ingredient:egg", "ingredient:bacon", "ingredient:herbs")
             verify(exactly = 1) { f.viewerGlow.setEntityGlowingFor(previousGuest, f.player, false) }
+            f.currentVenue = null
+            f.moveTo(439)
             f.game.tick(f.now)
+            f.game.isWorking(f.player.uniqueId) shouldBe true
 
             f.now += 10_000
             for (ingredient in listOf("egg", "bacon", "herbs")) {
@@ -97,19 +100,62 @@ class OriginWaiterGameTest : StringSpec({
             }
             f.stationChoices.single().id shouldBe "pickup"
             f.workstation("pickup")
+            f.currentVenue = "restaurant"
             f.clickNpc(433)
             f.now += 18_000
             f.game.tick(f.now)
             f.clickNpc(433)
             f.stationChoices.single().id shouldBe "wash:SCRAPE"
             verify(atLeast = 1) { f.viewerGlow.setEntityGlowingFor(staff, f.player, false) }
+            f.currentVenue = null
+            f.moveTo(439)
+            f.game.tick(f.now)
             for (action in OriginWaiterWash.entries.filter { it != OriginWaiterWash.SOAK }) {
                 f.workstation("wash:${action.name}")
                 f.game.tick(f.now)
             }
             f.payments.size shouldBe 1
+            f.payments.single().valid() shouldBe true
+            f.payments.single().callback(SideJobRewardOutcome.PAID)
+            f.game.isWorking(f.player.uniqueId) shouldBe true
             f.screens shouldBe emptyList()
             verify(exactly = 0) { f.registry.getById(match { it < 0 }) }
+        }
+    }
+
+    for (boundary in listOf("outside staff reach", "remote", "another venue", "another world")) {
+        "a workstation action $boundary is rejected before aiming and cannot pay an order" {
+            failOnUnsupportedMockBukkitOperation {
+                f.begin()
+                f.prepareAndPickup()
+                f.clickNpc(433)
+                f.now += 18_000
+                f.game.tick(f.now)
+                f.clickNpc(433)
+                f.stationChoices.single().id shouldBe "wash:SCRAPE"
+                f.stationHit = OriginWaiterStationHit(checkNotNull(f.stationRequest), "wash:SCRAPE", f.stationStep)
+                f.currentVenue = if (boundary == "another venue") "brewery" else null
+                val destination = when (boundary) {
+                    "outside staff reach" -> Location(f.world, 4.51, 70.0, 0.0)
+                    "remote" -> Location(f.world, 100.0, 70.0, 0.0)
+                    "another venue" -> f.entity(405).location
+                    else -> {
+                        // A stale venue classification cannot authorize another world's coordinates.
+                        f.currentVenue = "restaurant"
+                        Location(f.paper.addSimpleWorld("outside_waiter_world"), 0.0, 70.0, 0.0)
+                    }
+                }
+                f.player.teleport(destination)
+                f.now += 700
+                f.game.interactWorkstation(f.player) shouldBe false
+                f.stationStep shouldBe 0
+                verify(exactly = 0) { f.stations.aimed(any(), any()) }
+                f.payments shouldBe emptyList()
+                f.game.tick(f.now)
+                f.game.isWorking(f.player.uniqueId) shouldBe false
+                f.leased shouldBe emptySet()
+                f.payments shouldBe emptyList()
+            }
         }
     }
 
