@@ -7,6 +7,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.bukkit.Location
+import org.bukkit.Material
+import org.bukkit.inventory.ItemStack
 import ru.arc.paper.display.PacketItemDisplay
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.testing.MockBukkitTestRuntime
@@ -108,5 +110,43 @@ class OriginWaiterStationsTest : StringSpec({
             "boundary" to "Source geometry, not native client rendering or observed block collisions",
             "states" to states)))
         states.size shouldBe 10
+    }
+
+    "wash guide refreshes keep the moving plate handle through the clean rack handoff" {
+        val paper = MockBukkitTestRuntime.open()
+        try {
+            val player = paper.addPlayer("PlateContinuity")
+            player.teleport(Location(paper.addSimpleWorld(OriginDiningLayout.WORLD), 0.0, 70.0, 62.0))
+            val renderer = mockk<PaperPacketDisplays>(relaxed = true)
+            val plates = mutableListOf<PacketItemDisplay>()
+            every { renderer.spawnItem(any(), any()) } answers {
+                mockk<PacketItemDisplay>(relaxed = true).also { if (secondArg<ItemStack>().type == Material.BOWL) plates += it }
+            }
+            val stations = OriginWaiterStations { renderer }
+            val config = waiterTestConfig()
+            val venue = config.venues.first()
+            val layout = config.stations.getValue(venue.id)
+            val job = OriginWaiterJob(waiterTarget(venue.id), 0, 180_000, stage = OriginWaiterStage.WASH,
+                washing = listOf(OriginWaiterWash.SOAP, OriginWaiterWash.DRY))
+            fun show(state: OriginWaiterJob, now: Long) = stations.show(player, state.id,
+                waiterStationChoices(config, venue, state), layout, state.washed, state, now) { ItemStack(Material.BOWL) }
+            show(job, 0)
+            stations.begin(player, job, "wash:SOAP", layout, 1_600, 0) { ItemStack(Material.BOWL) } shouldBe true
+            stations.tick(800)
+            show(job, 800)
+            plates.size shouldBe 1
+            verify(exactly = 0) { plates.single().remove() }
+            stations.tick(1_600)
+            val dry = job.copy(washed = 1)
+            show(dry, 1_600)
+            stations.begin(player, dry, "wash:DRY", layout, 1_600, 1_600) { ItemStack(Material.BOWL) } shouldBe true
+            stations.tick(3_200)
+            show(dry.copy(stage = OriginWaiterStage.PAYOUT, washed = 2), 3_200)
+            plates.size shouldBe 1
+            verify(exactly = 0) { plates.single().remove() }
+            stations.remove(player.uniqueId)
+            verify(exactly = 1) { plates.single().remove() }
+            stations.close()
+        } finally { paper.close() }
     }
 })

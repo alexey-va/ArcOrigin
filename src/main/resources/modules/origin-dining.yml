@@ -6,6 +6,9 @@ waiter-game:
   venues:
     brewery:
       staff-id: 405
+      chef-id: 411
+      chef-scene: brewery-kitchen
+      cook: "-3.0,71.0,63.5,0"
       sneak-only: false
       # Permanent world counters; anchors are their physical top surfaces.
       prep: "-3.0,71.0,57.5,0"
@@ -14,6 +17,7 @@ waiter-game:
       stand-height: 0.0
     restaurant:
       staff-id: 439
+      chef-id: 439
       sneak-only: false
       # Existing counter's carpet top; leave the ambient mug at z=56.5 free.
       prep: "-52.5,73.0625,58.75,90"
@@ -24,14 +28,30 @@ waiter-game:
   finish-grace-seconds: 120
   # Per-guest bounds stay independent of the full shift.
   timeout-seconds: 180
-  preparation-seconds: 10
+  preparation-seconds: 6
   freshness-seconds: 45
   rush-freshness-seconds: 30
   interaction-range: 4.5
-  eating-seconds: 18
-  work-action-millis: 700
+  eating-seconds: 6
+  work-action-millis: 1600
   soak-seconds: 3
+  reservation-retry-millis: 1000
+  dispute-action-millis: 1600
   dispute-every-orders: 4
+  brawl:
+    pair-range: 7.0
+    contact-range: 2.4
+    step-distance: 1.0
+    separation-distance: 1.0
+    arrival-tolerance: 0.85
+    route-timeout-millis: 8000
+    strike-interval-millis: 1300
+    windup-millis: 250
+    intervention-millis: 1600
+    water-reaction-millis: 2000
+    reaction-pitch: 18.0
+    sound-volume: 0.35
+    water-particles: 8
   ingredient-ids: [egg, bacon, herbs, fish, lemon, steak, potato]
   ingredients:
     egg: {material: EGG}
@@ -47,6 +67,24 @@ waiter-game:
     fish: {ingredients: [fish, lemon, herbs], wash: [SOAP, RINSE, DRY]}
     steak: {ingredients: [steak, potato, herbs], wash: [SOAK, SOAP, RINSE, DRY]}
   text:
+    dispute-approaching: "Посетители сцепились · подойди к подсветке"
+    dispute-intervening: "Разводим посетителей · подожди"
+    station-cooking: "Готовится"
+    station-ready: "Готово · забери блюдо · ПКМ"
+    station-assemble: "Собираем блюдо"
+    station-scrape: "Убираем остатки"
+    station-soak: "Замачиваем посуду"
+    station-soap: "Отмываем посуду"
+    station-rinse: "Смываем пену"
+    station-dry: "Сушим и ставим на полку"
+    wait-title: "Секунду…"
+    wait-cooking: "Готовится {dish} · {seconds} с"
+    wait-eating: "{guest} доедает · {seconds} с"
+    wait-table: "Гости заканчивают · скоро подсветим твой стол"
+    work-started: "Смена началась"
+    work-ready: "Следующее дело"
+    chef-cooking: "Готовлю: {dish} · {seconds} с"
+    chef-ready: "Готово: {dish} · забери с выдачи"
     title: "Смена · {venue}"
     venue-brewery: "Трактир"
     venue-restaurant: "Ресторан"
@@ -158,23 +196,23 @@ waiter-game:
     guide-return-dishes: "Неси посуду к мойке · ПКМ"
     guide-wash: "{action} · ПКМ"
     guide-soaking: "Посуда отмокает · {seconds} с"
-    dispute-start: "Гости спорят · выслушай подсвеченного"
+    dispute-start: "Посетители сцепились · разними подсвеченного"
     dispute-get-water: "Возьми воду на выдаче · ПКМ"
-    dispute-wrong-guest: "Выслушай гостя · {guest}"
-    guide-dispute-first_side: "Выслушай гостя · {guest} · ПКМ"
-    guide-dispute-second_side: "Выслушай гостя · {guest} · ПКМ"
+    dispute-wrong-guest: "Сначала разними подсвеченного · {guest}"
+    guide-dispute-first_side: "Разними посетителей · {guest} · ПКМ"
+    guide-dispute-second_side: "Отведи второго гостя · {guest} · ПКМ"
     guide-dispute-water: "Возьми воду на выдаче · ПКМ"
-    guide-dispute-bring_water: "Отнеси воду · {guest} · ПКМ"
+    guide-dispute-bring_water: "Плесни водой · {guest} · ПКМ"
     guide-dispute-reassure: "Успокой гостя · {guest} · ПКМ"
-    dispute-spilled_drink-first_side: "Выслушай второго гостя"
+    dispute-spilled_drink-first_side: "Отведи второго гостя"
     dispute-spilled_drink-second_side: "Принеси гостю воды"
     dispute-spilled_drink-water: "Вода в руках"
-    dispute-spilled_drink-bring_water: "Успокой второго гостя"
+    dispute-spilled_drink-bring_water: "Гость остыл · успокой второго"
     dispute-spilled_drink-reassure: "Гости помирились"
-    dispute-loud_toast-first_side: "Выслушай второго гостя"
+    dispute-loud_toast-first_side: "Отведи второго гостя"
     dispute-loud_toast-second_side: "Принеси гостю воды"
     dispute-loud_toast-water: "Вода в руках"
-    dispute-loud_toast-bring_water: "Попроси второго гостя говорить тише"
+    dispute-loud_toast-bring_water: "Гость остыл · успокой второго"
     dispute-loud_toast-reassure: "Гости помирились"
 
 # Small, bounded choreography. ARC owns these props; no Denizen tasks.
@@ -183,8 +221,8 @@ life:
   effect-range: 14.0
   max-active-cycles: 4
   serving-ticks: 16
-  bite-interval-min-ticks: 400
-  bite-interval-max-ticks: 650
+  bite-interval-min-ticks: 60
+  bite-interval-max-ticks: 100
   bite-duration-ticks: 24
   steam-duration-ticks: 200
   bartender-rest-min-ticks: 120

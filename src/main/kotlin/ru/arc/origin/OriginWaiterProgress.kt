@@ -151,7 +151,7 @@ internal class OriginWaiterProgress(
             when (it.stage) {
                 OriginWaiterStage.TAKE_ORDER -> changed(it.copy(
                     stage = if (it.family == OriginWaiterFamily.ASSEMBLED) OriginWaiterStage.ASSEMBLE else OriginWaiterStage.PICKUP,
-                    readyAt = now + preparationMillis))
+                    readyAt = now + if (it.family == OriginWaiterFamily.ASSEMBLED) 0 else preparationMillis))
                 OriginWaiterStage.CLARIFY -> changed(it.copy(stage = OriginWaiterStage.PICKUP, clarified = true, readyAt = now + preparationMillis))
                 OriginWaiterStage.DELIVER -> {
                     val quality = (it.quality - ((now - it.readyAt).coerceAtLeast(0) * 25 / it.freshnessMillis).toInt()).coerceIn(0, 100)
@@ -181,8 +181,8 @@ internal class OriginWaiterProgress(
         }
     }
 
-    fun assemble(playerId: UUID, requestId: UUID, venueId: String?, ingredient: String, expectedIndex: Int, now: Long): OriginWaiterStep =
-        advance(playerId, requestId, venueId, now) { job ->
+    fun assemble(playerId: UUID, requestId: UUID, venueId: String?, ingredient: String, expectedIndex: Int, now: Long, commit: Boolean = true, completedAnimation: Boolean = false): OriginWaiterStep =
+        advance(playerId, requestId, venueId, now, commit) { job ->
             when {
                 carried(playerId) != null -> reject(OriginWaiterRejection.ALREADY_CARRYING)
                 job.stage != OriginWaiterStage.ASSEMBLE || job.assembled != expectedIndex -> reject(OriginWaiterRejection.STALE_ACTION)
@@ -191,7 +191,7 @@ internal class OriginWaiterProgress(
                 else -> {
                     val complete = job.assembled + 1 == job.recipe.size
                     changed(job.copy(assembled = job.assembled + 1, stage = if (complete) OriginWaiterStage.PICKUP else job.stage,
-                        readyAt = now + if (complete) 0 else actionMillis))
+                        readyAt = now + if (complete || completedAnimation) 0 else actionMillis))
                 }
             }
         }
@@ -202,8 +202,8 @@ internal class OriginWaiterProgress(
             else changed(job.copy(stage = OriginWaiterStage.COLLECT))
         }
 
-    fun wash(playerId: UUID, requestId: UUID, venueId: String?, action: OriginWaiterWash, expectedIndex: Int, now: Long): OriginWaiterStep =
-        advance(playerId, requestId, venueId, now) { job ->
+    fun wash(playerId: UUID, requestId: UUID, venueId: String?, action: OriginWaiterWash, expectedIndex: Int, now: Long, commit: Boolean = true, completedAnimation: Boolean = false): OriginWaiterStep =
+        advance(playerId, requestId, venueId, now, commit) { job ->
             when {
                 job.stage !in setOf(OriginWaiterStage.RETURN_DISHES, OriginWaiterStage.WASH) || job.washed != expectedIndex -> reject(OriginWaiterRejection.STALE_ACTION)
                 carried(playerId)?.id?.let { it != job.id } == true -> reject(OriginWaiterRejection.ALREADY_CARRYING)
@@ -218,7 +218,7 @@ internal class OriginWaiterProgress(
                             course = OriginWaiterCourse.MAIN, washed = 0, readyAt = now + preparationMillis)
                         else -> job.copy(washed = job.washed + 1,
                             stage = if (complete) OriginWaiterStage.PAYOUT else OriginWaiterStage.WASH,
-                            readyAt = now + if (action == OriginWaiterWash.SOAK) soakMillis else actionMillis)
+                            readyAt = now + if (completedAnimation) 0 else if (action == OriginWaiterWash.SOAK) soakMillis else actionMillis)
                     })
                 }
             }
@@ -230,7 +230,7 @@ internal class OriginWaiterProgress(
                 staffId != job.target.staffId -> reject(OriginWaiterRejection.WRONG_STAFF)
                 job.stage != OriginWaiterStage.REWORK -> reject(OriginWaiterRejection.PICKUP_FIRST)
                 else -> changed(job.copy(stage = if (job.recipe.isEmpty()) OriginWaiterStage.PICKUP else OriginWaiterStage.ASSEMBLE,
-                    assembled = 0, readyAt = now + preparationMillis, reworks = job.reworks + 1, quality = (job.quality - 15).coerceAtLeast(0)))
+                    assembled = 0, readyAt = now + if (job.recipe.isEmpty()) preparationMillis else 0, reworks = job.reworks + 1, quality = (job.quality - 15).coerceAtLeast(0)))
             }
         }
 
@@ -263,7 +263,7 @@ internal class OriginWaiterProgress(
         return true
     }
 
-    private fun endDispute(playerId: UUID, now: Long) {
+    fun endDispute(playerId: UUID, now: Long) {
         val dispute = disputes.remove(playerId) ?: return
         val paused = (now - dispute.startedAt).coerceAtLeast(0)
         tickets(playerId).forEach { job ->
@@ -285,14 +285,14 @@ internal class OriginWaiterProgress(
     }
 
     private fun advance(
-        playerId: UUID, requestId: UUID?, venueId: String?, now: Long, action: (OriginWaiterJob) -> OriginWaiterStep,
+        playerId: UUID, requestId: UUID?, venueId: String?, now: Long, commit: Boolean = true, action: (OriginWaiterJob) -> OriginWaiterStep,
     ): OriginWaiterStep {
         val job = requestId?.let { current(playerId, it) } ?: return reject(OriginWaiterRejection.NO_JOB)
         if (job.stage == OriginWaiterStage.PAYOUT) return reject(OriginWaiterRejection.PAYOUT_PENDING)
         if (venueId != job.target.venueId) return reject(OriginWaiterRejection.WRONG_VENUE)
         if (dispute(playerId) != null) return reject(OriginWaiterRejection.DISPUTE)
         if (now >= job.expiresAt) return reject(OriginWaiterRejection.EXPIRED)
-        return action(job).also { if (it is OriginWaiterStep.Changed) jobs.getValue(playerId)[job.id] = it.job }
+        return action(job).also { if (commit && it is OriginWaiterStep.Changed) jobs.getValue(playerId)[job.id] = it.job }
     }
 
     fun finish(playerId: UUID, requestId: UUID): OriginWaiterJob? =

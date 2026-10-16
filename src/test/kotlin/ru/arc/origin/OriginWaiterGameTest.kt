@@ -507,6 +507,75 @@ class OriginWaiterGameTest : StringSpec({
         }
     }
 
+    "last washing action pays only after its animation and duplicate clicks do not advance it" {
+        f.begin(remaining = 1)
+        f.prepareAndPickup()
+        f.clickNpc(433)
+        f.now += 18_000
+        f.game.tick(f.now)
+        f.clickPlate(433)
+        listOf("SCRAPE", "SOAP", "RINSE").forEach { f.workstation("wash:$it") }
+        f.autoCompleteActions = false
+        f.workstation("wash:DRY")
+        f.payments shouldBe emptyList()
+        val step = f.stationStep
+        f.stationHit = OriginWaiterStationHit(checkNotNull(f.stationRequest), "wash:DRY", step)
+        f.now += 100
+        f.game.interactWorkstation(f.player) shouldBe true
+        f.stationStep shouldBe step
+        f.payments shouldBe emptyList()
+        f.finishAnimation(599)
+        f.payments shouldBe emptyList()
+        f.finishAnimation(1)
+        f.payments.size shouldBe 1
+        f.game.tick(f.now + 2_000)
+        f.payments.size shouldBe 1
+    }
+
+    "losing another table does not interrupt the plate already being washed" {
+        f.begin()
+        f.prepareAndPickup()
+        f.clickNpc(433)
+        f.clickNpc(434)
+        f.now += 10_000
+        f.pressPickup(434, "Пиво")
+        f.clickNpc(434)
+        f.now += 18_000
+        f.game.tick(f.now)
+        f.clickPlate(434)
+        f.autoCompleteActions = false
+        f.workstation("wash:SCRAPE")
+        val request = f.stationRequest
+        f.leased.remove(433)
+        clearMocks(f.stations, answers = false, recordedCalls = true)
+        f.game.tick(f.now)
+        verify(exactly = 0) { f.stations.remove(f.player.uniqueId) }
+        f.stationRequest shouldBe request
+        f.stationStep shouldBe 0
+        f.finishAnimation(700)
+        f.stationRequest shouldBe request
+        f.stationStep shouldBe 1
+        f.stationChoices.first { it.next }.id shouldBe "wash:SOAP"
+        f.payments shouldBe emptyList()
+    }
+
+    "ending a shift during drying cancels the animation without issuing a reward" {
+        f.begin(remaining = 1)
+        f.prepareAndPickup()
+        f.clickNpc(433)
+        f.now += 18_000
+        f.game.tick(f.now)
+        f.clickPlate(433)
+        listOf("SCRAPE", "SOAP", "RINSE").forEach { f.workstation("wash:$it") }
+        f.autoCompleteActions = false
+        f.workstation("wash:DRY")
+        f.game.stop(f.player.uniqueId, "finished-early")
+        f.finishAnimation(5_000)
+        f.payments shouldBe emptyList()
+        f.game.isWorking(f.player.uniqueId) shouldBe false
+        f.leased shouldBe emptySet()
+    }
+
     "wrong dispute guest keeps the water and the peaceful resolution earns no separate payment" {
         f.close()
         f = WaiterGameFixture(disputeEveryOrders = 2)
@@ -551,6 +620,7 @@ private class WaiterGameFixture(private val disputeEveryOrders: Int = 0) : AutoC
     val carry = mockk<OriginWaiterCarry>(relaxed = true)
     val viewerGlow = mockk<ArcOriginViewerGlow>(relaxed = true)
     val stations = mockk<OriginWaiterStations>(relaxed = true)
+    var autoCompleteActions = true
     var stationHit: OriginWaiterStationHit? = null
     var stationRequest: UUID? = null
     var stationChoices = emptyList<OriginWaiterStationChoice>()
@@ -600,11 +670,12 @@ private class WaiterGameFixture(private val disputeEveryOrders: Int = 0) : AutoC
         every { carry.pickupPlate(any(), any()) } returns true
         every { carry.pickupWater(any()) } returns true
         every { stations.aimed(any(), any()) } answers { stationHit }
-        every { stations.show(any(), any(), any(), any(), any(), any()) } answers {
+        every { stations.show(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } answers {
             stationRequest = arg(1)
             stationChoices = arg(2)
             stationStep = arg(4)
         }
+        every { stations.begin(any(), any(), any(), any(), any(), any(), any(), any()) } returns true
         for ((id, x) in mapOf(439 to 0.0, 405 to 20.0, 433 to 8.0, 434 to 9.0, 435 to 10.0, 436 to 11.0, 416 to 28.0, 417 to 29.0)) {
             val entity = mockk<Villager>(relaxed = true) {
                 every { world } returns this@WaiterGameFixture.world
@@ -622,7 +693,7 @@ private class WaiterGameFixture(private val disputeEveryOrders: Int = 0) : AutoC
                 every { name } returns "&6Бармен"
             }
         }
-        game = OriginWaiterGame(waiterTestConfig().copy(disputeEveryOrders = disputeEveryOrders),
+        game = OriginWaiterGame(waiterTestConfig().copy(disputeEveryOrders = disputeEveryOrders, preparationMillis = 10_000, eatingMillis = 18_000, actionMillis = 700),
             reserve = { venue ->
                 val guest = if (!tablesAvailable) null else (if (venue.id == "restaurant") 433..436 else 416..417).firstOrNull { it !in leased }
                 guest?.let {
@@ -645,7 +716,16 @@ private class WaiterGameFixture(private val disputeEveryOrders: Int = 0) : AutoC
     fun npc(id: Int) = actors.getValue(id)
     fun entity(id: Int) = npc(id).entity as Villager
     fun moveTo(id: Int) { now++; player.teleport(entity(id).location) }
-    fun clickNpc(id: Int) { moveTo(id); game.interact(player, id) shouldBe true }
+    fun clickNpc(id: Int) {
+        moveTo(id)
+        game.interact(player, id) shouldBe true
+        if (autoCompleteActions && disputeEveryOrders > 0) finishAnimation(1_600)
+    }
+    fun finishAnimation(millis: Long = 700) {
+        now += millis
+        scheduler.tick((millis / 50).coerceAtLeast(1))
+        game.tick(now)
+    }
     fun openStaff() {
         clickNpc(439)
         scheduler.executeImmediate()
@@ -684,6 +764,7 @@ private class WaiterGameFixture(private val disputeEveryOrders: Int = 0) : AutoC
         stationHit = OriginWaiterStationHit(checkNotNull(stationRequest), action, stationStep)
         game.interactWorkstation(player) shouldBe true
         stationHit = null
+        if (autoCompleteActions && (action.startsWith("wash:") || action.startsWith("ingredient:") || action == "water")) finishAnimation(if (action == "water") 1_600 else if (action == "wash:SOAK") 3_000 else 700)
     }
     fun clean(guest: Int) {
         now += 18_000
@@ -691,9 +772,7 @@ private class WaiterGameFixture(private val disputeEveryOrders: Int = 0) : AutoC
         clickPlate(guest)
         // Direct world input uses the rendered request/index, just as the actual ray hit does.
         for (action in listOf(OriginWaiterWash.SCRAPE, OriginWaiterWash.SOAP, OriginWaiterWash.RINSE, OriginWaiterWash.DRY)) {
-            now += 700
-            stationHit = OriginWaiterStationHit(checkNotNull(stationRequest), "wash:${action.name}", stationStep)
-            game.interactWorkstation(player) shouldBe true
+            workstation("wash:${action.name}")
         }
         stationHit = null
     }

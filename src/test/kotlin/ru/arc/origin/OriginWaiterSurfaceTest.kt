@@ -20,9 +20,9 @@ internal fun waiterTestConfig(): OriginWaiterConfig {
 class OriginWaiterSurfaceTest : StringSpec({
     "both entrances explain the shift and require explicit acceptance with consistent native controls" {
         val config = waiterTestConfig()
-        config.venues shouldBe listOf(OriginWaiterVenue("brewery", 405, false), OriginWaiterVenue("restaurant", 439, false))
+        config.venues shouldBe listOf(OriginWaiterVenue("brewery", 405, false, 411, "brewery-kitchen"), OriginWaiterVenue("restaurant", 439, false))
         config.lifetimeMillis shouldBe 180_000
-        config.preparationMillis shouldBe 10_000
+        config.preparationMillis shouldBe 6_000
         config.shiftMillis shouldBe 600_000
         config.graceMillis shouldBe 120_000
         val screen = waiterScreen(config, config.venues.last(), null, emptyList(), 20, SideJobRewardStatus(true, 20, 0, false), 0)
