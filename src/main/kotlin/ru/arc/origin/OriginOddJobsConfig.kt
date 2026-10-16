@@ -87,7 +87,7 @@ internal fun originOddJobRequiredStations(kind: OriginOddJobKind): Set<OriginOdd
     OriginOddJobKind.AUCTION -> emptySet()
 }
 
-/** Resolve the existing scene once, only in loaded chunks; interactions never search the world. */
+/** Bounded resolution in loaded chunks; admission caches the result for work actions and ticks. */
 internal fun originOddJobStations(plan: OriginScenePlan, world: World): Map<OriginOddJobStationId, OriginOddJobStation> = buildMap {
     fun surface(id: OriginOddJobStationId, spec: OriginScenePropSurface) {
         val x = floor(spec.near.x).toInt()
