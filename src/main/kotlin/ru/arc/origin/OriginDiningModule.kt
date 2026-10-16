@@ -126,6 +126,8 @@ object OriginDiningModule : PluginModule, Listener {
         service = null
     }
 
+    internal fun isWaiterWorking(playerId: UUID): Boolean = service?.isWaiterWorking(playerId) == true
+
     /** Null means that the native service is not active in this runtime. */
     internal fun canOpen(player: Player, menu: BreweryTableDialogs.Menu): Boolean? =
         service?.canOpen(player, menu)
@@ -1879,6 +1881,8 @@ private class OriginDiningService : AutoCloseable {
     }
 
     fun cancelWaiterJob(player: Player, reason: String) = waiterGame.stop(player.uniqueId, reason)
+
+    fun isWaiterWorking(playerId: UUID): Boolean = waiterGame.isWorking(playerId)
 
     private fun cleanupWorldSeats() {
         val world = Bukkit.getWorld(OriginDiningLayout.WORLD)

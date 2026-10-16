@@ -5,6 +5,19 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 
 class OriginSceneCoordinatorTest : FreeSpec({
+    "player work blocks ambient stations and reload invalidates its token" {
+        val coordinator = OriginSceneCoordinator()
+        val work = coordinator.tryAcquire("forge", "player-work", setOf(349, 362), 0L, ignoreDue = true)!!
+        coordinator.owns(work) shouldBe true
+        coordinator.tryAcquire("forge", "master-anvil", setOf(349), 1L) shouldBe null
+        coordinator.tryAcquire("forge", "furnace-check", setOf(362), 1L) shouldBe null
+        coordinator.clear()
+        coordinator.owns(work) shouldBe false
+        val replacement = coordinator.tryAcquire("forge", "player-work", setOf(349, 362), 2L)!!
+        coordinator.release(work, 3L, 0L)
+        coordinator.owns(replacement) shouldBe true
+    }
+
     "a joint cycle behind older solo work does not reserve an idle assistant" {
         val coordinator = OriginSceneCoordinator()
         val cycles = mapOf("axe" to setOf(349), "sword" to setOf(349, 358), "hammer" to setOf(358))

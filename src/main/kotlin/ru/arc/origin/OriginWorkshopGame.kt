@@ -329,6 +329,8 @@ internal object OriginWorkshopGame : PluginModule, Listener {
     private var registered = false
     private var generation = 0L
 
+    internal fun isWorking(playerId: UUID): Boolean = session?.playerId == playerId
+
     override fun init() {
         if (!registered) {
             Bukkit.getPluginManager().registerEvents(this, ArcOriginPlugin.instance)
@@ -554,6 +556,10 @@ internal object OriginWorkshopGame : PluginModule, Listener {
         boardModels: Map<OriginWorkshopBoardModel, ItemStack>,
     ) {
         val rules = settings?.rules ?: return
+        if (OriginOddJobsModule.isWorking(player.uniqueId) || OriginDiningModule.isWaiterWorking(player.uniqueId)) {
+            player.sendActionBar(Component.text("Сначала заверши текущее поручение."))
+            return
+        }
         val startLocation = OriginWorkshopTablesModule.pointAt(selectedTable, start) ?: return
         if (player.world.uid != startLocation.world.uid || player.location.distanceSquared(startLocation) > SESSION_RANGE_SQUARED) return
 

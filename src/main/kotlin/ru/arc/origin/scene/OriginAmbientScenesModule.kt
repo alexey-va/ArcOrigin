@@ -101,6 +101,16 @@ object OriginAmbientScenesModule : PluginModule, Listener {
         service?.interruptActor(actorId, reason)
     }
 
+    /** Player work and ambient choreography share the same actor exclusion. */
+    internal fun acquireWorksite(sceneId: String, actorIds: Set<Int>): OriginSceneLease? =
+        service?.acquireWorksite(sceneId, actorIds)
+
+    internal fun ownsWorksite(lease: OriginSceneLease): Boolean = service?.ownsWorksite(lease) == true
+
+    internal fun releaseWorksite(lease: OriginSceneLease) {
+        service?.releaseWorksite(lease)
+    }
+
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     fun onNpcClick(event: NPCRightClickEvent) {
         service?.interruptActor(
@@ -198,6 +208,23 @@ private class OriginSceneService(
 
     fun protectsCrop(world: String, actorId: Int, material: Material): Boolean =
         cropProtection.protects(world, actorId, material)
+
+    fun acquireWorksite(sceneId: String, actorIds: Set<Int>): OriginSceneLease? {
+        if (closed || actorIds.isEmpty()) return null
+        val scene = plan.scenes.firstOrNull { it.id == sceneId } ?: return null
+        if (!scene.actors.keys.containsAll(actorIds)) return null
+        val overlapping = active.values.filter { running -> running.cycle.actorIds.any(actorIds::contains) }
+        if (overlapping.any { it.manual }) return null
+        overlapping.forEach { interruptCycle(it, "player-work", OriginSceneRecoveryPolicy.KEEP_CURRENT_POSITION) }
+        if (actorIds.any { id -> npc(id)?.let { available(it, scene) } != true }) return null
+        return coordinator.tryAcquire(sceneId, "player-work", actorIds, System.currentTimeMillis(), ignoreDue = true)
+    }
+
+    fun ownsWorksite(lease: OriginSceneLease): Boolean = !closed && coordinator.owns(lease)
+
+    fun releaseWorksite(lease: OriginSceneLease) {
+        coordinator.release(lease, System.currentTimeMillis(), 0L)
+    }
 
     fun start() {
         removeAbandonedDisplays()

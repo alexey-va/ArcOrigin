@@ -23,13 +23,15 @@ class OriginWaiterSurfaceTest : StringSpec({
         config.venues shouldBe listOf(OriginWaiterVenue("brewery", 405, true), OriginWaiterVenue("restaurant", 439, false))
         config.lifetimeMillis shouldBe 180_000
         config.preparationMillis shouldBe 10_000
-        val screen = waiterScreen(config, config.venues.last(), null, 20, WaiterRewardStatus(true, 20, 0, false), 0)
+        val screen = waiterScreen(config, config.venues.last(), null, 20, SideJobRewardStatus(true, 20, 0, false), 0)
         screen.title.color() shouldBe TextColor.color(0xFFB277)
         screen.title.decoration(TextDecoration.ITALIC) shouldBe TextDecoration.State.FALSE
         screen.buttons.map { it.id.value } shouldBe listOf("waiter_start")
         screen.buttons.single().closeDialogBeforeAction shouldBe true
         screen.body.map { plain(it.text) }.joinToString("\n") shouldContain "20 💰"
-        screen.body.flatMap { components(it.text) }.single { plain(it) == "💰" }.color() shouldBe NamedTextColor.WHITE
+        val coins = screen.body.flatMap { components(it.text) }.filter { plain(it) == "💰" }
+        coins.size shouldBe 2
+        coins.forEach { it.color() shouldBe NamedTextColor.WHITE }
     }
 
     "recipient kitchen and delivery states have explicit next actions and cancellation" {
@@ -55,10 +57,10 @@ class OriginWaiterSurfaceTest : StringSpec({
         val config = waiterTestConfig()
         val venue = config.venues.last()
         for ((status, text) in listOf(
-            WaiterRewardStatus(true, 0, 0, false) to "На сегодня",
-            WaiterRewardStatus(true, 5, 20_000, false) to "через 20 с",
-            WaiterRewardStatus(false, 5, 0, true) to "Оплату проверяет касса",
-            WaiterRewardStatus(false, 20, 0, false) to "Касса временно недоступна",
+            SideJobRewardStatus(true, 0, 0, false) to "На сегодня",
+            SideJobRewardStatus(true, 5, 20_000, false) to "через 20 с",
+            SideJobRewardStatus(false, 5, 0, true) to "Оплату проверяет касса",
+            SideJobRewardStatus(false, 20, 0, false) to "Касса временно недоступна",
         )) {
             val screen = waiterScreen(config, venue, null, 20, status, 0)
             screen.buttons shouldBe emptyList()

@@ -71,7 +71,7 @@ internal fun waiterScreen(
     venue: OriginWaiterVenue,
     job: OriginWaiterJob?,
     amount: Int,
-    status: WaiterRewardStatus?,
+    status: SideJobRewardStatus?,
     now: Long,
     notice: String? = null,
     start: () -> Unit = {},
@@ -135,9 +135,10 @@ internal class OriginWaiterGame(
     private val playerVenue: (Player) -> String?,
     private val debounce: (Player) -> Boolean,
     private val carry: OriginWaiterCarry,
-    private val rewards: OriginWaiterRewards = OriginWaiterRewards(),
+    private val rewards: OriginSideJobRewards = OriginSideJobRewards(),
     private val tasks: LifecycleTaskScope = LifecycleTaskScope(),
     private val clock: () -> Long = System::currentTimeMillis,
+    private val otherWork: (UUID) -> Boolean = { OriginOddJobsModule.isWorking(it) || OriginWorkshopGame.isWorking(it) },
 ) : AutoCloseable {
     private val progress = OriginWaiterProgress(config.lifetimeMillis, config.preparationMillis)
     private val requests = mutableMapOf<UUID, UUID>()
@@ -147,6 +148,8 @@ internal class OriginWaiterGame(
     init { tasks.runTimer(1, 1, carry::tick) }
 
     fun reserves(guestId: Int): Boolean = progress.entries().any { it.second.target.guestId == guestId }
+
+    fun isWorking(playerId: UUID): Boolean = progress.current(playerId) != null
 
     fun interact(player: Player, npcId: Int): Boolean {
         val venue = config.venues.firstOrNull { it.staffId == npcId }
@@ -220,6 +223,10 @@ internal class OriginWaiterGame(
                     feedback(player, rejected, "seconds" to waiterSeconds(state.nextAtMillis - now))
                     return@runSync
                 }
+                if (otherWork(playerId)) {
+                    feedback(player, "other-work")
+                    return@runSync
+                }
                 val target = reserve(venue)
                 if (target == null) { feedback(player, "no-guests"); return@runSync }
                 val job = progress.begin(playerId, target, now)
@@ -231,7 +238,7 @@ internal class OriginWaiterGame(
         }
     }
 
-    private fun show(player: Player, venue: OriginWaiterVenue, job: OriginWaiterJob?, state: WaiterRewardStatus? = null, notice: String? = null) {
+    private fun show(player: Player, venue: OriginWaiterVenue, job: OriginWaiterJob?, state: SideJobRewardStatus? = null, notice: String? = null) {
         if (closed || !near(player, venue.staffId)) return
         OriginMenus.openDialog(player,
             waiterScreen(config, venue, job, rewards.amount, state, clock(), notice,
@@ -282,21 +289,21 @@ internal class OriginWaiterGame(
         clearGlow(player.uniqueId)
         feedback(player, "paying")
         info("ORIGIN_WAITER phase=SERVED player={} request={} table={}", player.uniqueId, job.id, job.target.tableId)
-        rewards.pay(player.uniqueId, job.id,
+        rewards.pay(OriginSideJobKind.WAITER, player.uniqueId, job.id,
             stillValid = { !closed && progress.current(player.uniqueId)?.id == job.id && player.isOnline },
         ) { outcome ->
             val finished = progress.finish(player.uniqueId, job.id) ?: return@pay
             release(finished.target)
             if (player.isOnline) when (outcome) {
-                WaiterRewardOutcome.PAID, WaiterRewardOutcome.ALREADY_PAID -> {
+                SideJobRewardOutcome.PAID, SideJobRewardOutcome.ALREADY_PAID -> {
                     feedback(player, "paid", "amount" to rewards.amount)
                     player.playSound(player.location, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, SoundCategory.PLAYERS, 0.45f, 1.15f)
                 }
-                WaiterRewardOutcome.COOLDOWN -> feedback(player, "payment-cooldown")
-                WaiterRewardOutcome.DAILY_LIMIT -> feedback(player, "daily-limit")
-                WaiterRewardOutcome.UNCONFIRMED -> feedback(player, "unconfirmed")
-                WaiterRewardOutcome.UNAVAILABLE -> feedback(player, "unavailable")
-                WaiterRewardOutcome.CANCELLED -> feedback(player, "cancelled")
+                SideJobRewardOutcome.COOLDOWN -> feedback(player, "payment-cooldown")
+                SideJobRewardOutcome.DAILY_LIMIT -> feedback(player, "daily-limit")
+                SideJobRewardOutcome.UNCONFIRMED -> feedback(player, "unconfirmed")
+                SideJobRewardOutcome.UNAVAILABLE -> feedback(player, "unavailable")
+                SideJobRewardOutcome.CANCELLED -> feedback(player, "cancelled")
             }
             info("ORIGIN_WAITER phase=FINISHED player={} request={} outcome={}", player.uniqueId, job.id, outcome)
         }

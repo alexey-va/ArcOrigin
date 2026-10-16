@@ -81,6 +81,7 @@ open class ArcOriginPlugin : JavaPlugin() {
             OriginWorkshopGame,
             OriginTrainingDummyModule,
             OriginMountYardModule,
+            OriginOddJobsModule,
         )
         ModuleRegistry.initAll()
 
@@ -134,6 +135,7 @@ open class ArcOriginPlugin : JavaPlugin() {
             "modules/origin-spawn.yml",
             "modules/origin-mount-yard.yml",
             "modules/origin-mount-care.yml",
+            "modules/origin-odd-jobs.yml",
             "modules/origin-dining.yml",
             "modules/origin-scenes.yml",
             "modules/origin-workshop-game.yml",

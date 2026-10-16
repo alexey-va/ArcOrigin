@@ -4,7 +4,7 @@ ArcOrigin is the standalone Paper plugin for RusCrafting's Origin worlds and con
 
 The runtime and its Java API have independent immutable Maven coordinates:
 
-- Runtime plugin: `ru.ruscrafting:ArcOrigin:0.1.0`
+- Runtime plugin: `ru.ruscrafting:ArcOrigin:0.1.10`
 - Java API: `ru.ruscrafting.arc:arc-origin-api:0.1.0`
 
 ARC shades the API once. ArcOrigin consumes it as `compileOnly`; add-ons should do the same and must not embed the API or shared provider implementations. Change `originApiVersion` before publishing a contract change. Runtime releases do not require an API version change.
@@ -98,9 +98,10 @@ adds an inventory item. Cancellation, timeout, leaving the venue, teleport,
 quit and module reload release the reservation, remove the prop and clear
 personal glow. Pending callbacks are fenced by the lifecycle epoch and request.
 
-`OriginWaiterRewards` owns the asynchronous Redis quota at
-`arc.origin-waiter-rewards.v1`: 20 coins per order, at most 20 orders (400 coins)
-per UTC day across both venues, and at least 20 seconds between reserved or
+`OriginSideJobRewards` owns the asynchronous Redis quota at
+`arc.origin-waiter-rewards.v1`: 20 coins per completed job, at most 20 jobs (400 coins)
+per UTC day across restaurants, the mount yard, forge and auction house,
+and at least 20 seconds between reserved or
 completed payouts. Its status is checked before assigning a guest. The durable
 claim is acknowledged before the host economy call on the server thread; an
 unconfirmed outcome remains reserved and is never automatically retried. The
@@ -113,9 +114,42 @@ cleanup, late dialog replies, and durable payout failures:
 
 ```bash
 ./gradlew test --tests 'ru.arc.origin.OriginWaiter*Test' \
+  --tests ru.arc.origin.OriginSideJobRewardsTest \
   --tests 'ru.arc.origin.OriginDining*Test' \
   --tests ru.arc.origin.scene.OriginSceneCoordinatorTest
 ```
 
 Packet and model checks establish source behavior and geometry. They do not
 establish native-client interaction, attachment motion or visual acceptance.
+
+## Mount-yard, forge and auction-house work
+
+`OriginOddJobsModule` owns the three repeatable jobs configured in
+`modules/origin-odd-jobs.yml`. Sneak and right-click Senya (440), Edgar (349)
+or auctioneer Victor (365) to start. Their ordinary clicks retain daily mount
+care, forge advice and the auction respectively.
+
+The mount-yard route moves hay to the feeding area and refreshes the trough.
+The forge route heats a blank, requires timed strikes to form a horseshoe,
+then quenches and returns it. The auction route matches a service request to
+an item and suitable packaging, takes the package to Greta (382), then returns
+the paperwork to Victor. Auction service props never enter player inventories
+or change auction listings. The existing mount-care boost and Bran's training
+challenge remain separate activities with their existing rewards.
+
+Scene anchors and actual workstation surfaces come from `origin-scenes.yml`.
+Forge work reserves its actor through the ambient scene coordinator, so the
+background scene cannot reclaim the work surface. Personal packet props and
+target guidance are owned by the player and request token. Cancellation,
+expiry, departure and reload remove them and invalidate late callbacks.
+
+All four job kinds use the same durable reward owner and unchanged Redis key,
+record shape, quota and payout interval. Existing waiter receipts and pending
+claims continue to count; adding a worksite does not reset the quota. The
+activity-specific economy reason is an audit label, never an idempotency key.
+The pooled cap is 400 coins per UUID per UTC day, reset at 03:00 Moscow time;
+it is not a rolling 24-hour or network-wide limit.
+
+Focused verification also includes `OriginOddJobs*Test` and
+`OriginOddJobVisualsTest`. Unit tests and offline geometry previews do not
+establish native-client gameplay, rendered motion or an observed live payout.

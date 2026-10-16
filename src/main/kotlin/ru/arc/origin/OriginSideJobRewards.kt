@@ -21,20 +21,28 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.logging.Level
 import java.util.logging.Logger
 
+/** Audit attribution only; every kind shares the same quota and request identities. */
+internal enum class OriginSideJobKind(val auditPrefix: String) {
+    WAITER("arc-restaurant-waiter"),
+    MOUNTYARD("arc-mountyard-job"),
+    FORGE("arc-forge-job"),
+    AUCTION("arc-auction-job"),
+}
+
 /** [available] is technical readiness; quota, cooldown and unresolved payment are separate gates. */
-internal data class WaiterRewardStatus(
+internal data class SideJobRewardStatus(
     val available: Boolean,
     val remainingOrders: Int,
     val nextAtMillis: Long,
     val unresolved: Boolean,
 )
 
-internal enum class WaiterRewardOutcome {
+internal enum class SideJobRewardOutcome {
     PAID, ALREADY_PAID, COOLDOWN, DAILY_LIMIT, UNCONFIRMED, UNAVAILABLE, CANCELLED,
 }
 
 /** The last request is the reserved payment while [pending]; earlier requests are settled receipts. */
-internal data class WaiterRewardRecord(
+internal data class SideJobRewardRecord(
     val day: Long,
     val count: Int,
     val nextAt: Long,
@@ -43,21 +51,22 @@ internal data class WaiterRewardRecord(
 ) {
     fun validate() {
         require(day in 0..MAX_TIMESTAMP / DAY_MILLIS)
-        require(count in 1..WAITER_DAILY_LIMIT && requests.size == count)
+        require(count in 1..SIDE_JOB_DAILY_LIMIT && requests.size == count)
         require(nextAt in 1..MAX_TIMESTAMP && nextAt / DAY_MILLIS >= day)
         require(requests.toSet().size == requests.size)
         require(requests.all { UUID.fromString(it).toString() == it })
     }
 }
 
-internal const val WAITER_REWARD_KEY = "arc.origin-waiter-rewards.v1"
-internal const val WAITER_DAILY_LIMIT = 20
-internal const val WAITER_PAYOUT_INTERVAL_MILLIS = 20_000L
+// Preserve the original key and wire fields: waiter receipts and unknown outcomes apply to every job.
+internal const val SIDE_JOB_REWARD_KEY = "arc.origin-waiter-rewards.v1"
+internal const val SIDE_JOB_DAILY_LIMIT = 20
+internal const val SIDE_JOB_PAYOUT_INTERVAL_MILLIS = 20_000L
 private const val DAY_MILLIS = 86_400_000L
 private const val MAX_TIMESTAMP = 253_402_300_799_999L
 
-internal fun waiterRewardCodec() = BoundedJsonCodec(
-    GsonBuilder().create(), WaiterRewardRecord::class.java,
+internal fun sideJobRewardCodec() = BoundedJsonCodec(
+    GsonBuilder().create(), SideJobRewardRecord::class.java,
     object : JsonRootContract {
         override fun validate(value: JsonElement) {
             JsonObjectContract(setOf("day", "count", "nextAt", "requests", "pending")).validate(value)
@@ -68,24 +77,24 @@ internal fun waiterRewardCodec() = BoundedJsonCodec(
                 require(number.asString.matches(Regex("0|[1-9][0-9]{0,14}")))
                 val integer = requireNotNull(number.asString.toLongOrNull())
                 require(when (name) {
-                    "count" -> integer in 1..WAITER_DAILY_LIMIT
+                    "count" -> integer in 1..SIDE_JOB_DAILY_LIMIT
                     "day" -> integer in 0..MAX_TIMESTAMP / DAY_MILLIS
                     else -> integer in 1..MAX_TIMESTAMP
                 })
             }
             val requests = fields.get("requests")
-            require(requests.isJsonArray && requests.asJsonArray.size() in 1..WAITER_DAILY_LIMIT)
+            require(requests.isJsonArray && requests.asJsonArray.size() in 1..SIDE_JOB_DAILY_LIMIT)
             require(requests.asJsonArray.all { it.isJsonPrimitive && it.asJsonPrimitive.isString })
             val pending = fields.get("pending")
             require(pending.isJsonPrimitive && pending.asJsonPrimitive.isBoolean)
         }
     },
-    JsonResourceBounds(maxCharacters = 1_600, maxDepth = 3, maxContainerEntries = WAITER_DAILY_LIMIT,
+    JsonResourceBounds(maxCharacters = 1_600, maxDepth = 3, maxContainerEntries = SIDE_JOB_DAILY_LIMIT,
         maxTotalNodes = 28, maxStringCharacters = 36),
 ) { it.validate() }
 
 /**
- * One shared UTC-day quota for both venues. Call [status], [pay] and [close] on
+ * One shared UTC-day quota for all Origin side jobs. Call [status], [pay] and [close] on
  * the server thread; storage futures may complete elsewhere. Neither storage nor
  * shutdown waits for I/O. Provider access, [pay]'s validity check and callback
  * stay on the server thread; stale UI callbacks are discarded.
@@ -96,7 +105,7 @@ internal fun waiterRewardCodec() = BoundedJsonCodec(
  * UTC rollover; they must never trigger an automatic deposit replay. Only a
  * proven pre-call cancellation may restore the exact previous record.
  */
-internal class OriginWaiterRewards(
+internal class OriginSideJobRewards(
     private val redis: RedisOperations? = ArcOriginPlugin.instance.redisClient,
     private val economy: () -> ArcOriginEconomy? = { OriginServices.economy },
     scheduler: TaskScheduler = Tasks.scheduler,
@@ -104,61 +113,62 @@ internal class OriginWaiterRewards(
     private val logger: Logger = ArcOriginPlugin.instance.logger,
 ) : AutoCloseable {
     val amount: Int = 20
-    private val codec = waiterRewardCodec()
-    private val updater = redis?.let { RedisHashUpdater(it, WAITER_REWARD_KEY, codec, 12) }
+    private val codec = sideJobRewardCodec()
+    private val updater = redis?.let { RedisHashUpdater(it, SIDE_JOB_REWARD_KEY, codec, 12) }
     private val tasks = LifecycleTaskScope(scheduler, true)
     private val inFlight = ConcurrentHashMap<UUID, Payment>()
     @Volatile private var closed = false
 
-    private data class Reservation(val before: WaiterRewardRecord?, val claim: WaiterRewardRecord)
+    private data class Reservation(val before: SideJobRewardRecord?, val claim: SideJobRewardRecord)
 
     private class Payment(
+        val kind: OriginSideJobKind,
         val playerId: UUID,
         val requestId: UUID,
         val token: LifecycleTaskScope.Token,
         val stillValid: () -> Boolean,
-        val callback: (WaiterRewardOutcome) -> Unit,
+        val callback: (SideJobRewardOutcome) -> Unit,
     ) {
         @Volatile var reservation: Reservation? = null
         @Volatile var attempted = false
         val releaseStarted = AtomicBoolean()
     }
 
-    fun status(playerId: UUID): CompletableFuture<WaiterRewardStatus> {
+    fun status(playerId: UUID): CompletableFuture<SideJobRewardStatus> {
         val providerAvailable = !closed && provider(playerId) != null
-        val storage = redis ?: return CompletableFuture.completedFuture(WaiterRewardStatus(false, 0, 0L, false))
-        return storageFuture { storage.loadMapEntries(WAITER_REWARD_KEY, playerId.toString()) }.handle { values, failure ->
+        val storage = redis ?: return CompletableFuture.completedFuture(SideJobRewardStatus(false, 0, 0L, false))
+        return storageFuture { storage.loadMapEntries(SIDE_JOB_REWARD_KEY, playerId.toString()) }.handle { values, failure ->
             if (failure != null) {
                 warn("status", playerId, null, failure)
-                WaiterRewardStatus(false, 0, 0L, true)
+                SideJobRewardStatus(false, 0, 0L, true)
             } else try {
                 require(values.size == 1)
                 val record = values.single()?.let(codec::decode)
                 val now = clock()
-                val remaining = WAITER_DAILY_LIMIT - if (record == null || !record.pending && now / DAY_MILLIS > record.day) 0 else record.count
+                val remaining = SIDE_JOB_DAILY_LIMIT - if (record == null || !record.pending && now / DAY_MILLIS > record.day) 0 else record.count
                 val unresolved = record?.pending == true || inFlight.containsKey(playerId)
                 val nextAt = record?.nextAt ?: 0L
-                WaiterRewardStatus(providerAvailable && !closed, remaining, nextAt, unresolved)
+                SideJobRewardStatus(providerAvailable && !closed, remaining, nextAt, unresolved)
             } catch (error: Exception) {
                 warn("decode-status", playerId, null, error)
-                WaiterRewardStatus(false, 0, 0L, true)
+                SideJobRewardStatus(false, 0, 0L, true)
             }
         }
     }
 
-    fun pay(playerId: UUID, requestId: UUID, stillValid: () -> Boolean, callback: (WaiterRewardOutcome) -> Unit) {
+    fun pay(kind: OriginSideJobKind, playerId: UUID, requestId: UUID, stillValid: () -> Boolean, callback: (SideJobRewardOutcome) -> Unit) {
         if (closed || !stillValid()) {
-            callback(WaiterRewardOutcome.CANCELLED)
+            callback(SideJobRewardOutcome.CANCELLED)
             return
         }
         val store = updater
-        if (store == null || provider(playerId) == null) {
-            callback(WaiterRewardOutcome.UNAVAILABLE)
+        if (store == null || provider(playerId, kind) == null) {
+            callback(SideJobRewardOutcome.UNAVAILABLE)
             return
         }
-        val payment = Payment(playerId, requestId, tasks.token(), stillValid, callback)
+        val payment = Payment(kind, playerId, requestId, tasks.token(), stillValid, callback)
         if (inFlight.putIfAbsent(playerId, payment) != null) {
-            callback(WaiterRewardOutcome.UNCONFIRMED)
+            callback(SideJobRewardOutcome.UNCONFIRMED)
             return
         }
         val now = clock()
@@ -167,54 +177,54 @@ internal class OriginWaiterRewards(
                 if (rejection(current, requestId, now) != null) RedisHashDecision.Reject
                 else {
                     val requests = current?.takeIf { it.day >= now / DAY_MILLIS }?.requests.orEmpty() + requestId.toString()
-                    RedisHashDecision.Write(WaiterRewardRecord(now / DAY_MILLIS, requests.size,
-                        Math.addExact(now, WAITER_PAYOUT_INTERVAL_MILLIS), requests, pending = true))
+                    RedisHashDecision.Write(SideJobRewardRecord(now / DAY_MILLIS, requests.size,
+                        Math.addExact(now, SIDE_JOB_PAYOUT_INTERVAL_MILLIS), requests, pending = true))
                 }
             }
         }.whenComplete { result, failure ->
             val changed = result as? RedisHashUpdateResult.Changed
             val changedAfter = changed?.after
             if (failure != null) {
-                warn("reserve", playerId, requestId, failure)
-                dispatch(payment) { finish(payment, WaiterRewardOutcome.UNCONFIRMED) }
+                warn("reserve", playerId, requestId, failure, kind)
+                dispatch(payment) { finish(payment, SideJobRewardOutcome.UNCONFIRMED) }
             } else if (changed != null && changedAfter?.pending == true && changedAfter.requests.last() == requestId.toString()) {
                 payment.reservation = Reservation(changed.before, changedAfter)
                 dispatch(payment) { deposit(payment) }
             } else {
-                if (result is RedisHashUpdateResult.Contended) warn("reserve-contended", playerId, requestId, null)
+                if (result is RedisHashUpdateResult.Contended) warn("reserve-contended", playerId, requestId, null, kind)
                 val current = when (result) {
                     is RedisHashUpdateResult.Rejected -> result.current
                     is RedisHashUpdateResult.Unchanged -> result.current
                     else -> null
                 }
-                dispatch(payment) { finish(payment, rejection(current, requestId, clock()) ?: WaiterRewardOutcome.UNAVAILABLE) }
+                dispatch(payment) { finish(payment, rejection(current, requestId, clock()) ?: SideJobRewardOutcome.UNAVAILABLE) }
             }
         }
     }
 
     private fun deposit(payment: Payment) {
         if (!payment.stillValid()) {
-            releaseUnused(payment, WaiterRewardOutcome.CANCELLED)
+            releaseUnused(payment, SideJobRewardOutcome.CANCELLED)
             return
         }
-        val provider = provider(payment.playerId)
+        val provider = provider(payment.playerId, payment.kind)
         if (provider == null) {
-            releaseUnused(payment, WaiterRewardOutcome.UNAVAILABLE)
+            releaseUnused(payment, SideJobRewardOutcome.UNAVAILABLE)
             return
         }
         val claim = requireNotNull(payment.reservation).claim
         payment.attempted = true
         val accepted = try {
             // This is audit text, not a provider idempotency key. Never retry this call.
-            provider.depositDefaultCurrency(payment.playerId, amount.toDouble(), "arc-restaurant-waiter:${payment.requestId}")
+            provider.depositDefaultCurrency(payment.playerId, amount.toDouble(), "${payment.kind.auditPrefix}:${payment.requestId}")
         } catch (error: Exception) {
-            warn("provider-unconfirmed", payment.playerId, payment.requestId, error)
-            finish(payment, WaiterRewardOutcome.UNCONFIRMED)
+            warn("provider-unconfirmed", payment.playerId, payment.requestId, error, payment.kind)
+            finish(payment, SideJobRewardOutcome.UNCONFIRMED)
             return
         }
         if (!accepted) {
-            warn("provider-unconfirmed", payment.playerId, payment.requestId, null)
-            finish(payment, WaiterRewardOutcome.UNCONFIRMED)
+            warn("provider-unconfirmed", payment.playerId, payment.requestId, null, payment.kind)
+            finish(payment, SideJobRewardOutcome.UNCONFIRMED)
             return
         }
         // A delayed reservation must not shorten the interval between actual payments.
@@ -223,7 +233,7 @@ internal class OriginWaiterRewards(
             val now = clock()
             val requests = if (now / DAY_MILLIS > claim.day) listOf(payment.requestId.toString()) else claim.requests
             val settled = claim.copy(day = maxOf(claim.day, now / DAY_MILLIS), count = requests.size,
-                requests = requests, nextAt = maxOf(claim.nextAt, Math.addExact(now, WAITER_PAYOUT_INTERVAL_MILLIS)), pending = false)
+                requests = requests, nextAt = maxOf(claim.nextAt, Math.addExact(now, SIDE_JOB_PAYOUT_INTERVAL_MILLIS)), pending = false)
             requireNotNull(updater).update(payment.playerId.toString()) { current ->
                 when (current) {
                     claim, settled -> RedisHashDecision.Write(settled)
@@ -234,13 +244,13 @@ internal class OriginWaiterRewards(
                     || result is RedisHashUpdateResult.Unchanged && result.current == settled
             }
         }.whenComplete { confirmed, failure ->
-            if (failure != null || confirmed != true) warn("settle-unconfirmed", payment.playerId, payment.requestId, failure)
-            else logger.info("ORIGIN_WAITER reward=ACCEPTED player=${payment.playerId} request=${payment.requestId} currency=vault amount=$amount")
-            dispatch(payment) { finish(payment, if (confirmed == true) WaiterRewardOutcome.PAID else WaiterRewardOutcome.UNCONFIRMED) }
+            if (failure != null || confirmed != true) warn("settle-unconfirmed", payment.playerId, payment.requestId, failure, payment.kind)
+            else logger.info("ORIGIN_SIDE_JOB kind=${payment.kind} reward=ACCEPTED player=${payment.playerId} request=${payment.requestId} currency=vault amount=$amount")
+            dispatch(payment) { finish(payment, if (confirmed == true) SideJobRewardOutcome.PAID else SideJobRewardOutcome.UNCONFIRMED) }
         }
     }
 
-    private fun releaseUnused(payment: Payment, outcome: WaiterRewardOutcome = WaiterRewardOutcome.CANCELLED) {
+    private fun releaseUnused(payment: Payment, outcome: SideJobRewardOutcome = SideJobRewardOutcome.CANCELLED) {
         val reservation = payment.reservation ?: return
         if (payment.attempted || !payment.releaseStarted.compareAndSet(false, true)) return
         storageFuture {
@@ -253,24 +263,24 @@ internal class OriginWaiterRewards(
             }
         }.whenComplete { result, failure ->
             val released = result is RedisHashUpdateResult.Changed && result.after == reservation.before
-            if (failure != null || !released) warn("cancel-retained", payment.playerId, payment.requestId, failure)
-            dispatch(payment) { finish(payment, if (released) outcome else WaiterRewardOutcome.UNCONFIRMED) }
+            if (failure != null || !released) warn("cancel-retained", payment.playerId, payment.requestId, failure, payment.kind)
+            dispatch(payment) { finish(payment, if (released) outcome else SideJobRewardOutcome.UNCONFIRMED) }
         }
     }
 
-    private fun rejection(record: WaiterRewardRecord?, requestId: UUID, now: Long): WaiterRewardOutcome? = when {
+    private fun rejection(record: SideJobRewardRecord?, requestId: UUID, now: Long): SideJobRewardOutcome? = when {
         record == null -> null
-        requestId.toString() in record.requests && (!record.pending || record.requests.last() != requestId.toString()) -> WaiterRewardOutcome.ALREADY_PAID
-        record.pending -> WaiterRewardOutcome.UNCONFIRMED
-        now / DAY_MILLIS <= record.day && record.count >= WAITER_DAILY_LIMIT -> WaiterRewardOutcome.DAILY_LIMIT
-        now < record.nextAt -> WaiterRewardOutcome.COOLDOWN
+        requestId.toString() in record.requests && (!record.pending || record.requests.last() != requestId.toString()) -> SideJobRewardOutcome.ALREADY_PAID
+        record.pending -> SideJobRewardOutcome.UNCONFIRMED
+        now / DAY_MILLIS <= record.day && record.count >= SIDE_JOB_DAILY_LIMIT -> SideJobRewardOutcome.DAILY_LIMIT
+        now < record.nextAt -> SideJobRewardOutcome.COOLDOWN
         else -> null
     }
 
-    private fun provider(playerId: UUID): ArcOriginEconomy? = try {
+    private fun provider(playerId: UUID, kind: OriginSideJobKind? = null): ArcOriginEconomy? = try {
         economy()?.takeIf { it.isAvailable() }
     } catch (error: Exception) {
-        warn("provider-unavailable", playerId, null, error)
+        warn("provider-unavailable", playerId, null, error, kind)
         null
     }
 
@@ -284,7 +294,7 @@ internal class OriginWaiterRewards(
                 if (inFlight[payment.playerId] === payment) action()
             } == null) discard(payment)
         } catch (error: Exception) {
-            warn("schedule", payment.playerId, payment.requestId, error)
+            warn("schedule", payment.playerId, payment.requestId, error, payment.kind)
             discard(payment)
         }
     }
@@ -294,7 +304,7 @@ internal class OriginWaiterRewards(
         inFlight.remove(payment.playerId, payment)
     }
 
-    private fun finish(payment: Payment, outcome: WaiterRewardOutcome) {
+    private fun finish(payment: Payment, outcome: SideJobRewardOutcome) {
         if (inFlight.remove(payment.playerId, payment) && !closed && payment.stillValid()) payment.callback(outcome)
     }
 
@@ -304,8 +314,8 @@ internal class OriginWaiterRewards(
         CompletableFuture.failedFuture(error)
     }
 
-    private fun warn(phase: String, playerId: UUID, requestId: UUID?, failure: Throwable?) {
-        logger.log(Level.WARNING, "ORIGIN_WAITER phase=$phase player=$playerId request=$requestId retry=none", failure)
+    private fun warn(phase: String, playerId: UUID, requestId: UUID?, failure: Throwable?, kind: OriginSideJobKind? = null) {
+        logger.log(Level.WARNING, "ORIGIN_SIDE_JOB kind=${kind?.name ?: "shared"} phase=$phase player=$playerId request=$requestId retry=none", failure)
     }
 
     override fun close() {

@@ -34,6 +34,18 @@ class OriginWaiterGameTest : StringSpec({
     beforeEach { f = WaiterGameFixture() }
     afterEach { f.close() }
 
+    "a competing carry activity acquired during the status request blocks waiter admission" {
+        f.openStaff()
+        f.nextStatus = CompletableFuture()
+        f.press("waiter_start")
+        f.otherWork = true
+        f.nextStatus.complete(f.ready)
+        f.scheduler.executeImmediate()
+        f.reservations shouldBe 0
+        f.game.isWorking(f.player.uniqueId) shouldBe false
+        f.actionBars().last() shouldContain "Сначала"
+    }
+
     "villager entity and Citizens entry preserve Remi trade and debounce the work click" {
         failOnUnsupportedMockBukkitOperation {
             f.moveTo(405)
@@ -99,8 +111,8 @@ class OriginWaiterGameTest : StringSpec({
             f.serves shouldBe 1
             f.payments.size shouldBe 1
             f.payments.single().valid() shouldBe true
-            f.payments.single().callback(WaiterRewardOutcome.PAID)
-            f.payments.single().callback(WaiterRewardOutcome.PAID)
+            f.payments.single().callback(SideJobRewardOutcome.PAID)
+            f.payments.single().callback(SideJobRewardOutcome.PAID)
             f.released.size shouldBe 1
             f.game.reserves(433) shouldBe false
         }
@@ -154,7 +166,7 @@ class OriginWaiterGameTest : StringSpec({
 
     "late status cannot reserve after quit or close" {
         failOnUnsupportedMockBukkitOperation {
-            val pending = CompletableFuture<WaiterRewardStatus>()
+            val pending = CompletableFuture<SideJobRewardStatus>()
             f.nextStatus = pending
             f.openStaff()
             f.game.stop(f.player.uniqueId, "quit")
@@ -162,7 +174,7 @@ class OriginWaiterGameTest : StringSpec({
             f.scheduler.executeImmediate()
             f.reservations shouldBe 0
 
-            val afterReload = CompletableFuture<WaiterRewardStatus>()
+            val afterReload = CompletableFuture<SideJobRewardStatus>()
             f.nextStatus = afterReload
             f.openStaff()
             f.game.close()
@@ -175,14 +187,14 @@ class OriginWaiterGameTest : StringSpec({
     "late start rejection stays visible after the dialog flow closes" {
         failOnUnsupportedMockBukkitOperation {
             for ((status, message) in listOf(
-                WaiterRewardStatus(true, 0, 0, false) to "На сегодня",
-                WaiterRewardStatus(true, 5, 100_000, false) to "Следующий заказ",
-                WaiterRewardStatus(false, 5, 0, false) to "Касса временно недоступна",
-                WaiterRewardStatus(true, 5, 0, true) to "Оплату проверяет касса",
+                SideJobRewardStatus(true, 0, 0, false) to "На сегодня",
+                SideJobRewardStatus(true, 5, 100_000, false) to "Следующий заказ",
+                SideJobRewardStatus(false, 5, 0, false) to "Касса временно недоступна",
+                SideJobRewardStatus(true, 5, 0, true) to "Оплату проверяет касса",
             )) {
                 f.nextStatus = CompletableFuture.completedFuture(f.ready)
                 f.openStaff()
-                val pending = CompletableFuture<WaiterRewardStatus>()
+                val pending = CompletableFuture<SideJobRewardStatus>()
                 f.nextStatus = pending
                 val screenCount = f.screens.size
                 f.press("waiter_start")
@@ -209,9 +221,9 @@ private class WaiterGameFixture : AutoCloseable {
     val world = paper.addSimpleWorld(OriginDiningLayout.WORLD)
     val player = paper.addPlayer("WaiterTest")
     val scheduler = TestTaskScheduler()
-    val ready = WaiterRewardStatus(true, 20, 0, false)
+    val ready = SideJobRewardStatus(true, 20, 0, false)
     var nextStatus = CompletableFuture.completedFuture(ready)
-    val rewards = mockk<OriginWaiterRewards>(relaxed = true)
+    val rewards = mockk<OriginSideJobRewards>(relaxed = true)
     val carry = mockk<OriginWaiterCarry>(relaxed = true)
     val screens = mutableListOf<PaperDialogScreen>()
     val payments = mutableListOf<Payment>()
@@ -223,6 +235,7 @@ private class WaiterGameFixture : AutoCloseable {
     var canServe = true
     var reservations = 0
     var serves = 0
+    var otherWork = false
     private var lastClick = Long.MIN_VALUE
     val game: OriginWaiterGame
     val listener: OriginDiningCitizensListener
@@ -238,8 +251,8 @@ private class WaiterGameFixture : AutoCloseable {
         every { OriginServices.viewerGlow } returns mockk<ArcOriginViewerGlow>(relaxed = true)
         every { rewards.amount } returns 20
         every { rewards.status(any()) } answers { nextStatus }
-        every { rewards.pay(any(), any(), any(), any()) } answers {
-            payments += Payment(secondArg(), thirdArg(), arg(3))
+        every { rewards.pay(OriginSideJobKind.WAITER, any(), any(), any(), any()) } answers {
+            payments += Payment(thirdArg(), arg(3), arg(4))
         }
         every { carry.pickup(any(), any()) } returns true
         for ((id, x) in mapOf(439 to 0.0, 405 to 20.0, 433 to 8.0, 434 to 9.0, 416 to 28.0)) {
@@ -260,7 +273,7 @@ private class WaiterGameFixture : AutoCloseable {
             targetValid = { true }, serve = { serves++; canServe }, release = { released += it },
             guestVenue = { if (it == 416) "brewery" else if (it in 433..434) "restaurant" else null },
             playerVenue = { currentVenue }, debounce = { (lastClick == now).also { lastClick = now } },
-            carry = carry, rewards = rewards, tasks = LifecycleTaskScope(scheduler), clock = { now })
+            carry = carry, rewards = rewards, tasks = LifecycleTaskScope(scheduler), clock = { now }, otherWork = { otherWork })
         listener = OriginDiningCitizensListener(game::interact)
     }
 
@@ -294,5 +307,5 @@ private class WaiterGameFixture : AutoCloseable {
         unmockkStatic(CitizensAPI::class)
         paper.close()
     }
-    data class Payment(val id: UUID, val valid: () -> Boolean, val callback: (WaiterRewardOutcome) -> Unit)
+    data class Payment(val id: UUID, val valid: () -> Boolean, val callback: (SideJobRewardOutcome) -> Unit)
 }
