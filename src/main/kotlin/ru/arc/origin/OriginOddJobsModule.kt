@@ -374,7 +374,7 @@ internal class OriginOddJobsGame(
         val id = player.uniqueId; val shift = shifts[id] ?: return; val job = progress.current(id)
         if (closed || !near(player, shift.venue.npcId)) return
         OriginMenus.openDialog(player, originOddJobsScreen(config, shift.venue, job, rewards.amount, null, clock(), notice,
-            shift = shift.score, paying = id in accepted,
+            shift = shift.score, paymentGuide = paymentGuide(id, clock()),
             resume = {
                 if (shifts[id] === shift && near(player, shift.venue.npcId)) {
                     if (job?.kind == OriginOddJobKind.AUCTION && originOddJobChoices(config, job).isNotEmpty()) showWork(player)
@@ -522,12 +522,16 @@ internal class OriginOddJobsGame(
         if (closed || accepted[id] !== result || result.inFlight || clock() < result.nextAttempt) return
         result.inFlight = true; feedback("paying")
         rewards.pay(result.job.kind.rewardKind, id, result.job.id,
-            stillValid = { !closed && accepted[id] === result  }) onPaid@ { outcome ->
+            stillValid = { !closed && accepted[id] === result  }) onPaid@ { payment ->
             if (accepted[id] !== result) return@onPaid
             result.inFlight = false
+            val outcome = payment.outcome
             if (outcome == SideJobRewardOutcome.COOLDOWN) {
-                result.nextAttempt = clock() + rewards.payoutIntervalMillis
-                feedback("payment-cooldown"); return@onPaid
+                result.nextAttempt = payment.retryAtMillis
+                feedback("payment-cooldown", "seconds" to waiterSeconds(result.nextAttempt - clock()))
+                info("ORIGIN_ODD_JOBS phase=PAYMENT_WAIT player={} request={} kind={} retryAt={}",
+                    id, result.job.id, result.job.kind, result.nextAttempt)
+                return@onPaid
             }
             accepted.remove(id, result)
             val shift = shifts[id]?.takeIf { it.score.id == result.shiftId }
@@ -578,6 +582,9 @@ internal class OriginOddJobsGame(
                 now >= shift.score.hardStopAt -> { cancelOrder(id, "expired"); shift.score = shift.score.requestFinish() }
                 !inArea(player, shift.venue.kind) -> { cancelOrder(id, "left-area"); shift.score = shift.score.requestFinish(); feedback(player, "left-area") }
                 job != null && (!valid(player, job) || now >= job.expiresAt) -> { cancelOrder(id, "expired"); feedback(player, "expired") }
+                // Stable work is accepted on the next tick, after its final care feedback.
+                job?.kind == OriginOddJobKind.MOUNTYARD && job.stage == OriginOddJobStage.RETURN ->
+                    apply(player, progress.act(id, OriginOddJobAction.RETURN, now))
                 job != null && render(player, job, now) -> guide(player, job, now)
                 job == null && id !in accepted && id !in requests && (retryAt[id] ?: 0) <= now -> {
                     if (shift.score.acceptsOrders(now)) nextOrder(player, shift)
@@ -673,7 +680,8 @@ internal class OriginOddJobsGame(
             OriginOddJobStage.YARD_GROOM, OriginOddJobStage.YARD_SADDLE -> job.yard?.animalId
             OriginOddJobStage.AUCTION_VERIFY, OriginOddJobStage.AUCTION_DELIVER, OriginOddJobStage.AUCTION_RECEIPT -> config.handoffNpcId
             OriginOddJobStage.AUCTION_ITEM, OriginOddJobStage.AUCTION_INSPECT, OriginOddJobStage.AUCTION_PACK,
-            OriginOddJobStage.AUCTION_LOAD, OriginOddJobStage.AUCTION_DOCUMENT, OriginOddJobStage.RETURN -> config.venue(job.kind).npcId
+            OriginOddJobStage.AUCTION_LOAD, OriginOddJobStage.AUCTION_DOCUMENT -> config.venue(job.kind).npcId
+            OriginOddJobStage.RETURN -> if (job.kind == OriginOddJobKind.MOUNTYARD) null else config.venue(job.kind).npcId
             else -> null
         }
         glow(player, npcId)
@@ -692,7 +700,7 @@ internal class OriginOddJobsGame(
         val ready = job != null && (originOddJobHammerReady(job, now) || job.stage == OriginOddJobStage.FORGE_HEATING &&
             now - job.stageStartedAt >= originOddJobHeatReady(job))
         val caption = config.line("shift.hud", "guide" to (job?.let { originOddJobGuide(config, it, now) }
-            ?: config.line(if (player.uniqueId in accepted) "paying" else "shift.assigning")),
+            ?: paymentGuide(player.uniqueId, now) ?: config.line("shift.assigning")),
             "clock" to originOddJobClock((if (shift.acceptsOrders(now)) shift.closesAt else shift.hardStopAt) - now),
             "done" to shift.completedOrders, "quality" to (job?.quality ?: 100))
         val bar = bars.getOrPut(player.uniqueId) {
@@ -701,6 +709,12 @@ internal class OriginOddJobsGame(
         bar.name(waiterText(caption, TextColor.color(0xE8DFD2)))
         bar.progress(job?.let { originOddJobProgress(it, now) } ?: 0f)
         bar.color(if (ready) BossBar.Color.GREEN else BossBar.Color.YELLOW)
+    }
+
+    private fun paymentGuide(id: UUID, now: Long): String? = accepted[id]?.let { result ->
+        if (!result.inFlight && result.nextAttempt > now)
+            config.line("payment-cooldown", "seconds" to waiterSeconds(result.nextAttempt - now))
+        else config.line("paying")
     }
 
     private fun clearBar(id: UUID) { bars.remove(id)?.let { Bukkit.getPlayer(id)?.hideBossBar(it) } }

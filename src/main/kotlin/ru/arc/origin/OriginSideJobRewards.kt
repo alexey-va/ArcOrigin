@@ -41,6 +41,11 @@ internal enum class SideJobRewardOutcome {
     PAID, ALREADY_PAID, COOLDOWN, DAILY_LIMIT, UNCONFIRMED, UNAVAILABLE, CANCELLED,
 }
 
+internal data class SideJobRewardResult(
+    val outcome: SideJobRewardOutcome,
+    val retryAtMillis: Long = 0L,
+)
+
 /** The last request is the reserved payment while [pending]; earlier requests are settled receipts. */
 internal data class SideJobRewardRecord(
     val day: Long,
@@ -131,7 +136,7 @@ internal class OriginSideJobRewards(
         val requestId: UUID,
         val token: LifecycleTaskScope.Token,
         val stillValid: () -> Boolean,
-        val callback: (SideJobRewardOutcome) -> Unit,
+        val callback: (SideJobRewardResult) -> Unit,
     ) {
         @Volatile var reservation: Reservation? = null
         @Volatile var attempted = false
@@ -161,19 +166,19 @@ internal class OriginSideJobRewards(
         }
     }
 
-    fun pay(kind: OriginSideJobKind, playerId: UUID, requestId: UUID, stillValid: () -> Boolean, callback: (SideJobRewardOutcome) -> Unit) {
+    fun pay(kind: OriginSideJobKind, playerId: UUID, requestId: UUID, stillValid: () -> Boolean, callback: (SideJobRewardResult) -> Unit) {
         if (closed || !stillValid()) {
-            callback(SideJobRewardOutcome.CANCELLED)
+            callback(SideJobRewardResult(SideJobRewardOutcome.CANCELLED))
             return
         }
         val store = updater
         if (store == null || provider(playerId, kind) == null) {
-            callback(SideJobRewardOutcome.UNAVAILABLE)
+            callback(SideJobRewardResult(SideJobRewardOutcome.UNAVAILABLE))
             return
         }
         val payment = Payment(kind, playerId, requestId, tasks.token(), stillValid, callback)
         if (inFlight.putIfAbsent(playerId, payment) != null) {
-            callback(SideJobRewardOutcome.UNCONFIRMED)
+            callback(SideJobRewardResult(SideJobRewardOutcome.UNCONFIRMED))
             return
         }
         val now = clock()
@@ -202,7 +207,10 @@ internal class OriginSideJobRewards(
                     is RedisHashUpdateResult.Unchanged -> result.current
                     else -> null
                 }
-                dispatch(payment) { finish(payment, rejection(current, requestId, clock()) ?: SideJobRewardOutcome.UNAVAILABLE) }
+                // Preserve the admission decision even if dispatch runs after the cooldown expires.
+                val outcome = rejection(current, requestId, now) ?: SideJobRewardOutcome.UNAVAILABLE
+                val retryAt = if (outcome == SideJobRewardOutcome.COOLDOWN) requireNotNull(current).nextAt else 0L
+                dispatch(payment) { finish(payment, outcome, retryAt) }
             }
         }
     }
@@ -295,9 +303,10 @@ internal class OriginSideJobRewards(
             return
         }
         try {
+            // A one-shot may finish before its handle is attached; null alone is not a rejected dispatch.
             if (tasks.runSync(payment.token) {
                 if (inFlight[payment.playerId] === payment) action()
-            } == null) discard(payment)
+            } == null && !tasks.isCurrent(payment.token)) discard(payment)
         } catch (error: Exception) {
             warn("schedule", payment.playerId, payment.requestId, error, payment.kind)
             discard(payment)
@@ -309,8 +318,9 @@ internal class OriginSideJobRewards(
         inFlight.remove(payment.playerId, payment)
     }
 
-    private fun finish(payment: Payment, outcome: SideJobRewardOutcome) {
-        if (inFlight.remove(payment.playerId, payment) && !closed && payment.stillValid()) payment.callback(outcome)
+    private fun finish(payment: Payment, outcome: SideJobRewardOutcome, retryAtMillis: Long = 0L) {
+        if (inFlight.remove(payment.playerId, payment) && !closed && payment.stillValid())
+            payment.callback(SideJobRewardResult(outcome, retryAtMillis))
     }
 
     private fun <T> storageFuture(action: () -> CompletableFuture<T>): CompletableFuture<T> = try {

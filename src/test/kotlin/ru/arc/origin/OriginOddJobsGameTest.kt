@@ -218,14 +218,73 @@ class OriginOddJobsGameTest : StringSpec({
     "accepted payment survives quit and known cooldown retries exactly the same request" {
         failOnUnsupportedMockBukkitOperation {
             f.startForge(); f.finishForge()
-            val first = f.payments.single(); first.callback(SideJobRewardOutcome.COOLDOWN)
+            val first = f.payments.single(); first.callback(SideJobRewardOutcome.COOLDOWN, f.now + 5_000)
             f.game.onQuit(mockk<PlayerQuitEvent> { every { player } returns f.player })
             first.valid() shouldBe true
-            f.now += 20_000; f.game.tick(f.now)
+            f.now += 4_999; f.game.tick(f.now)
+            f.payments.size shouldBe 1
+            f.now++; f.game.tick(f.now)
             f.payments.size shouldBe 2
             f.payments.last().id shouldBe first.id
             f.payments.last().callback(SideJobRewardOutcome.PAID)
             f.game.isWorking(f.player.uniqueId) shouldBe false
+        }
+    }
+    "cooldown counts down the remaining time in both HUD and dialog without extending the payout gate" {
+        failOnUnsupportedMockBukkitOperation {
+            f.startForge(); f.finishForge()
+            val request = f.payments.single()
+            val due = f.now + 5_000
+            request.callback(SideJobRewardOutcome.COOLDOWN, due)
+            f.game.tick(f.now)
+            f.plain(f.player.bossBars.single().name()) shouldContain "выплата через 5 с"
+            f.open(349, sneaking = false)
+            f.screens.last().body.joinToString(" ") { f.plain(it.text) } shouldContain "выплата через 5 с"
+            f.now = due - 1_000; f.game.tick(f.now)
+            f.plain(f.player.bossBars.single().name()) shouldContain "выплата через 1 с"
+            f.payments.size shouldBe 1
+            f.now = due; f.game.tick(f.now)
+            f.payments.size shouldBe 2
+            f.payments.last().id shouldBe request.id
+            f.plain(f.player.bossBars.single().name()) shouldContain "Подтверждаем оплату"
+            f.payments.last().callback(SideJobRewardOutcome.PAID)
+            f.game.tick(f.now); f.scheduler.executeImmediate()
+            (f.game.currentJob(f.player.uniqueId) != null) shouldBe true
+        }
+    }
+    "all stable chores submit once and advance to the next assignment without visiting Senya" {
+        for (variant in listOf(OriginOddJobVariant.YARD_WATER, OriginOddJobVariant.YARD_RATIONS,
+            OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE)) {
+            failOnUnsupportedMockBukkitOperation {
+                f.begin(440, variant)
+                val job = f.game.currentJob(f.player.uniqueId)!!
+                when (variant) {
+                    OriginOddJobVariant.YARD_WATER -> { f.stroke(OriginOddJobStationId.WELL); f.stroke(OriginOddJobStationId.WATER) }
+                    OriginOddJobVariant.YARD_RATIONS -> { f.stroke(OriginOddJobStationId.HAY); f.stroke(OriginOddJobStationId.FEED) }
+                    OriginOddJobVariant.YARD_GROOM -> {
+                        f.stroke(OriginOddJobStationId.BRUSH)
+                        repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(job.yard!!.animalId, sneaking = false) }
+                    }
+                    OriginOddJobVariant.YARD_SADDLE -> { f.stroke(OriginOddJobStationId.SADDLE_RACK); f.clickNpc(job.yard!!.animalId, sneaking = false) }
+                    else -> error("unexpected stable variant")
+                }
+                f.plain(f.player.bossBars.single().name()) shouldContain "Готово"
+                val employer = f.entity(440)
+                verify(exactly = 0) { f.glow.setEntityGlowingFor(employer, f.player, true) }
+                val screens = f.screens.size
+                f.game.tick(f.now); f.game.tick(f.now)
+                val payment = f.payments.single { it.id == job.id }
+                payment.kind shouldBe OriginSideJobKind.MOUNTYARD
+                f.game.currentJob(f.player.uniqueId) shouldBe null
+                f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+                payment.callback(SideJobRewardOutcome.PAID); payment.callback(SideJobRewardOutcome.PAID)
+                f.game.tick(f.now); f.scheduler.executeImmediate()
+                (f.game.currentJob(f.player.uniqueId)!!.id != job.id) shouldBe true
+                f.screens.size shouldBe screens
+                f.actionBars().count { "+20" in it } shouldBe 1
+                f.open(440, sneaking = false); f.press("odd_job_finish")
+                f.game.isWorking(f.player.uniqueId) shouldBe false
+            }
         }
     }
     "well pickup puts one full bucket in hand and trough delivery advances without any timing puzzle" {
@@ -241,7 +300,7 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.RETURN
             f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
             f.payments shouldBe emptyList()
-            f.clickNpc(440, sneaking = false)
+            f.game.tick(f.now)
             f.payments.single().kind shouldBe OriginSideJobKind.MOUNTYARD
             f.screens.size shouldBe screens
         }
@@ -486,7 +545,9 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
         unmockkStatic(CitizensAPI::class)
         paper.close()
     }
-    data class Payment(val kind: OriginSideJobKind, val id: UUID, val valid: () -> Boolean, val callback: (SideJobRewardOutcome) -> Unit)
+    data class Payment(val kind: OriginSideJobKind, val id: UUID, val valid: () -> Boolean, val complete: (SideJobRewardResult) -> Unit) {
+        fun callback(outcome: SideJobRewardOutcome, retryAtMillis: Long = 0) = complete(SideJobRewardResult(outcome, retryAtMillis))
+    }
 }
 
 private class ModelPreservingItemMeta(source: ItemMeta) : ItemMetaMock(source) {

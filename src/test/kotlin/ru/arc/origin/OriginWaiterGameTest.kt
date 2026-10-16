@@ -170,7 +170,7 @@ class OriginWaiterGameTest : StringSpec({
             }
             f.payments.size shouldBe 1
             f.payments.single().valid() shouldBe true
-            f.payments.single().callback(SideJobRewardOutcome.PAID)
+            f.payments.single().callback(SideJobRewardResult(SideJobRewardOutcome.PAID))
             f.game.isWorking(f.player.uniqueId) shouldBe true
             f.screens shouldBe emptyList()
             verify(exactly = 0) { f.registry.getById(match { it < 0 }) }
@@ -240,8 +240,8 @@ class OriginWaiterGameTest : StringSpec({
             f.payments.size shouldBe 1
             f.payments.single().valid() shouldBe true
             val callback = f.payments.single().callback
-            callback(SideJobRewardOutcome.PAID)
-            callback(SideJobRewardOutcome.PAID)
+            callback(SideJobRewardResult(SideJobRewardOutcome.PAID))
+            callback(SideJobRewardResult(SideJobRewardOutcome.PAID))
             f.released.size shouldBe 1
             f.reservations shouldBe 3
             f.game.isWorking(f.player.uniqueId) shouldBe true
@@ -275,7 +275,7 @@ class OriginWaiterGameTest : StringSpec({
             f.served.map { it.dishId } shouldBe listOf("egg", "herbal_tea", "egg")
             f.clean(434)
             f.payments.size shouldBe 1
-            f.payments[0].callback(SideJobRewardOutcome.PAID)
+            f.payments[0].callback(SideJobRewardResult(SideJobRewardOutcome.PAID))
             f.now += SIDE_JOB_PAYOUT_INTERVAL_MILLIS - 1
             f.game.tick(f.now)
             f.payments.size shouldBe 1
@@ -283,7 +283,7 @@ class OriginWaiterGameTest : StringSpec({
             f.game.tick(f.now)
             f.payments.size shouldBe 2
             (f.payments[0].id != f.payments[1].id) shouldBe true
-            f.payments[1].callback(SideJobRewardOutcome.PAID)
+            f.payments[1].callback(SideJobRewardResult(SideJobRewardOutcome.PAID))
             f.openStaff()
             f.screenText() shouldContain "2 · 40 💰"
         }
@@ -299,24 +299,25 @@ class OriginWaiterGameTest : StringSpec({
             f.pressPickup(433, "Яичница")
             f.clickNpc(433)
             f.clean(433)
-            f.payments.single().callback(SideJobRewardOutcome.PAID)
+            f.payments.single().callback(SideJobRewardResult(SideJobRewardOutcome.PAID))
             f.reservations shouldBe 1
             f.game.isWorking(f.player.uniqueId) shouldBe false
             f.messages() shouldContain "Заказов: 1 · Получено 20 💰"
         }
     }
 
-    "known cooldown keeps the completed order and ignores callbacks from the previous attempt" {
+    "known cooldown retries at its exact deadline and ignores callbacks from the previous attempt" {
         failOnUnsupportedMockBukkitOperation {
             f.begin()
             f.prepareAndPickup()
             f.clickNpc(433)
             f.clean(433)
             val first = f.payments.single()
-            first.callback(SideJobRewardOutcome.COOLDOWN)
+            val retryAt = f.now + 5_000L
+            first.callback(SideJobRewardResult(SideJobRewardOutcome.COOLDOWN, retryAt))
             f.game.reserves(433) shouldBe true
             f.released shouldBe emptyList()
-            f.now += SIDE_JOB_PAYOUT_INTERVAL_MILLIS - 1
+            f.now = retryAt - 1
             f.game.tick(f.now)
             f.payments.size shouldBe 1
             f.now++
@@ -324,9 +325,9 @@ class OriginWaiterGameTest : StringSpec({
             f.payments.size shouldBe 2
             f.payments[1].id shouldBe first.id
             first.valid() shouldBe false
-            first.callback(SideJobRewardOutcome.PAID)
+            first.callback(SideJobRewardResult(SideJobRewardOutcome.PAID))
             f.released shouldBe emptyList()
-            f.payments[1].callback(SideJobRewardOutcome.PAID)
+            f.payments[1].callback(SideJobRewardResult(SideJobRewardOutcome.PAID))
             f.released.count { it.lease.token == first.id } shouldBe 1
             f.openStaff()
             f.screenText() shouldContain "1 · 20 💰"
@@ -350,7 +351,7 @@ class OriginWaiterGameTest : StringSpec({
             f.now = f.shiftStarted + 800_000
             f.game.tick(f.now)
             payment.valid() shouldBe true
-            payment.callback(SideJobRewardOutcome.PAID)
+            payment.callback(SideJobRewardResult(SideJobRewardOutcome.PAID))
             f.game.isWorking(f.player.uniqueId) shouldBe false
             f.game.reserves(433) shouldBe false
             f.messages() shouldContain "Заказов: 1 · Получено 20 💰"
@@ -366,7 +367,7 @@ class OriginWaiterGameTest : StringSpec({
                 f.clickNpc(433)
                 f.clean(433)
                 val count = f.payments.size
-                f.payments.last().callback(outcome)
+                f.payments.last().callback(SideJobRewardResult(outcome))
                 f.game.isWorking(f.player.uniqueId) shouldBe false
                 f.game.reserves(433) shouldBe false
                 f.now += 100_000
@@ -387,8 +388,8 @@ class OriginWaiterGameTest : StringSpec({
             val payment = f.payments.single()
             f.now = 86_401_000
             payment.valid() shouldBe true
-            payment.callback(SideJobRewardOutcome.PAID)
-            payment.callback(SideJobRewardOutcome.PAID)
+            payment.callback(SideJobRewardResult(SideJobRewardOutcome.PAID))
+            payment.callback(SideJobRewardResult(SideJobRewardOutcome.PAID))
             f.released.count { it.lease.token == payment.id } shouldBe 1
             f.openStaff()
             f.screenText() shouldContain "1 · 20 💰"
@@ -506,7 +507,7 @@ class OriginWaiterGameTest : StringSpec({
             val payment = f.payments.single()
             f.game.close()
             payment.valid() shouldBe false
-            payment.callback(SideJobRewardOutcome.PAID)
+            payment.callback(SideJobRewardResult(SideJobRewardOutcome.PAID))
             f.game.close()
             f.released.size shouldBe 2
             f.leased shouldBe emptySet()
@@ -810,5 +811,5 @@ private class WaiterGameFixture(private val disputeEveryOrders: Int = 0) : AutoC
         unmockkStatic(CitizensAPI::class)
         paper.close()
     }
-    data class Payment(val id: UUID, val valid: () -> Boolean, val callback: (SideJobRewardOutcome) -> Unit)
+    data class Payment(val id: UUID, val valid: () -> Boolean, val callback: (SideJobRewardResult) -> Unit)
 }

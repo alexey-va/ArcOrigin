@@ -50,7 +50,7 @@ class OriginSideJobRewardsTest : StringSpec({
             f.rewards.close()
             f.owner(policy = OriginSideJobRewardPolicy(dailyOrderLimit = 10)).use { lower ->
                 lower.status(f.playerId).join() shouldBe SideJobRewardStatus(true, 0, previous.nextAt, false)
-                lower.pay(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), { true }, f.outcomes::add)
+                lower.pay(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), { true }, f.results::add)
                 f.scheduler.executeImmediate()
                 f.outcomes.last() shouldBe SideJobRewardOutcome.DAILY_LIMIT
                 f.calls shouldBe 0
@@ -70,7 +70,7 @@ class OriginSideJobRewardsTest : StringSpec({
             f.rewards.close()
             f.owner(policy = OriginSideJobRewardPolicy(100, 35, 7_000)).use { reloaded ->
                 reloaded.status(f.playerId).join().remainingOrders shouldBe 80
-                reloaded.pay(OriginSideJobKind.AUCTION, f.playerId, UUID.randomUUID(), { true }, f.outcomes::add)
+                reloaded.pay(OriginSideJobKind.AUCTION, f.playerId, UUID.randomUUID(), { true }, f.results::add)
                 f.completePayment()
                 f.outcomes.last() shouldBe SideJobRewardOutcome.PAID
                 f.amounts shouldBe listOf(35.0)
@@ -86,7 +86,7 @@ class OriginSideJobRewardsTest : StringSpec({
             f.rewards.close()
             val expectedNextAt = f.now + 7_000
             val old = f.owner(policy = OriginSideJobRewardPolicy(100, 35, 7_000))
-            old.pay(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), { true }, f.outcomes::add)
+            old.pay(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), { true }, f.results::add)
             f.redis.completeWrite()
             f.scheduler.executeImmediate()
             f.amounts shouldBe listOf(35.0)
@@ -166,6 +166,26 @@ class OriginSideJobRewardsTest : StringSpec({
         }
     }
 
+    "cooldown returns the existing deadline even when dispatch runs after it expires" {
+        SideJobRewardFixture().use { f ->
+            val previous = f.settledRecord(1).copy(nextAt = f.now + 5_000L)
+            f.seed(previous)
+            val request = UUID.randomUUID()
+            f.pay(request)
+            f.now = previous.nextAt + 1
+            f.scheduler.executeImmediate()
+            f.results shouldBe listOf(SideJobRewardResult(SideJobRewardOutcome.COOLDOWN, previous.nextAt))
+            f.calls shouldBe 0
+            f.redis.writes.size shouldBe 0
+            f.record() shouldBe previous
+
+            f.pay(request)
+            f.completePayment()
+            f.outcomes.last() shouldBe SideJobRewardOutcome.PAID
+            f.calls shouldBe 1
+        }
+    }
+
     "delayed reads and durable writes never block gameplay or pay before acknowledgement" {
         SideJobRewardFixture().use { f ->
             f.redis.holdReads = true
@@ -204,7 +224,7 @@ class OriginSideJobRewardsTest : StringSpec({
             val otherOutcomes = mutableListOf<SideJobRewardOutcome>()
             f.owner().use { other ->
                 f.pay(first)
-                other.pay(OriginSideJobKind.FORGE, f.playerId, first, { true }, otherOutcomes::add)
+                other.pay(OriginSideJobKind.FORGE, f.playerId, first, { true }) { otherOutcomes += it.outcome }
                 f.redis.completeWrite()
                 f.redis.completeWrite() // CAS loses; its retry observes the first pending claim.
                 f.scheduler.executeImmediate()
@@ -303,13 +323,39 @@ class OriginSideJobRewardsTest : StringSpec({
         }
     }
 
+    "eager server dispatch preserves the payment until delayed settlement completes" {
+        SideJobRewardFixture().use { f ->
+            val scheduler = object : TaskScheduler by f.scheduler {
+                override fun runSync(task: Runnable): ScheduledTask {
+                    task.run()
+                    return mockk(relaxed = true)
+                }
+            }
+            f.owner(scheduler).use { owner ->
+                owner.pay(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), { true }, f.results::add)
+                f.redis.completeWrite()
+                f.calls shouldBe 1
+                f.results shouldBe emptyList()
+                f.record()?.pending shouldBe true
+                f.redis.writes.size shouldBe 1
+
+                f.redis.completeWrite()
+                f.results shouldBe listOf(SideJobRewardResult(SideJobRewardOutcome.PAID))
+                f.record()?.pending shouldBe false
+                owner.status(f.playerId).join().unresolved shouldBe false
+                f.calls shouldBe 1
+                f.redis.writes.size shouldBe 0
+            }
+        }
+    }
+
     "provider loss or rejected scheduling releases the unused reservation without paying" {
         for (rejectedScheduling in listOf(false, true)) SideJobRewardFixture().use { f ->
             val scheduler = if (rejectedScheduling) object : TaskScheduler by f.scheduler {
                 override fun runSync(task: Runnable): ScheduledTask = error("injected scheduler rejection")
             } else f.scheduler
             f.owner(scheduler).use { owner ->
-                owner.pay(OriginSideJobKind.WAITER, f.playerId, UUID.randomUUID(), { true }, f.outcomes::add)
+                owner.pay(OriginSideJobKind.WAITER, f.playerId, UUID.randomUUID(), { true }, f.results::add)
                 f.providerAvailable = false
                 f.redis.completeWrite()
                 f.scheduler.executeImmediate()
@@ -335,11 +381,11 @@ class OriginSideJobRewardsTest : StringSpec({
             f.now = midnight + 1
             f.owner().use { restarted ->
                 restarted.status(f.playerId).join() shouldBe SideJobRewardStatus(true, SIDE_JOB_DAILY_LIMIT, previous.nextAt, false)
-                restarted.pay(OriginSideJobKind.WAITER, f.playerId, UUID.randomUUID(), { true }, f.outcomes::add)
+                restarted.pay(OriginSideJobKind.WAITER, f.playerId, UUID.randomUUID(), { true }, f.results::add)
                 f.scheduler.executeImmediate()
                 f.outcomes.last() shouldBe SideJobRewardOutcome.COOLDOWN
                 f.now = previous.nextAt
-                restarted.pay(OriginSideJobKind.WAITER, f.playerId, UUID.randomUUID(), { true }, f.outcomes::add)
+                restarted.pay(OriginSideJobKind.WAITER, f.playerId, UUID.randomUUID(), { true }, f.results::add)
                 f.completePayment()
                 f.record()?.count shouldBe 1
                 f.record()?.day shouldBe midnight / 86_400_000L
@@ -379,7 +425,7 @@ class OriginSideJobRewardsTest : StringSpec({
                     it.unresolved shouldBe true
                     it.remainingOrders shouldBe SIDE_JOB_DAILY_LIMIT - 1
                 }
-                restarted.pay(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), { true }, f.outcomes::add)
+                restarted.pay(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), { true }, f.results::add)
                 f.scheduler.executeImmediate()
                 f.outcomes.last() shouldBe SideJobRewardOutcome.UNCONFIRMED
                 f.record() shouldBe unresolved
@@ -440,7 +486,8 @@ private class SideJobRewardFixture : AutoCloseable {
     var providerThrows = false
     var calls = 0
     var gameplayTicks = 0
-    val outcomes = mutableListOf<SideJobRewardOutcome>()
+    val results = mutableListOf<SideJobRewardResult>()
+    val outcomes get() = results.map { it.outcome }
     val reasons = mutableListOf<String>()
     val amounts = mutableListOf<Double>()
     private val provider = mockk<ArcOriginEconomy>().also { economy ->
@@ -466,7 +513,7 @@ private class SideJobRewardFixture : AutoCloseable {
 
     fun pay(requestId: UUID = UUID.randomUUID(), kind: OriginSideJobKind = OriginSideJobKind.WAITER) = rewards.pay(kind, playerId, requestId,
         { Thread.currentThread() shouldBe serverThread; valid },
-        { Thread.currentThread() shouldBe serverThread; outcomes += it })
+        { Thread.currentThread() shouldBe serverThread; results += it })
 
     fun completePayment() {
         redis.completeWrite()

@@ -180,7 +180,11 @@ internal fun originOddJobGuide(config: OriginOddJobsConfig, job: OriginOddJobSes
             now - job.stageStartedAt >= originOddJobHeatReady(job) -> "forge-heat-ready"
             else -> "forge-heating"
         }
-        OriginOddJobStage.RETURN -> if (job.kind == OriginOddJobKind.FORGE) "forge-return" else "return"
+        OriginOddJobStage.RETURN -> when (job.kind) {
+            OriginOddJobKind.FORGE -> "forge-return"
+            OriginOddJobKind.MOUNTYARD -> "yard-complete"
+            else -> "return"
+        }
         else -> job.stage.name.lowercase(Locale.ROOT).replace('_', '-')
     }
     val f = job.forge; val y = job.yard
@@ -215,7 +219,7 @@ internal fun originOddJobChoices(config: OriginOddJobsConfig, job: OriginOddJobS
 internal fun originOddJobsScreen(
     config: OriginOddJobsConfig, venue: OriginOddJobVenue, job: OriginOddJobSession?, amount: Int,
     status: SideJobRewardStatus?, now: Long, notice: String? = null,
-    shift: OriginWorkShift? = null, paying: Boolean = false,
+    shift: OriginWorkShift? = null, paymentGuide: String? = null,
     start: () -> Unit = {}, resume: () -> Unit = {}, finishShift: () -> Unit = {},
     openShop: (() -> Unit)? = null,
 ): PaperDialogScreen {
@@ -241,7 +245,7 @@ internal fun originOddJobsScreen(
                 waiterText(config.line("table.active")) to waiterText(if (job == null) "0" else "1")),
                 null, DialogTables.Frame.EPIC, 310, DialogTables.Columns.VALUE_WIDE))
             add(PaperDialogBody(waiterText(job?.let { originOddJobGuide(config, it, now) }
-                ?: config.line(if (paying) "paying" else "shift.assigning")), 310))
+                ?: paymentGuide ?: config.line("shift.assigning")), 310))
             add(PaperDialogBody(waiterText(config.line("shift.leave-hint")), 310))
             notice?.let { add(PaperDialogBody(waiterText(it), 310)) }
         }

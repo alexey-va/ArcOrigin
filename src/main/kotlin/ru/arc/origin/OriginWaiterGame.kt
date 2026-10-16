@@ -632,13 +632,14 @@ internal class OriginWaiterGame(
         rewards.pay(OriginSideJobKind.WAITER, playerId, job.id,
             stillValid = { !closed && sessions[playerId] === session && session.payoutAttempt == attempt &&
                 progress.current(playerId, job.id)?.stage == OriginWaiterStage.PAYOUT },
-        ) { outcome ->
+        ) { result ->
             if (closed || sessions[playerId] !== session || session.inFlight != job.id || session.payoutAttempt != attempt) return@pay
             session.inFlight = null
             val player = Bukkit.getPlayer(playerId)?.takeIf(Player::isOnline)
+            val outcome = result.outcome
             if (outcome == SideJobRewardOutcome.COOLDOWN) {
-                session.retryAt = clock() + rewards.payoutIntervalMillis
-                player?.let { feedback(it, "payment-wait", "seconds" to rewards.payoutIntervalMillis / 1000) }
+                session.retryAt = result.retryAtMillis
+                player?.let { feedback(it, "payment-wait", "seconds" to waiterSeconds(result.retryAtMillis - clock())) }
                 return@pay
             }
             val finished = progress.finish(playerId, job.id) ?: return@pay
