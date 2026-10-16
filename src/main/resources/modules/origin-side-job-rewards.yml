@@ -1,5 +1,5 @@
 # Shared rewards for waiter, mountyard, forge and auction work orders.
-# After the supporting ArcOrigin JAR is first activated, /arc origin reload applies changes.
+# After the supporting ArcOrigin JAR is first activated, /arc reload applies changes.
 # Reload ends unfinished shifts; paid receipts and unresolved claims remain in the shared journal.
 
 # Shared paid/reserved orders per UUID per UTC date. Valid range: 1..10000.
