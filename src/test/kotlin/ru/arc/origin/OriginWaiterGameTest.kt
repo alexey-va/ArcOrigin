@@ -375,7 +375,7 @@ class OriginWaiterGameTest : StringSpec({
     "late start rejection stays visible after the dialog flow closes" {
         failOnUnsupportedMockBukkitOperation {
             for ((status, message) in listOf(
-                SideJobRewardStatus(true, 0, 0, false) to "На сегодня",
+                SideJobRewardStatus(true, 0, 0, false) to "Дневной лимит в 100 поручений",
                 SideJobRewardStatus(true, 5, 100_000, false) to "Следующую смену",
                 SideJobRewardStatus(false, 5, 0, false) to "Касса временно недоступна",
                 SideJobRewardStatus(true, 5, 0, true) to "Оплату проверяет касса",
@@ -434,6 +434,7 @@ private class WaiterGameFixture : AutoCloseable {
         every { OriginMenus.openDialog(any(), any(), any(), any()) } answers { screens += secondArg<PaperDialogScreen>() }
         every { OriginServices.viewerGlow } returns mockk<ArcOriginViewerGlow>(relaxed = true)
         every { rewards.amount } returns 20
+        every { rewards.payoutIntervalMillis } returns 20_000L
         every { rewards.status(any()) } answers { nextStatus }
         every { rewards.pay(OriginSideJobKind.WAITER, any(), any(), any(), any()) } answers {
             payments += Payment(thirdArg(), arg(3), arg(4))

@@ -1,0 +1,15 @@
+# Shared rewards for waiter, mountyard, forge and auction work orders.
+# After the supporting ArcOrigin JAR is first activated, /arc origin reload applies changes.
+# Reload ends unfinished shifts; paid receipts and unresolved claims remain in the shared journal.
+
+# Shared paid/reserved orders per UUID per UTC date. Valid range: 1..10000.
+daily-order-limit: 100
+
+# Vault coins per completed order, equal for all four jobs. Valid range: 1..1000000.
+# daily-order-limit * reward-per-order must not exceed 2147483647.
+# The displayed daily amount is this product at the current rate, not a separate cash counter.
+# Changing the rate during a UTC date does not reprice earlier payments.
+reward-per-order: 20
+
+# Minimum interval between accepted payouts across all four jobs. Valid range: 1..3600 seconds.
+payout-interval-seconds: 20

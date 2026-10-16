@@ -94,7 +94,7 @@ object OriginDiningModule : PluginModule, Listener {
     private var packetListener: OriginDiningPacketListener? = null
 
     override fun init() {
-        OriginDiningLayout.load(ArcOriginPlugin.instance.legacyDataPath)
+        OriginDiningLayout.load(ArcOriginPlugin.instance.legacyDataPath, ArcOriginPlugin.instance.sideJobRewardPolicy)
         val current = OriginDiningService()
         service = current
         Bukkit.getPluginManager().registerEvents(this, ArcOriginPlugin.instance)
@@ -481,12 +481,12 @@ internal object OriginDiningLayout {
     private var furnitureSeatProfiles: List<OriginDiningFurnitureSeatProfile> = emptyList()
     private var npcRouteProfiles: List<NpcRouteProfile> = emptyList()
 
-    fun load(dataPath: java.nio.file.Path) {
+    fun load(dataPath: java.nio.file.Path, rewardPolicy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy()) {
         val source = ConfigManager.ofModule(dataPath, "origin-dining.yml")
         source.mergeMissingFromBundled("modules/origin-dining.yml")
         lifeConfig = OriginDiningLifeConfig.load(source)
         conversationConfig = OriginDiningConversations.Config.load(source)
-        waiterGameConfig = OriginWaiterConfig.load(source)
+        waiterGameConfig = OriginWaiterConfig.load(source, rewardPolicy)
         val forward = source.real("placement.forward-blocks", DEFAULT_FORWARD_BLOCKS).coerceIn(0.25, 2.5)
         val vertical = source.real("placement.vertical-offset-blocks", DEFAULT_VERTICAL_OFFSET_BLOCKS).coerceIn(-1.5, 1.5)
         scales = defaultScales().mapValues { (dish, fallback) ->

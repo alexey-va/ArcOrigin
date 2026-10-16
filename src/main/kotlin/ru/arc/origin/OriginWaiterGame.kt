@@ -36,13 +36,15 @@ internal data class OriginWaiterConfig(
     val graceMillis: Long = 120_000,
     val freshnessMillis: Long = 45_000,
     val rushFreshnessMillis: Long = 30_000,
+    val rewardPolicy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy(),
 ) {
-    fun line(key: String, vararg values: Pair<String, Any>): String = values.fold(text.string(key)) { line, (name, value) ->
+    fun line(key: String, vararg values: Pair<String, Any>): String = values.fold(rewardPolicy.limits(text.string(key))) { line, (name, value) ->
         line.replace("{$name}", value.toString())
     }
 
     companion object {
-        fun load(source: Config) = OriginWaiterConfig(
+        fun load(source: Config, rewardPolicy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy()) = OriginWaiterConfig(
+            rewardPolicy = rewardPolicy,
             venues = source.stringList("waiter-game.venue-ids").map { id ->
                 OriginWaiterVenue(id, source.integer("waiter-game.venues.$id.staff-id"),
                     source.boolean("waiter-game.venues.$id.sneak-only", false))
@@ -193,7 +195,7 @@ internal class OriginWaiterGame(
     private val playerVenue: (Player) -> String?,
     private val debounce: (Player) -> Boolean,
     private val carry: OriginWaiterCarry,
-    private val rewards: OriginSideJobRewards = OriginSideJobRewards(),
+    private val rewards: OriginSideJobRewards = OriginSideJobRewards(policy = config.rewardPolicy),
     private val tasks: LifecycleTaskScope = LifecycleTaskScope(),
     private val clock: () -> Long = System::currentTimeMillis,
     private val otherWork: (UUID) -> Boolean = { OriginOddJobsModule.isWorking(it) || OriginWorkshopGame.isWorking(it) },
@@ -423,8 +425,8 @@ internal class OriginWaiterGame(
             session.inFlight = null
             val player = Bukkit.getPlayer(playerId)?.takeIf(Player::isOnline)
             if (outcome == SideJobRewardOutcome.COOLDOWN) {
-                session.retryAt = clock() + SIDE_JOB_PAYOUT_INTERVAL_MILLIS
-                player?.let { feedback(it, "payment-wait", "seconds" to SIDE_JOB_PAYOUT_INTERVAL_MILLIS / 1000) }
+                session.retryAt = clock() + rewards.payoutIntervalMillis
+                player?.let { feedback(it, "payment-wait", "seconds" to rewards.payoutIntervalMillis / 1000) }
                 return@pay
             }
             val finished = progress.finish(playerId, job.id) ?: return@pay
@@ -433,7 +435,7 @@ internal class OriginWaiterGame(
                 SideJobRewardOutcome.PAID, SideJobRewardOutcome.ALREADY_PAID -> {
                     session.shift = session.shift.record(job.id, rewards.amount, job.quality)
                     session.remaining = (session.remaining - 1).coerceAtLeast(0)
-                    session.retryAt = clock() + SIDE_JOB_PAYOUT_INTERVAL_MILLIS
+                    session.retryAt = clock() + rewards.payoutIntervalMillis
                     player?.let {
                         feedback(it, "order-paid", "amount" to rewards.amount, "count" to session.shift.completedOrders)
                         it.playSound(it.location, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, SoundCategory.PLAYERS, 0.45f, 1.15f)

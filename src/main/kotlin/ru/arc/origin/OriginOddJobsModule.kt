@@ -45,7 +45,8 @@ object OriginOddJobsModule : PluginModule {
     override fun init() {
         if (!Bukkit.getPluginManager().isPluginEnabled("Citizens")) return
         val path = ArcOriginPlugin.instance.legacyDataPath
-        val config = OriginOddJobsConfig.load(ConfigManager.ofModule(path, "origin-odd-jobs.yml"))
+        val config = OriginOddJobsConfig.load(ConfigManager.ofModule(path, "origin-odd-jobs.yml"),
+            ArcOriginPlugin.instance.sideJobRewardPolicy)
         if (!config.enabled) return
         val plan = OriginScenePlan.load(path)
         val world = Bukkit.getWorld(plan.world) ?: return
@@ -89,7 +90,7 @@ internal class OriginOddJobsGame(
     private val config: OriginOddJobsConfig,
     private val worldName: String,
     stations: Map<OriginOddJobStationId, OriginOddJobStation>,
-    private val rewards: OriginSideJobRewards = OriginSideJobRewards(),
+    private val rewards: OriginSideJobRewards = OriginSideJobRewards(policy = config.rewardPolicy),
     private val visuals: OriginOddJobVisuals = OriginOddJobVisuals(),
     private val tasks: LifecycleTaskScope = LifecycleTaskScope(),
     private val acquire: (OriginOddJobVenue) -> OriginSceneLease? = { venue ->
@@ -369,7 +370,7 @@ internal class OriginOddJobsGame(
             if (accepted[id] !== result) return@onPaid
             result.inFlight = false
             if (outcome == SideJobRewardOutcome.COOLDOWN) {
-                result.nextAttempt = clock() + SIDE_JOB_PAYOUT_INTERVAL_MILLIS
+                result.nextAttempt = clock() + rewards.payoutIntervalMillis
                 feedback("payment-cooldown"); return@onPaid
             }
             accepted.remove(id, result)

@@ -35,8 +35,74 @@ class OriginSideJobRewardsTest : StringSpec({
         shouldThrowAny { codec.decode(raw.dropLast(1) + ",\"unknown\":true}") }
         shouldThrowAny { codec.decode(raw + "{}") }
         shouldThrowAny { codec.encode(record.copy(count = 2, requests = record.requests + record.requests)) }
-        shouldThrowAny { codec.encode(record.copy(count = 21, requests = List(21) { UUID.randomUUID().toString() })) }
+        shouldThrowAny { codec.encode(record.copy(count = SIDE_JOB_MAX_RECEIPTS + 1, requests = List(SIDE_JOB_MAX_RECEIPTS + 1) { UUID.randomUUID().toString() })) }
         shouldThrowAny { codec.encode(record.copy(nextAt = 0)) }
+    }
+
+    "journal capacity is independent of the reloadable daily quota" {
+        SideJobRewardFixture().use { f ->
+            for (count in listOf(20, 100, SIDE_JOB_MAX_RECEIPTS)) {
+                val record = f.settledRecord(count)
+                sideJobRewardCodec().decode(sideJobRewardCodec().encode(record)) shouldBe record
+            }
+            val previous = f.settledRecord(60)
+            f.seed(previous)
+            f.rewards.close()
+            f.owner(policy = OriginSideJobRewardPolicy(dailyOrderLimit = 10)).use { lower ->
+                lower.status(f.playerId).join() shouldBe SideJobRewardStatus(true, 0, previous.nextAt, false)
+                lower.pay(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), { true }, f.outcomes::add)
+                f.scheduler.executeImmediate()
+                f.outcomes.last() shouldBe SideJobRewardOutcome.DAILY_LIMIT
+                f.calls shouldBe 0
+                f.record() shouldBe previous
+            }
+            f.owner(policy = OriginSideJobRewardPolicy(dailyOrderLimit = 100)).use { higher ->
+                higher.status(f.playerId).join().remainingOrders shouldBe 40
+                f.record() shouldBe previous
+            }
+        }
+    }
+
+    "new owner applies configured reward and interval without resetting old receipts" {
+        SideJobRewardFixture().use { f ->
+            val previous = f.settledRecord(20)
+            f.seed(previous)
+            f.rewards.close()
+            f.owner(policy = OriginSideJobRewardPolicy(100, 35, 7_000)).use { reloaded ->
+                reloaded.status(f.playerId).join().remainingOrders shouldBe 80
+                reloaded.pay(OriginSideJobKind.AUCTION, f.playerId, UUID.randomUUID(), { true }, f.outcomes::add)
+                f.completePayment()
+                f.outcomes.last() shouldBe SideJobRewardOutcome.PAID
+                f.amounts shouldBe listOf(35.0)
+                f.record()!!.requests.take(20) shouldBe previous.requests
+                f.record()!!.count shouldBe 21
+                f.record()!!.nextAt shouldBe f.now + 7_000
+            }
+        }
+    }
+
+    "late settlement keeps old policy amount and interval across owner replacement" {
+        SideJobRewardFixture().use { f ->
+            f.rewards.close()
+            val expectedNextAt = f.now + 7_000
+            val old = f.owner(policy = OriginSideJobRewardPolicy(100, 35, 7_000))
+            old.pay(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), { true }, f.outcomes::add)
+            f.redis.completeWrite()
+            f.scheduler.executeImmediate()
+            f.amounts shouldBe listOf(35.0)
+            old.close()
+            f.owner(policy = OriginSideJobRewardPolicy(200, 70, 1_000)).use { fresh ->
+                fresh.status(f.playerId).join().unresolved shouldBe true
+                f.now += 5_000
+                f.redis.completeWrite()
+                f.scheduler.executeImmediate()
+                f.record()!!.pending shouldBe false
+                fresh.status(f.playerId).join().remainingOrders shouldBe 199
+                f.record()!!.nextAt shouldBe expectedNextAt
+                f.amounts shouldBe listOf(35.0)
+                f.outcomes shouldBe emptyList()
+            }
+        }
     }
 
     "legacy waiter receipts and pending records remain compatible across every job kind" {
@@ -49,7 +115,7 @@ class OriginSideJobRewardsTest : StringSpec({
             codec.encode(codec.decode(raw)) shouldBe raw
             f.redis.values[f.playerId.toString()] = raw
             f.now = if (pending) nextAt + 86_400_000L else nextAt - 1
-            f.rewards.status(f.playerId).join() shouldBe SideJobRewardStatus(true, 19, nextAt, pending)
+            f.rewards.status(f.playerId).join() shouldBe SideJobRewardStatus(true, SIDE_JOB_DAILY_LIMIT - 1, nextAt, pending)
             for (kind in OriginSideJobKind.entries) {
                 f.pay(if (pending) UUID.randomUUID() else request, kind)
                 f.scheduler.executeImmediate()
@@ -95,6 +161,7 @@ class OriginSideJobRewardsTest : StringSpec({
                 f.outcomes.last() shouldBe SideJobRewardOutcome.DAILY_LIMIT
             }
             f.calls shouldBe prefixes.size
+            f.amounts shouldBe List(prefixes.size) { 20.0 }
             f.redis.writes.size shouldBe 0
         }
     }
@@ -375,6 +442,7 @@ private class SideJobRewardFixture : AutoCloseable {
     var gameplayTicks = 0
     val outcomes = mutableListOf<SideJobRewardOutcome>()
     val reasons = mutableListOf<String>()
+    val amounts = mutableListOf<Double>()
     private val provider = mockk<ArcOriginEconomy>().also { economy ->
         every { economy.isAvailable() } answers {
             Thread.currentThread() shouldBe serverThread
@@ -383,7 +451,7 @@ private class SideJobRewardFixture : AutoCloseable {
         every { economy.depositDefaultCurrency(any(), any(), any()) } answers {
             Thread.currentThread() shouldBe serverThread
             firstArg<UUID>() shouldBe playerId
-            secondArg<Double>() shouldBe 20.0
+            amounts += secondArg<Double>()
             reasons += thirdArg<String>()
             calls++
             if (providerThrows) error("injected provider failure")
@@ -392,8 +460,8 @@ private class SideJobRewardFixture : AutoCloseable {
     }
     val rewards = owner()
 
-    fun owner(taskScheduler: TaskScheduler = scheduler) = OriginSideJobRewards(
-        redis, { provider }, taskScheduler, { now }, Logger.getAnonymousLogger().also { it.level = Level.OFF },
+    fun owner(taskScheduler: TaskScheduler = scheduler, policy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy()) = OriginSideJobRewards(
+        redis, { provider }, taskScheduler, { now }, Logger.getAnonymousLogger().also { it.level = Level.OFF }, policy,
     )
 
     fun pay(requestId: UUID = UUID.randomUUID(), kind: OriginSideJobKind = OriginSideJobKind.WAITER) = rewards.pay(kind, playerId, requestId,

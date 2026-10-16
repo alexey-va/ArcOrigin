@@ -36,6 +36,8 @@ open class ArcOriginPlugin : JavaPlugin() {
 
     internal var redisClient: PaperRedisClient? = null
         private set
+    internal var sideJobRewardPolicy = OriginSideJobRewardPolicy()
+        private set
     private var redisGeneration = Long.MIN_VALUE
     private var commandService: OriginCommandService? = null
     private var runtime: PaperPluginRuntime? = null
@@ -56,6 +58,7 @@ open class ArcOriginPlugin : JavaPlugin() {
 
         legacyDataPath = host.legacyDataPath()
         mergeDefaults()
+        loadSideJobRewardPolicy()
         PaperArcRuntime.installScheduling(this)
         ArcLogging.install(
             PaperLoggingPlatform("ArcOrigin", "ArcOrigin"),
@@ -98,12 +101,20 @@ open class ArcOriginPlugin : JavaPlugin() {
     fun reloadOrigin() {
         ConfigManager.reloadAll()
         mergeDefaults()
+        loadSideJobRewardPolicy()
         refreshRedis(OriginServices.configuration)
         ModuleRegistry.reloadAll()
         runtime?.reload()
         publishModuleHealth()
         runtime?.reportHealthEvery(1_200L)
         ArcLogging.info("ArcOrigin modules reloaded")
+    }
+
+    private fun loadSideJobRewardPolicy() {
+        // Validate before closing modules; an invalid edit leaves current owners and payments intact.
+        val candidate = OriginSideJobRewardPolicy.load(ConfigManager.ofModule(legacyDataPath, "origin-side-job-rewards.yml"))
+        sideJobRewardPolicy = candidate
+        logger.info("ORIGIN_SIDE_JOB_POLICY orders=${candidate.dailyOrderLimit} amount=${candidate.rewardPerOrder} intervalMillis=${candidate.payoutIntervalMillis}")
     }
 
     private fun publishModuleHealth() {
@@ -136,6 +147,7 @@ open class ArcOriginPlugin : JavaPlugin() {
             "modules/origin-mount-yard.yml",
             "modules/origin-mount-care.yml",
             "modules/origin-odd-jobs.yml",
+            "modules/origin-side-job-rewards.yml",
             "modules/origin-dining.yml",
             "modules/origin-scenes.yml",
             "modules/origin-workshop-game.yml",

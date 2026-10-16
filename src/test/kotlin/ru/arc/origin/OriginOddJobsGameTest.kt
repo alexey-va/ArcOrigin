@@ -272,6 +272,7 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
         }
         every { OriginServices.viewerGlow } returns glow
         every { rewards.amount } returns 20
+        every { rewards.payoutIntervalMillis } returns 20_000L
         every { rewards.status(any()) } answers { nextStatus }
         every { rewards.pay(any(), any(), any(), any(), any()) } answers { payments += Payment(firstArg(), thirdArg(), arg(3), arg(4)) }
         for (id in listOf(440, 349, 365, 382)) {

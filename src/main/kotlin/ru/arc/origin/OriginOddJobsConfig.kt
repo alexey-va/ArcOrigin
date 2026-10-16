@@ -38,14 +38,15 @@ internal data class OriginOddJobsConfig(
     val handoffNpcUuid: UUID,
     val handoffName: String,
     val text: ConfigSection,
+    val rewardPolicy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy(),
 ) {
     fun venue(kind: OriginOddJobKind) = venues.first { it.kind == kind }
-    fun line(key: String, vararg values: Pair<String, Any>): String = values.fold(text.string(key)) { line, (name, value) ->
+    fun line(key: String, vararg values: Pair<String, Any>): String = values.fold(rewardPolicy.limits(text.string(key))) { line, (name, value) ->
         line.replace("{$name}", value.toString())
     }
 
     companion object {
-        fun load(source: Config) = OriginOddJobsConfig(
+        fun load(source: Config, rewardPolicy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy()) = OriginOddJobsConfig(
             source.boolean("enabled", true),
             source.integer("timeout-seconds", 240).coerceIn(120, 600) * 1_000L,
             source.integer("shift-seconds", 600).coerceIn(480, 600) * 1_000L,
@@ -61,7 +62,7 @@ internal data class OriginOddJobsConfig(
                 require(venues.filter { it.scene != null }.all { it.scene!!.isNotBlank() && it.npcId in it.actorIds })
             },
             source.integer("jobs.auction.handoff-npc-id"), UUID.fromString(source.string("jobs.auction.handoff-npc-uuid")),
-            source.string("jobs.auction.handoff-name"), source.section("text"),
+            source.string("jobs.auction.handoff-name"), source.section("text"), rewardPolicy,
         )
     }
 }

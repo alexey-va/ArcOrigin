@@ -51,7 +51,7 @@ internal data class SideJobRewardRecord(
 ) {
     fun validate() {
         require(day in 0..MAX_TIMESTAMP / DAY_MILLIS)
-        require(count in 1..SIDE_JOB_DAILY_LIMIT && requests.size == count)
+        require(count in 1..SIDE_JOB_MAX_RECEIPTS && requests.size == count)
         require(nextAt in 1..MAX_TIMESTAMP && nextAt / DAY_MILLIS >= day)
         require(requests.toSet().size == requests.size)
         require(requests.all { UUID.fromString(it).toString() == it })
@@ -60,7 +60,9 @@ internal data class SideJobRewardRecord(
 
 // Preserve the original key and wire fields: waiter receipts and unknown outcomes apply to every job.
 internal const val SIDE_JOB_REWARD_KEY = "arc.origin-waiter-rewards.v1"
-internal const val SIDE_JOB_DAILY_LIMIT = 20
+internal const val SIDE_JOB_DAILY_LIMIT = 100
+// Storage must still decode receipts after an operator lowers the current policy.
+internal const val SIDE_JOB_MAX_RECEIPTS = 10_000
 internal const val SIDE_JOB_PAYOUT_INTERVAL_MILLIS = 20_000L
 private const val DAY_MILLIS = 86_400_000L
 private const val MAX_TIMESTAMP = 253_402_300_799_999L
@@ -77,20 +79,20 @@ internal fun sideJobRewardCodec() = BoundedJsonCodec(
                 require(number.asString.matches(Regex("0|[1-9][0-9]{0,14}")))
                 val integer = requireNotNull(number.asString.toLongOrNull())
                 require(when (name) {
-                    "count" -> integer in 1..SIDE_JOB_DAILY_LIMIT
+                    "count" -> integer in 1..SIDE_JOB_MAX_RECEIPTS
                     "day" -> integer in 0..MAX_TIMESTAMP / DAY_MILLIS
                     else -> integer in 1..MAX_TIMESTAMP
                 })
             }
             val requests = fields.get("requests")
-            require(requests.isJsonArray && requests.asJsonArray.size() in 1..SIDE_JOB_DAILY_LIMIT)
+            require(requests.isJsonArray && requests.asJsonArray.size() in 1..SIDE_JOB_MAX_RECEIPTS)
             require(requests.asJsonArray.all { it.isJsonPrimitive && it.asJsonPrimitive.isString })
             val pending = fields.get("pending")
             require(pending.isJsonPrimitive && pending.asJsonPrimitive.isBoolean)
         }
     },
-    JsonResourceBounds(maxCharacters = 1_600, maxDepth = 3, maxContainerEntries = SIDE_JOB_DAILY_LIMIT,
-        maxTotalNodes = 28, maxStringCharacters = 36),
+    JsonResourceBounds(maxCharacters = SIDE_JOB_MAX_RECEIPTS * 39 + 256, maxDepth = 3,
+        maxContainerEntries = SIDE_JOB_MAX_RECEIPTS, maxTotalNodes = SIDE_JOB_MAX_RECEIPTS + 8, maxStringCharacters = 36),
 ) { it.validate() }
 
 /**
@@ -111,8 +113,10 @@ internal class OriginSideJobRewards(
     scheduler: TaskScheduler = Tasks.scheduler,
     private val clock: () -> Long = System::currentTimeMillis,
     private val logger: Logger = ArcOriginPlugin.instance.logger,
+    private val policy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy(),
 ) : AutoCloseable {
-    val amount: Int = 20
+    val amount: Int get() = policy.rewardPerOrder
+    val payoutIntervalMillis: Long get() = policy.payoutIntervalMillis
     private val codec = sideJobRewardCodec()
     private val updater = redis?.let { RedisHashUpdater(it, SIDE_JOB_REWARD_KEY, codec, 12) }
     private val tasks = LifecycleTaskScope(scheduler, true)
@@ -145,7 +149,8 @@ internal class OriginSideJobRewards(
                 require(values.size == 1)
                 val record = values.single()?.let(codec::decode)
                 val now = clock()
-                val remaining = SIDE_JOB_DAILY_LIMIT - if (record == null || !record.pending && now / DAY_MILLIS > record.day) 0 else record.count
+                val used = if (record == null || !record.pending && now / DAY_MILLIS > record.day) 0 else record.count
+                val remaining = (policy.dailyOrderLimit - used).coerceAtLeast(0)
                 val unresolved = record?.pending == true || inFlight.containsKey(playerId)
                 val nextAt = record?.nextAt ?: 0L
                 SideJobRewardStatus(providerAvailable && !closed, remaining, nextAt, unresolved)
@@ -178,7 +183,7 @@ internal class OriginSideJobRewards(
                 else {
                     val requests = current?.takeIf { it.day >= now / DAY_MILLIS }?.requests.orEmpty() + requestId.toString()
                     RedisHashDecision.Write(SideJobRewardRecord(now / DAY_MILLIS, requests.size,
-                        Math.addExact(now, SIDE_JOB_PAYOUT_INTERVAL_MILLIS), requests, pending = true))
+                        Math.addExact(now, payoutIntervalMillis), requests, pending = true))
                 }
             }
         }.whenComplete { result, failure ->
@@ -233,7 +238,7 @@ internal class OriginSideJobRewards(
             val now = clock()
             val requests = if (now / DAY_MILLIS > claim.day) listOf(payment.requestId.toString()) else claim.requests
             val settled = claim.copy(day = maxOf(claim.day, now / DAY_MILLIS), count = requests.size,
-                requests = requests, nextAt = maxOf(claim.nextAt, Math.addExact(now, SIDE_JOB_PAYOUT_INTERVAL_MILLIS)), pending = false)
+                requests = requests, nextAt = maxOf(claim.nextAt, Math.addExact(now, payoutIntervalMillis)), pending = false)
             requireNotNull(updater).update(payment.playerId.toString()) { current ->
                 when (current) {
                     claim, settled -> RedisHashDecision.Write(settled)
@@ -272,7 +277,7 @@ internal class OriginSideJobRewards(
         record == null -> null
         requestId.toString() in record.requests && (!record.pending || record.requests.last() != requestId.toString()) -> SideJobRewardOutcome.ALREADY_PAID
         record.pending -> SideJobRewardOutcome.UNCONFIRMED
-        now / DAY_MILLIS <= record.day && record.count >= SIDE_JOB_DAILY_LIMIT -> SideJobRewardOutcome.DAILY_LIMIT
+        now / DAY_MILLIS <= record.day && record.count >= policy.dailyOrderLimit -> SideJobRewardOutcome.DAILY_LIMIT
         now < record.nextAt -> SideJobRewardOutcome.COOLDOWN
         else -> null
     }

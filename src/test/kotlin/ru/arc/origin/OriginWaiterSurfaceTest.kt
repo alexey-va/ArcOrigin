@@ -88,7 +88,7 @@ class OriginWaiterSurfaceTest : StringSpec({
     "quota cooldown and unresolved payment explain different states and hide start" {
         val config = waiterTestConfig()
         for ((status, text) in listOf(
-            SideJobRewardStatus(true, 0, 0, false) to "На сегодня",
+            SideJobRewardStatus(true, 0, 0, false) to "Дневной лимит в 100 поручений",
             SideJobRewardStatus(true, 5, 20_000, false) to "через 20 с",
             SideJobRewardStatus(false, 5, 0, true) to "Оплату проверяет касса",
             SideJobRewardStatus(false, 20, 0, false) to "Касса временно недоступна",

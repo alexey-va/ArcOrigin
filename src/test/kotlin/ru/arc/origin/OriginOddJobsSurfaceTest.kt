@@ -27,7 +27,7 @@ internal fun oddJobTestConfig(): OriginOddJobsConfig {
 }
 
 class OriginOddJobsSurfaceTest : StringSpec({
-    "all professions explain the timed shift and shared unchanged quota with readable controls" {
+    "all professions explain the timed shift and shared configured quota with readable controls" {
         val config = oddJobTestConfig()
         config.venues.map { it.npcId } shouldBe listOf(440, 349, 365)
         config.handoffNpcId shouldBe 382
@@ -37,7 +37,8 @@ class OriginOddJobsSurfaceTest : StringSpec({
             val screen = originOddJobsScreen(config, venue, null, 20, SideJobRewardStatus(true, 12, 0, false), 0)
             screen.title.color() shouldBe TextColor.color(0xFFB277)
             val body = screen.body.joinToString("\n") { plain(it.text) }
-            body shouldContain "20 поручений / 400 💰"
+            body shouldContain "100 поручений"
+            body shouldContain "2000 💰"
             body shouldContain "12 поручений"
             screen.buttons.single().id.value shouldBe "odd_job_start"
             screen.buttons.single().closeDialogBeforeAction shouldBe false
