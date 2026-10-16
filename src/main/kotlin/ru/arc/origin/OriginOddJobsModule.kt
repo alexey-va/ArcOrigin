@@ -50,7 +50,8 @@ object OriginOddJobsModule : PluginModule {
         val plan = OriginScenePlan.load(path)
         val world = Bukkit.getWorld(plan.world) ?: return
         val stations = originOddJobStations(plan, world)
-        game = OriginOddJobsGame(config, plan.world, stations).also {
+        game = OriginOddJobsGame(config, plan.world, stations,
+            resolveStations = { originOddJobStations(plan, world) }).also {
             Bukkit.getPluginManager().registerEvents(it, ArcOriginPlugin.instance)
         }
         info("ORIGIN_ODD_JOBS phase=READY world={} stations={}", plan.world,
@@ -87,7 +88,7 @@ internal fun originOddJobAimed(player: Player, station: OriginOddJobStation, ran
 internal class OriginOddJobsGame(
     private val config: OriginOddJobsConfig,
     private val worldName: String,
-    private val stations: Map<OriginOddJobStationId, OriginOddJobStation>,
+    stations: Map<OriginOddJobStationId, OriginOddJobStation>,
     private val rewards: OriginSideJobRewards = OriginSideJobRewards(),
     private val visuals: OriginOddJobVisuals = OriginOddJobVisuals(),
     private val tasks: LifecycleTaskScope = LifecycleTaskScope(),
@@ -102,7 +103,9 @@ internal class OriginOddJobsGame(
         else -> null
     } },
     private val clock: () -> Long = System::currentTimeMillis,
+    private val resolveStations: (() -> Map<OriginOddJobStationId, OriginOddJobStation>)? = null,
 ) : Listener, AutoCloseable {
+    private val stations = stations.toMutableMap()
     private val progress = OriginOddJobsProgress(config.lifetimeMillis)
     private val requests = mutableMapOf<UUID, UUID>()
     private val leases = mutableMapOf<UUID, OriginSceneLease>()
@@ -193,7 +196,7 @@ internal class OriginOddJobsGame(
         if (closed || !near(player, venue.npcId) || progress.current(player.uniqueId) != null) return
         if (!workMode(player)) { feedback(player, "work-mode"); return }
         otherWork(player.uniqueId)?.let { feedback(player, it); return }
-        if (!available(venue.kind)) { feedback(player, "unavailable"); return }
+        if (!available(venue.kind, refresh = true)) { feedback(player, "unavailable"); return }
         val playerId = player.uniqueId
         if (playerId in requests) { feedback(player, "checking"); return }
         val request = UUID.randomUUID()
@@ -212,7 +215,7 @@ internal class OriginOddJobsGame(
             }
             val rejected = otherWork(playerId) ?: key ?: when {
                 !workMode(player) -> "work-mode"
-                !available(venue.kind) -> "unavailable"
+                !available(venue.kind, refresh = true) -> "unavailable"
                 else -> null
             }
             if (rejected != null) {
@@ -413,9 +416,21 @@ internal class OriginOddJobsGame(
         OriginOddJobRejection.PAYOUT_PENDING -> "paying"
     }
 
-    private fun available(kind: OriginOddJobKind): Boolean = actor(config.venue(kind).npcId) != null &&
-        (kind != OriginOddJobKind.AUCTION || actor(config.handoffNpcId) != null) &&
-        originOddJobRequiredStations(kind).all { stations[it]?.valid() == true }
+    private fun available(kind: OriginOddJobKind, refresh: Boolean = false): Boolean {
+        if (actor(config.venue(kind).npcId) == null || kind == OriginOddJobKind.AUCTION && actor(config.handoffNpcId) == null) return false
+        val required = originOddJobRequiredStations(kind)
+        if (refresh && resolveStations != null && required.any { stations[it]?.valid() != true } &&
+            progress.entries().none { it.second.kind == kind }) {
+            // Spawn chunks may still be unloaded during init. Revisit only on admission;
+            // an active job keeps its exact targets and fails closed if they disappear.
+            val resolved = resolveStations()
+            required.forEach { stations.remove(it) }
+            stations.putAll(resolved.filterKeys { it in required })
+            if (required.all { stations[it]?.valid() == true }) info("ORIGIN_ODD_JOBS phase=STATIONS_RESOLVED kind={} stations={}", kind,
+                required.joinToString(",") { id -> stations.getValue(id).let { "$id=${it.block.type}@${it.point.x},${it.point.y},${it.point.z}" } })
+        }
+        return required.all { stations[it]?.valid() == true }
+    }
 
     private fun valid(player: Player, job: OriginOddJobSession): Boolean = workMode(player) && inArea(player, job.kind) && available(job.kind) &&
         (config.venue(job.kind).scene == null || leases[player.uniqueId]?.let(owns) == true)

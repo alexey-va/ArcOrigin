@@ -4,7 +4,7 @@ ArcOrigin is the standalone Paper plugin for RusCrafting's Origin worlds and con
 
 The runtime and its Java API have independent immutable Maven coordinates:
 
-- Runtime plugin: `ru.ruscrafting:ArcOrigin:0.1.10`
+- Runtime plugin: `ru.ruscrafting:ArcOrigin:0.1.11`
 - Java API: `ru.ruscrafting.arc:arc-origin-api:0.1.0`
 
 ARC shades the API once. ArcOrigin consumes it as `compileOnly`; add-ons should do the same and must not embed the API or shared provider implementations. Change `originApiVersion` before publishing a contract change. Runtime releases do not require an API version change.

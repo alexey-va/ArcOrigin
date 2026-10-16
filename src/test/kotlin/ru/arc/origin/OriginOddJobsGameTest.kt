@@ -261,9 +261,35 @@ class OriginOddJobsGameTest : StringSpec({
             f.payments shouldBe emptyList()
         }
     }
+
+    "an initially unloaded worksite resolves on later admission without idle polling or retargeting active work" {
+        f.close()
+        f = OddJobsFixture(deferStations = true)
+        failOnUnsupportedMockBukkitOperation {
+            f.open(440)
+            f.resolveAttempts shouldBe 1
+            f.game.isWorking(f.player.uniqueId) shouldBe false
+            verify(exactly = 0) { f.rewards.status(any()) }
+            f.game.tick(f.now)
+            f.resolveAttempts shouldBe 1
+
+            f.resolvedStations = f.stations
+            f.begin(440)
+            f.resolveAttempts shouldBe 2
+            f.game.tick(f.now)
+            f.game.isWorking(f.player.uniqueId) shouldBe true
+            f.resolveAttempts shouldBe 2
+
+            f.stations.getValue(OriginOddJobStationId.HAY).block.type = Material.AIR
+            f.game.tick(f.now)
+            f.game.isWorking(f.player.uniqueId) shouldBe false
+            f.released.size shouldBe 1
+            f.resolveAttempts shouldBe 2
+        }
+    }
 })
 
-private class OddJobsFixture : AutoCloseable {
+private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     val paper = MockBukkitTestRuntime.open()
     val world = OddJobWorld().also { it.name = "rc_origin_spawn"; paper.server.addWorld(it); it.getChunkAt(0, 0) }
     val player = paper.addPlayer("OddJobTest")
@@ -285,6 +311,8 @@ private class OddJobsFixture : AutoCloseable {
     val registry = mockk<NPCRegistry>()
     val actors = mutableMapOf<Int, NPC>()
     val stations: Map<OriginOddJobStationId, OriginOddJobStation>
+    var resolvedStations: Map<OriginOddJobStationId, OriginOddJobStation> = emptyMap()
+    var resolveAttempts = 0
     val game: OriginOddJobsGame
 
     init {
@@ -327,9 +355,10 @@ private class OddJobsFixture : AutoCloseable {
             val block = world.getBlockAt(index + 1, 70, 3).also { it.type = material }
             id to OriginOddJobStation(Location(world, block.x + 0.5, 71.02, 3.5), block, setOf(material))
         }.toMap()
-        game = OriginOddJobsGame(config, world.name, stations, rewards, visuals, LifecycleTaskScope(scheduler),
+        game = OriginOddJobsGame(config, world.name, if (deferStations) emptyMap() else stations, rewards, visuals, LifecycleTaskScope(scheduler),
             acquire = { venue -> OriginSceneLease(UUID.randomUUID(), venue.scene!!, "work", venue.actorIds).also { leases += it } },
-            owns = { leaseValid && it !in released }, release = { released += it }, otherWork = { otherWork }, clock = { now })
+            owns = { leaseValid && it !in released }, release = { released += it }, otherWork = { otherWork }, clock = { now },
+            resolveStations = { resolveAttempts++; resolvedStations })
     }
 
     fun npc(id: Int) = actors.getValue(id)
