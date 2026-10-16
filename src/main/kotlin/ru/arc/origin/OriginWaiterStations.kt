@@ -67,8 +67,8 @@ internal fun waiterStationChoices(config: OriginWaiterConfig, venue: OriginWaite
         OriginWaiterStage.REWORK -> listOf(OriginWaiterStationChoice("remake", layout.surface(layout.prep), Material.BOWL, true))
         OriginWaiterStage.RETURN_DISHES, OriginWaiterStage.WASH -> buildList {
             val action = job.washing.getOrNull(job.washed) ?: return@buildList
-            val point = if (action == OriginWaiterWash.DRY) waiterStationPoint(layout.surface(layout.rack), 0, 1)
-                else waiterStationPoint(layout.surface(layout.sink), 2, 3)
+            // The rack centre belongs to the clean stack; every tool has the same free sink-side dock.
+            val point = waiterStationPoint(layout.surface(layout.sink), 2, 3)
             add(OriginWaiterStationChoice("wash:${action.name}", point, when (action) {
                 OriginWaiterWash.SCRAPE -> Material.WOODEN_SHOVEL
                 OriginWaiterWash.SOAK -> Material.LIGHT_BLUE_DYE
@@ -203,7 +203,7 @@ internal class OriginWaiterStations(
         val progress = ((now - action.startedAt).toDouble() / action.durationMillis).coerceIn(0.0, 1.0)
         val frame = waiterStationActionFrame(action.action, action.layout, progress, action.plateStart,
             action.toolStart, action.ingredientStart, action.job.stage == OriginWaiterStage.RETURN_DISHES,
-            action.stackHeight, action.job.assembled)
+            action.stackHeight, action.job.assembled, waiterStationPlateHeight(action.job.dish.id))
         scene.props["dish"]?.let { pose(player, it, frame.plate, moving = true) }
         val moving = if (action.action.startsWith("ingredient:")) frame.ingredient else frame.tool
         moving?.let { point -> scene.props[action.action]?.let { pose(player, it, point, moving = true,

@@ -109,12 +109,36 @@ class OriginWaiterGameTest : StringSpec({
         f.now += 18_000
         f.game.tick(f.now)
         verify { f.viewerGlow.setDisplayGlowingFor(f.plates.getValue(433), f.player, true) }
+        clearMocks(f.viewerGlow, answers = false, recordedCalls = true)
+        f.now += 1_000
+        f.game.tick(f.now)
+        // Reassert the same entity: client untracking can clear its packet glow selection.
+        verify(exactly = 1) { f.viewerGlow.setDisplayGlowingFor(f.plates.getValue(433), f.player, true) }
+        verify(exactly = 0) { f.viewerGlow.setDisplayGlowingFor(f.plates.getValue(433), f.player, false) }
         f.clickNpc(433)
         verify(exactly = 0) { f.carry.pickupPlate(any(), any()) }
         f.clickPlate(433)
         verify(exactly = 1) { f.carry.pickupPlate(f.player, "egg") }
         verify { f.viewerGlow.setDisplayGlowingFor(f.plates.getValue(433), f.player, false) }
+        clearMocks(f.viewerGlow, answers = false, recordedCalls = true)
+        f.game.tick(++f.now)
+        verify(exactly = 0) { f.viewerGlow.setDisplayGlowingFor(f.plates.getValue(433), f.player, true) }
         f.screens shouldBe emptyList()
+    }
+
+    "accepted cooking order keeps its guidance until delivery despite a second available guest" {
+        f.begin()
+        f.clickNpc(433)
+        val request = f.stationRequest
+        f.game.reserves(434) shouldBe true
+        for (elapsed in listOf(1_000L, 8_000L, 1_000L)) {
+            f.now += elapsed
+            f.game.tick(f.now)
+            f.stationRequest shouldBe request
+        }
+        f.pressPickup(433, "Яичница")
+        f.clickNpc(433)
+        f.served.single().guestId shouldBe 433
     }
 
     "physical pickup and washing stay usable outside the dynamic venue near own staff" {
@@ -197,7 +221,6 @@ class OriginWaiterGameTest : StringSpec({
             f.reservations shouldBe 1
             f.clickNpc(433)
             f.game.reserves(434) shouldBe true
-            f.clickNpc(434)
             f.now += 10_000
             f.game.tick(f.now)
             val pickup = OriginWaiterStationHit(checkNotNull(f.stationRequest), "pickup", f.stationStep)
@@ -233,10 +256,11 @@ class OriginWaiterGameTest : StringSpec({
         failOnUnsupportedMockBukkitOperation {
             f.begin()
             f.clickNpc(433)
-            f.clickNpc(434)
             f.now += 10_000
             f.pressPickup(433, "Яичница")
             f.clickNpc(433)
+            f.clickNpc(434)
+            f.now += 10_000
             f.pressPickup(434, "Пиво")
             f.clickNpc(434)
             f.served.map { it.dishId } shouldBe listOf("egg", "herbal_tea")

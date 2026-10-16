@@ -53,10 +53,11 @@ class OriginOddJobsGameTest : StringSpec({
 
     "every employer opens an ordinary right click confirmation and never starts before acceptance" {
         failOnUnsupportedMockBukkitOperation {
-            for (id in listOf(440, 349, 365)) {
+            for (id in listOf(440, 349, 351, 354, 365)) {
                 f.open(id, sneaking = false)
                 f.game.isWorking(f.player.uniqueId) shouldBe false
-                f.screens.last().buttons.map { it.id.value } shouldBe listOf("odd_job_start", "odd_job_later")
+                f.screens.last().buttons.map { it.id.value } shouldBe if (id == 351)
+                    listOf("odd_job_start", "odd_job_shop", "odd_job_later") else listOf("odd_job_start", "odd_job_later")
                 f.screens.last().buttons.last().label.let(f::plain) shouldBe "Не сейчас"
             }
             f.press("odd_job_start"); f.scheduler.executeImmediate(); f.scheduler.executeImmediate()
@@ -166,6 +167,42 @@ class OriginOddJobsGameTest : StringSpec({
             f.payments.single().kind shouldBe OriginSideJobKind.FORGE
         }
     }
+    "Savva hauling releases its scene lease and submits one shared forge reward after three loads" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(351, OriginOddJobVariant.HAUL_COPPER)
+            f.leases.single().actorIds shouldBe setOf(351)
+            repeat(3) {
+                f.stroke(OriginOddJobStationId.ORE_STOCK)
+                f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("raw_copper")
+                f.stroke(OriginOddJobStationId.BLANK)
+                f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+            }
+            f.payments shouldBe emptyList()
+            f.clickNpc(351, sneaking = false)
+            f.payments.single().kind shouldBe OriginSideJobKind.FORGE
+            f.released shouldBe f.leases
+        }
+    }
+    "Luka engraving owns her actor through manual pickup carving collection and return" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(354, OriginOddJobVariant.ENGRAVE_CAT)
+            f.leases.single().actorIds shouldBe setOf(354)
+            f.pickupBlank()
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.ENGRAVE_PLACE
+            f.stroke(OriginOddJobStationId.ENGRAVING)
+            f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+            repeat(6) { f.stroke(OriginOddJobStationId.ENGRAVING, left = true, elapsed = 600) }
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.ENGRAVE_COLLECT
+            f.released shouldBe emptyList()
+            verify { f.visuals.glowWorkpiece(f.player, any(), true) }
+            verify { f.visuals.target(f.player, any(), f.stations.getValue(OriginOddJobStationId.ENGRAVING).point, any(), false) }
+            f.stroke(OriginOddJobStationId.ENGRAVING)
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.RETURN
+            f.clickNpc(354, sneaking = false)
+            f.payments.single().kind shouldBe OriginSideJobKind.FORGE
+            f.released shouldBe f.leases
+        }
+    }
     "confirmed payment schedules the next task automatically without reopening an employer" {
         failOnUnsupportedMockBukkitOperation {
             f.startForge(); f.finishForge()
@@ -191,25 +228,62 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.isWorking(f.player.uniqueId) shouldBe false
         }
     }
-    "a badly balanced caravan is recoverable by left clicking its last load without reopening a menu" {
+    "well pickup puts one full bucket in hand and trough delivery advances without any timing puzzle" {
         failOnUnsupportedMockBukkitOperation {
-            f.begin(440, OriginOddJobVariant.YARD_CARAVAN)
+            f.player.inventory.setItem(0, org.bukkit.inventory.ItemStack(Material.DIAMOND, 7))
+            f.begin(440, OriginOddJobVariant.YARD_WATER)
             val screens = f.screens.size
-            repeat(3) {
-                f.stroke(OriginOddJobStationId.HAY)
-                f.stroke(OriginOddJobStationId.FEED, zone = 0)
-            }
-            f.stroke(OriginOddJobStationId.HAY)
-            f.stroke(OriginOddJobStationId.FEED, zone = 2)
-            val rejected = f.game.currentJob(f.player.uniqueId)!!
-            rejected.stage shouldBe OriginOddJobStage.YARD_LOAD
-            rejected.yard!!.loads shouldBe listOf(0, 0, 0)
-            originOddJobGuide(f.config, rejected, f.now) shouldContain "груз 6:0"
-            f.stroke(OriginOddJobStationId.FEED, left = true)
-            f.game.currentJob(f.player.uniqueId)!!.yard!!.loads shouldBe listOf(0, 0, 1)
-            f.stroke(OriginOddJobStationId.FEED, zone = 2)
+            f.stroke(OriginOddJobStationId.WELL)
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_WATER
+            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("water_bucket")
+            f.player.inventory.getItem(0)!!.amount shouldBe 7
+            f.stroke(OriginOddJobStationId.WATER, elapsed = 30_000)
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.RETURN
+            f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+            f.payments shouldBe emptyList()
+            f.clickNpc(440, sneaking = false)
+            f.payments.single().kind shouldBe OriginSideJobKind.MOUNTYARD
             f.screens.size shouldBe screens
+        }
+    }
+    "yard pickup preserves a full hotbar and moves its selected personal stack to the free storage cell" {
+        failOnUnsupportedMockBukkitOperation {
+            repeat(9) { f.player.inventory.setItem(it, org.bukkit.inventory.ItemStack(Material.DIAMOND, it + 1)) }
+            f.begin(440, OriginOddJobVariant.YARD_RATIONS)
+            f.stroke(OriginOddJobStationId.HAY)
+            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("hay_block")
+            f.player.inventory.getItem(9)!!.amount shouldBe 1
+            f.stroke(OriginOddJobStationId.FEED)
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.RETURN
+            verify { f.visuals.place(f.player, any(), f.stations.getValue(OriginOddJobStationId.FEED).point, OriginJobProp.HAY) }
+            f.game.close()
+            f.player.inventory.contents.filterNotNull().filter { it.type == Material.DIAMOND }.sumOf { it.amount } shouldBe 45
+        }
+    }
+    "only the named animal receives grooming and the same target is part of the scene lease" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(440, OriginOddJobVariant.YARD_GROOM)
+            val target = f.game.currentJob(f.player.uniqueId)!!.yard!!
+            f.leases.single().actorIds.contains(target.animalId) shouldBe true
+            f.stroke(OriginOddJobStationId.BRUSH)
+            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("brush")
+            f.clickNpc(f.config.yardAnimalIds.first { it != target.animalId }, sneaking = false)
+            f.game.currentJob(f.player.uniqueId)!!.yard!!.brushStrokes shouldBe 0
+            repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(target.animalId, sneaking = false) }
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.RETURN
+            f.payments shouldBe emptyList()
+        }
+    }
+    "the same animal target reasserts viewer glow after an entity tracking reset" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(440, OriginOddJobVariant.YARD_GROOM)
+            f.stroke(OriginOddJobStationId.BRUSH)
+            val animal = f.entity(f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId)
+            io.mockk.clearMocks(f.glow, answers = false)
+            f.game.tick(++f.now)
+            f.game.tick(++f.now)
+            verify(exactly = 2) { f.glow.setEntityGlowingFor(animal, f.player, true) }
+            verify(exactly = 0) { f.glow.setEntityGlowingFor(animal, f.player, false) }
         }
     }
     "lease loss and reload remove working items and never pay unfinished work" {
@@ -257,6 +331,7 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     val world = OddJobWorld().also { it.name = "rc_origin_spawn"; paper.server.addWorld(it); it.getChunkAt(0, 0) }
     val player = paper.addPlayer("OddJobTest")
     val config = oddJobTestConfig()
+    val yardCatalog = oddJobTestYardCatalog()
     val scheduler = TestTaskScheduler()
     val ready = SideJobRewardStatus(true, 20, 0, false)
     var nextStatus = CompletableFuture.completedFuture(ready)
@@ -301,18 +376,24 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
         every { rewards.payoutIntervalMillis } returns 20_000L
         every { rewards.status(any()) } answers { nextStatus }
         every { rewards.pay(any(), any(), any(), any(), any()) } answers { payments += Payment(firstArg(), thirdArg(), arg(3), arg(4)) }
-        every { visuals.target(any(), any(), any(), any()) } answers { target = arg<Location?>(2)?.clone() }
+        every { visuals.target(any(), any(), any(), any(), any()) } answers { target = arg<Location?>(2)?.clone() }
         every { visuals.forgeProfile(any(), any(), any(), any(), any()) } answers { forgeWork = arg(3) }
         every { visuals.forgeCarry(any(), any(), any(), any()) } answers { forgeWork = thirdArg() }
-        for (id in listOf(440, 349, 365, 382)) {
+        for (id in listOf(440, 349, 351, 354, 365, 382) + config.yardAnimalIds) {
             val entity = mockk<Villager>(relaxed = true) {
                 every { world } returns this@OddJobsFixture.world
                 every { location } answers { Location(this@OddJobsFixture.world, 0.0, if (id == 382) 76.0 else 70.0, if (id == 382) 8.0 else 0.0) }
                 every { isValid } returns true
+                every { type } returns if (id in config.yardAnimalIds) org.bukkit.entity.EntityType.HORSE else org.bukkit.entity.EntityType.VILLAGER
+                every { height } returns 1.6
             }
             actors[id] = mockk<NPC> {
                 every { this@mockk.id } returns id
-                every { uniqueId } returns if (id == 382) config.handoffNpcUuid else config.venues.first { it.npcId == id }.npcUuid
+                every { uniqueId } returns when {
+                    id == 382 -> config.handoffNpcUuid
+                    id in config.yardAnimalIds -> yardCatalog.animals.first { it.npcId == id }.npcUuid
+                    else -> config.venues.first { it.npcId == id }.npcUuid
+                }
                 every { isSpawned } returns true
                 every { this@mockk.entity } returns entity
             }
@@ -322,9 +403,10 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
                 OriginOddJobStationId.HAY -> Material.HAY_BLOCK
                 OriginOddJobStationId.FEED -> Material.PACKED_MUD
                 OriginOddJobStationId.WATER, OriginOddJobStationId.QUENCH -> Material.WATER_CAULDRON
-                OriginOddJobStationId.BLANK -> Material.CHEST
+                OriginOddJobStationId.WELL, OriginOddJobStationId.BRUSH, OriginOddJobStationId.SADDLE_RACK -> Material.BARREL
+                OriginOddJobStationId.BLANK, OriginOddJobStationId.ORE_STOCK -> Material.CHEST
                 OriginOddJobStationId.FIRE -> Material.FURNACE
-                OriginOddJobStationId.ANVIL -> Material.ANVIL
+                OriginOddJobStationId.ANVIL, OriginOddJobStationId.ENGRAVING -> Material.ANVIL
             }
             val block = world.getBlockAt(index + 1, 70, 3).also { it.type = material }
             id to OriginOddJobStation(Location(world, block.x + 0.5, 71.02, 3.5), block, setOf(material))
@@ -335,7 +417,7 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
             resolveStations = { resolveAttempts++; resolvedStations }, dispatch = { kind ->
                 (0..100).asSequence().map { OriginOddJobDispatch(kind, kotlin.random.Random(it)) }
                     .first { desiredVariant == null || it.offers(OriginWorkShiftPhase.OPENING).first().variant == desiredVariant }
-            })
+            }, yardCatalog = yardCatalog)
     }
 
     fun npc(id: Int) = actors.getValue(id)
@@ -343,7 +425,7 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     fun moveNpc(id: Int) { now += 300; player.teleport(entity(id).location) }
     fun clickNpc(id: Int, sneaking: Boolean = true) { moveNpc(id); player.isSneaking = sneaking; game.interact(player, id) shouldBe true }
     fun open(id: Int, flush: Boolean = true, sneaking: Boolean = true) { clickNpc(id, sneaking); if (flush) scheduler.executeImmediate() }
-    fun currentStation() = stations.entries.single { it.value.block.location.add(0.5, 0.5, 0.5) == target }.key
+    fun currentStation() = stations.entries.single { it.value.block.location.add(0.5, 0.5, 0.5) == target || it.value.point == target }.key
     fun startForge() { startShift(349) }
     fun stockClick() {
         val click = mockk<org.bukkit.event.inventory.InventoryClickEvent>(relaxed = true) {

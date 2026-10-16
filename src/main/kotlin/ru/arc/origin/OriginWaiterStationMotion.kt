@@ -46,7 +46,8 @@ internal fun waiterStationPickupPoint(layout: OriginWaiterStationsLayout, assemb
 /** Pure, bounded choreography. A returned plate and every later wash use the same handle. */
 internal fun waiterStationActionFrame(action: String, layout: OriginWaiterStationsLayout, progress: Double,
     plateStart: OriginDiningPoint, toolStart: OriginDiningPoint, ingredientStart: OriginDiningPoint? = null,
-    returning: Boolean = false, stackHeight: Double = 0.0, ingredientIndex: Int = 0): OriginWaiterStationFrame {
+    returning: Boolean = false, stackHeight: Double = 0.0, ingredientIndex: Int = 0,
+    plateHeight: Double = 0.0): OriginWaiterStationFrame {
     val p = progress.coerceIn(0.0, 1.0)
     if (action.startsWith("ingredient:")) {
         val plate = waiterStationPlatePoint(layout)
@@ -64,8 +65,9 @@ internal fun waiterStationActionFrame(action: String, layout: OriginWaiterStatio
     val envelope = sin(PI * work)
     val stroke = sin(work * PI * 6.0)
     val plate = when (action) {
-        "wash:DRY" -> if (work < 0.48) sink else waiterStationTravel(sink,
-            layout.surface(layout.rack).let { it.copy(y = it.y + stackHeight) }, (work - 0.48) / 0.52, 0.27)
+        // Keep the dish supported until the cloth has cleared it; simultaneous lifts intersect.
+        "wash:DRY" -> if (work < 0.66) sink else waiterStationTravel(sink,
+            layout.surface(layout.rack).let { it.copy(y = it.y + stackHeight) }, (work - 0.66) / 0.34, 0.27)
         "wash:SOAK" -> waiterStationLocal(sink, right = 0.025 * sin(work * PI * 4) * envelope,
             up = 0.035 * envelope)
         "wash:RINSE" -> waiterStationLocal(sink, right = 0.055 * stroke * envelope,
@@ -73,18 +75,25 @@ internal fun waiterStationActionFrame(action: String, layout: OriginWaiterStatio
         else -> waiterStationLocal(sink, right = 0.025 * stroke * envelope)
             .let { it.copy(yaw = it.yaw + (7.0 * stroke * envelope).toFloat()) }
     }
+    // Generated vanilla item: z=7.5..8.5 /16, NONE + X(-90), scale .48 => half-thickness .015.
+    // Its lower face contacts the resolved top of this dish, including the thinner fish plate.
+    val toolHeight = plateHeight + 0.015
     val workingTool = when (action) {
-        "wash:SOAK", "wash:RINSE" -> waiterStationLocal(plate, right = 0.08, up = 0.34)
-        "wash:DRY" -> waiterStationLocal(plate, right = 0.11 * stroke, up = 0.105)
-        else -> waiterStationLocal(plate, right = 0.12 * stroke, up = 0.105,
+        "wash:SOAK", "wash:RINSE" -> waiterStationLocal(plate, right = 0.08, up = toolHeight)
+        "wash:DRY" -> waiterStationLocal(plate, right = 0.11 * stroke, up = toolHeight)
+        else -> waiterStationLocal(plate, right = 0.12 * stroke, up = toolHeight,
             forward = 0.035 * cos(work * PI * 6))
     }
     val tool = when {
+        // Withdraw the cloth when wiping ends; it must not descend through the arriving rack stack.
+        action == "wash:DRY" && work >= 0.48 -> waiterStationTravel(
+            waiterStationLocal(sink, right = 0.11 * sin(0.48 * PI * 6.0), up = toolHeight),
+            toolStart, (work - 0.48) / 0.18, 0.06)
         work < 0.12 -> waiterStationTravel(toolStart, workingTool, work / 0.12, 0.08)
         work > 0.86 -> waiterStationTravel(workingTool, toolStart, (work - 0.86) / 0.14, 0.06)
         else -> workingTool
     }
-    return OriginWaiterStationFrame(plate, tool, contact = waiterStationLocal(plate, up = 0.09))
+    return OriginWaiterStationFrame(plate, tool, contact = waiterStationLocal(plate, up = plateHeight))
 }
 
 /** Stir, lift a portion, and lay it on the same empty plate before the ready cue. */

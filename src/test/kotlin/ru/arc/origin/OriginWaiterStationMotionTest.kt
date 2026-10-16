@@ -16,13 +16,47 @@ class OriginWaiterStationMotionTest : StringSpec({
             val sink = waiterStationSinkPoint(layout)
             val tool = waiterStationPoint(layout.surface(layout.sink), 2, 3)
             for (action in OriginWaiterWash.entries) {
-                val poses = (0..32).map { waiterStationActionFrame("wash:$action", layout, it / 32.0, sink, tool, stackHeight = 0.08125) }
+                val poses = (0..32).map { waiterStationActionFrame("wash:$action", layout, it / 32.0, sink, tool,
+                    stackHeight = 0.08125, plateHeight = 0.08125) }
                 poses.first().plate shouldBe sink
                 val end = if (action == OriginWaiterWash.DRY) layout.rack.copy(y = 1.08125) else sink
                 distance(poses.last().plate, end).let { it < 1e-8 } shouldBe true
-                poses.map { it.plate }.distinct().size.let { it > 15 } shouldBe true
-                poses.zipWithNext().all { (a, b) -> distance(a.plate, b.plate) < 0.16 } shouldBe true
+                poses.distinct().size.let { it > 15 } shouldBe true
+                poses.zipWithNext().all { (a, b) -> distance(a.plate, b.plate) < 0.22 } shouldBe true
                 poses.all { it.plate.y >= 1.0 - 1e-8 } shouldBe true
+            }
+        }
+    }
+
+    "every working tool touches its plate top and the dry cloth leaves before rack transfer" {
+        val config = waiterTestConfig()
+        for (venue in config.venues) {
+            val layout = config.stations.getValue(venue.id)
+            val sink = waiterStationSinkPoint(layout)
+            for (height in listOf(0.08125, 0.040625)) for (action in OriginWaiterWash.entries) {
+                val job = OriginWaiterJob(waiterTarget(venue.id), 0, 180_000,
+                    stage = OriginWaiterStage.WASH, washing = listOf(action))
+                val tool = waiterStationChoices(config, venue, job).single { it.next }.point
+                tool shouldBe waiterStationPoint(layout.surface(layout.sink), 2, 3)
+                for (step in 12..if (action == OriginWaiterWash.DRY) 47 else 86) {
+                    val frame = waiterStationActionFrame("wash:$action", layout, step / 100.0, sink, tool,
+                        stackHeight = height * 2, plateHeight = height)
+                    // Official generated mesh z=7.5..8.5, NONE / X(-90), runtime scale .48.
+                    abs(checkNotNull(frame.tool).y - 0.015 - (frame.plate.y + height)).let { it < 1e-8 } shouldBe true
+                }
+                val end = waiterStationActionFrame("wash:$action", layout, 1.0, sink, tool,
+                    stackHeight = height * 2, plateHeight = height)
+                distance(checkNotNull(end.tool), tool).let { it < 1e-8 } shouldBe true
+                if (action == OriginWaiterWash.DRY) {
+                    for (step in 48..66) {
+                        waiterStationActionFrame("wash:DRY", layout, step / 100.0, sink, tool,
+                            stackHeight = height * 2, plateHeight = height).plate shouldBe sink
+                    }
+                    val withdrawing = waiterStationActionFrame("wash:DRY", layout, 0.66, sink, tool,
+                        stackHeight = height * 2, plateHeight = height)
+                    distance(checkNotNull(withdrawing.tool), tool).let { it < 1e-8 } shouldBe true
+                    distance(checkNotNull(end.tool), end.plate).let { it > 0.5 } shouldBe true
+                }
             }
         }
     }
@@ -70,12 +104,16 @@ class OriginWaiterStationMotionTest : StringSpec({
                 p, waiterStationPlatePoint(layout), source, source, ingredientIndex = index) }
         }
         OriginWaiterWash.entries.forEach { action ->
+            val job = OriginWaiterJob(waiterTarget("brewery"), 0, 180_000,
+                stage = OriginWaiterStage.WASH, washing = listOf(action))
+            val actualTool = waiterStationChoices(config, config.venues.first(), job).single { it.next }.point
             clip("wash:$action", if (action == OriginWaiterWash.SOAK) 3_000 else 1_600) { p, _ ->
-                waiterStationActionFrame("wash:$action", layout, p, sink, tool,
-                    stackHeight = if (action == OriginWaiterWash.DRY) 0.08125 else 0.0) }
+                waiterStationActionFrame("wash:$action", layout, p, sink, actualTool,
+                    stackHeight = if (action == OriginWaiterWash.DRY) 0.08125 else 0.0, plateHeight = 0.08125) }
         }
         clip("return:SCRAPE", 1_600) { p, _ -> waiterStationActionFrame("wash:SCRAPE", layout, p,
-            sink.copy(x = sink.x - 0.6, y = sink.y + 0.05, z = sink.z - 0.5, yaw = 0f), tool, returning = true) }
+            sink.copy(x = sink.x - 0.6, y = sink.y + 0.05, z = sink.z - 0.5, yaw = 0f), tool,
+            returning = true, plateHeight = 0.08125) }
         val output = Path.of("build/reports/waiter-stations/motion.json")
         Files.createDirectories(output.parent)
         Files.writeString(output, GsonBuilder().setPrettyPrinting().create().toJson(mapOf(

@@ -243,6 +243,7 @@ internal class OriginWaiterGame(
         var lastWait: String? = null
         var nextWaitTitleAt = 0L
         var introduced = false
+        var focusedRequest: UUID? = null
         val bossBar = BossBar.bossBar(Component.empty(), 0f, BossBar.Color.YELLOW, BossBar.Overlay.PROGRESS)
         var endedAt: Long? = null
         var unpaidOrders = 0
@@ -324,6 +325,7 @@ internal class OriginWaiterGame(
         when (val step = progress.guest(player.uniqueId, npcId, clickedVenue, now)) {
             is OriginWaiterStep.Rejected -> reject(player, step.reason, before)
             is OriginWaiterStep.Changed -> {
+                session.focusedRequest = step.job.id
                 if (before?.stage == OriginWaiterStage.DELIVER) {
                     carry.remove(player.uniqueId)
                     if (!serve(before.servingTarget())) {
@@ -740,12 +742,21 @@ internal class OriginWaiterGame(
         }
     }
 
+    /** Finish a chosen task before background cooking or clearing can replace its guidance. */
+    private fun guidedJob(playerId: UUID, now: Long): OriginWaiterJob? {
+        val session = sessions[playerId] ?: return null
+        val job = actions[playerId]?.job ?: progress.priority(playerId, now, session.focusedRequest)
+            ?: progress.tickets(playerId).firstOrNull()
+        session.focusedRequest = job?.id
+        return job
+    }
+
     private fun guide(player: Player) {
         val session = sessions[player.uniqueId] ?: return
         if (session.endedAt != null) return
         val now = clock()
         val action = actions[player.uniqueId]
-        val job = action?.job ?: progress.carried(player.uniqueId) ?: progress.priority(player.uniqueId, now) ?: progress.tickets(player.uniqueId).firstOrNull()
+        val job = guidedJob(player.uniqueId, now)
         val dispute = progress.dispute(player.uniqueId)
         val layout = config.stations[session.venue.id]
         val workstation = when {
@@ -768,10 +779,11 @@ internal class OriginWaiterGame(
         }
         if (glowing[player.uniqueId] !== entity) {
             clearGlow(player.uniqueId)
-            if (entity != null) {
-                setGlow(entity, player, true)
-                glowing[player.uniqueId] = entity
-            }
+        }
+        if (entity != null && entity.isValid) {
+            // Entity untracking clears the packet override even when this Bukkit entity is unchanged.
+            setGlow(entity, player, true)
+            glowing[player.uniqueId] = entity
         }
         val key = if (player.uniqueId in interventions) "dispute-intervening" else if (dispute != null && brawl?.isReady(player.uniqueId) == false) "dispute-approaching" else if (action != null) {
             if (action.action.startsWith("ingredient:")) "station-assemble" else "station-${action.action.substringAfter(':').lowercase()}"
@@ -847,7 +859,7 @@ internal class OriginWaiterGame(
             OriginWaiterRejection.STALE_ACTION -> "action-already-done"
             OriginWaiterRejection.DISPUTE -> "dispute-start"
         }
-        val target = progress.carried(player.uniqueId) ?: job ?: progress.priority(player.uniqueId, clock())
+        val target = progress.carried(player.uniqueId) ?: job ?: guidedJob(player.uniqueId, clock())
         feedback(player, key, "guest" to (target?.target?.guestName ?: ""), "dish" to (job?.dish?.name ?: ""),
             "seconds" to waiterSeconds((job?.readyAt ?: 0) - clock()),
             "ingredient" to config.line("ingredient-${job?.recipe?.getOrNull(job.assembled)}"),

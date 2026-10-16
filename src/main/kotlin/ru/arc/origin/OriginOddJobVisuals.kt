@@ -103,7 +103,8 @@ internal fun originOddJobPropPieces(prop: OriginJobProp): List<OriginWorkshopWor
 
 /** The same three dimensions used by the forge rules change the actual crown and branches. */
 internal fun originOddJobForgePieces(work: OriginForgeWork, heated: Boolean): List<OriginWorkshopWorkpiecePiece> {
-    val iron = if (heated) Material.ORANGE_TERRACOTTA else Material.IRON_BLOCK
+    if (work.product != OriginForgeProduct.HORSESHOE) return originForgeDetailPieces(work, heated)
+    val iron = if (heated) Material.ORANGE_TERRACOTTA else work.metal.block()
     val crown = 0.22 + (work.shape[1] - 2) * 0.035
     val left = 0.28 + (work.shape[0] - 2) * 0.045
     val right = 0.28 + (work.shape[2] - 2) * 0.045
@@ -177,6 +178,7 @@ internal class OriginOddJobVisuals(
         var target: OriginWorkshopProp? = null
         var label: PacketTextDisplay? = null
         var targetLocation: Location? = null
+        var targetOutline = true
     }
 
     private var owner: PaperPacketDisplays? = null
@@ -209,6 +211,16 @@ internal class OriginOddJobVisuals(
     fun hangForge(player: Player, requestId: UUID, location: Location, work: OriginForgeWork, heated: Boolean) =
         profile(player, requestId, location, originOddJobHangingPieces(originOddJobForgePieces(work, heated)), heated)
 
+    fun cargo(player: Player, requestId: UUID, cargo: OriginForgeCargo) =
+        profile(player, requestId, player.location, originForgeCargoPieces(cargo), false, carried = true)
+
+    fun engraving(player: Player, requestId: UUID, location: Location?, work: OriginForgeEngraving) =
+        profile(player, requestId, location ?: player.location, originForgeEngravingPieces(work), false, carried = location == null)
+
+    fun glowWorkpiece(player: Player, requestId: UUID, ready: Boolean) {
+        owned[player.uniqueId]?.takeIf { it.requestId == requestId }?.prop?.glow(if (ready) Color.fromRGB(239, 195, 113) else null)
+    }
+
     fun cleaning(player: Player, requestId: UUID, location: Location, mask: Int) =
         profile(player, requestId, location, originOddJobCleaningPieces(mask), false)
 
@@ -224,26 +236,26 @@ internal class OriginOddJobVisuals(
     }
 
     /** A single personal next-action cue, separate from the game's forgiving interaction hit area. */
-    fun target(player: Player, requestId: UUID, location: Location?, caption: String) {
+    fun target(player: Player, requestId: UUID, location: Location?, caption: String, outline: Boolean = true) {
         if (location == null) {
             owned[player.uniqueId]?.takeIf { it.requestId == requestId }?.let(::removeTarget)
             return
         }
         change(player, requestId) { state ->
             require(location.world?.uid == state.worldId) { "odd-job target must stay in its player's world" }
-            if (state.targetLocation == location) {
+            if (state.targetLocation == location && state.targetOutline == outline) {
                 state.label?.text(Component.text(caption, TextColor.color(0xe8dfd2)))
                 return@change
             }
             removeTarget(state)
             val renderer = renderer()
-            state.target = OriginWorkshopProp(renderer, location, originOddJobTargetPieces(), privateViewer = player,
+            state.target = if (outline) OriginWorkshopProp(renderer, location, originOddJobTargetPieces(), privateViewer = player,
                 onSpawn = { display -> state.handles += display; display.isVisibleByDefault = false }).also {
                 it.place(location, Quaternionf())
                 it.glow(Color.fromRGB(239, 195, 113))
                 it.pieces.forEach { piece -> piece.display?.brightness = Display.Brightness(15, 15) }
-            }
-            state.label = renderer.spawnText(location.clone().add(0.0, 0.95, 0.0),
+            } else null
+            state.label = renderer.spawnText(location.clone().add(0.0, if (outline) 0.95 else 0.42, 0.0),
                 Component.text(caption, TextColor.color(0xe8dfd2))).also { label ->
                 state.handles += label
                 label.isVisibleByDefault = false
@@ -258,6 +270,7 @@ internal class OriginOddJobVisuals(
                 label.showTo(player)
             }
             state.targetLocation = location.clone()
+            state.targetOutline = outline
         }
     }
 

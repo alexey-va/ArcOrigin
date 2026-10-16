@@ -29,10 +29,18 @@ internal object OddJobsPreviewExport {
             state("repair-hot", "Ремонт · та же форма после нагрева", originOddJobForgePieces(damaged, true)),
             state("repaired-hot", "Ремонт · восстановленная ветвь", originOddJobForgePieces(repaired, true)),
             state("repaired-cold", "Ремонт · форма после закалки", originOddJobForgePieces(repaired, false)),
-            state("trough-dirty", "Поилка · три грязных участка", originOddJobCleaningPieces(0)),
-            state("trough-middle-clean", "Поилка · очищен средний участок", originOddJobCleaningPieces(2)),
-            state("trough-clean", "Поилка · очищены все участки", originOddJobCleaningPieces(7)),
-        )
+            state("water-carry", "Колодец · полное ведро", originOddJobPropPieces(OriginJobProp.WATER_BUCKET)),
+        ) + OriginForgeProduct.entries.filterNot { it == OriginForgeProduct.HORSESHOE }.flatMap { product ->
+            (0..3).map { strikes ->
+                val metal = if (product == OriginForgeProduct.HINGE) OriginForgeMetal.COPPER else OriginForgeMetal.IRON
+                val work = OriginForgeWork(listOf(2, 2, 2), List(3) { if (it < strikes) 2 else 1 }, product, metal)
+                state("${product.name.lowercase()}-$strikes", "${product.title} · удар $strikes/3", originOddJobForgePieces(work, strikes != 3))
+            }
+        } + OriginForgeCargo.entries.map { state("cargo-${it.name.lowercase()}", "Савва · ${it.title}", originForgeCargoPieces(it)) } +
+            listOf("РУС", "ДОМ", "КОТ").flatMap { word -> (0..6).map { strokes ->
+                state("engrave-$word-$strokes", "Лука · «$word» · удар $strokes/6",
+                    originForgeEngravingPieces(OriginForgeEngraving(word, OriginForgeMetal.COPPER, strokes)))
+            } }
         val scene = mapOf("states" to states,
             "coordinates" to mapOf("space" to "station-contact-plane", "origin" to "actual supporting plane", "unit" to "block", "yaw" to 0),
             "camera" to mapOf("position" to mapOf("x" to 0.75, "y" to 0.72, "z" to -1.2),

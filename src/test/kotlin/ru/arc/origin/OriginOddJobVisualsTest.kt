@@ -99,6 +99,44 @@ class OriginOddJobVisualsTest : StringSpec({
         OddJobsPreviewExport.write(Path.of("build/odd-jobs-preview/scene.json"))
     }
 
+    "new forge products have different shapes and engraving preserves the plate while letters appear" {
+        val profiles = OriginForgeProduct.entries.filterNot { it == OriginForgeProduct.HORSESHOE }.map { product ->
+            val raw = OriginForgeWork(listOf(2, 2, 2), listOf(1, 1, 1), product, OriginForgeMetal.COPPER)
+            val done = raw.copy(shape = raw.target)
+            originOddJobForgePieces(raw, true).size shouldBe 1
+            val cold = originOddJobForgePieces(done, false)
+            cold.map(::shape) shouldBe originOddJobForgePieces(done, true).map(::shape)
+            cold.all { it.material == Material.COPPER_BLOCK } shouldBe true
+            abs(cold.minOf { it.center.y - it.size.y / 2.0 }) shouldBeLessThan 1e-6
+            cold.map(::shape)
+        }
+        profiles.distinct().size shouldBe 3
+        val work = OriginForgeEngraving("КОТ", OriginForgeMetal.COPPER)
+        val plate = originForgeEngravingPieces(work).single()
+        (1..6).forEach { stroke -> originForgeEngravingPieces(work.copy(strokes = stroke)).first() shouldBe plate }
+        (originForgeEngravingPieces(work.copy(strokes = 6)).size > 15) shouldBe true
+        OddJobsPreviewExport.write(Path.of("build/odd-jobs-preview/scene.json"))
+    }
+    "a workpiece cue has text and glowing workpiece handles without any proxy or station outline" {
+        failOnUnsupportedMockBukkitOperation {
+            val player = oddJobCarrier(paper)
+            val harness = OddJobDisplayHarness()
+            val visuals = OriginOddJobVisuals { harness.owner }
+            val request = UUID.randomUUID()
+            visuals.place(player, request, player.location, OriginJobProp.FORGE_HEATED)
+            val workpiece = harness.blocks.toList()
+            visuals.target(player, request, player.location, "Нагрев 50%", outline = false)
+            visuals.glowWorkpiece(player, request, false)
+            harness.blocks shouldBe workpiece
+            workpiece.forEach { verify { it.isGlowing = false } }
+            visuals.target(player, request, player.location, "Готово", outline = false)
+            visuals.glowWorkpiece(player, request, true)
+            harness.blocks shouldBe workpiece
+            harness.texts.size shouldBe 1
+            workpiece.forEach { verify { it.isGlowing = true } }
+            visuals.close()
+        }
+    }
     "carry uses the body heading keeps the rear edge ahead of the torso and lowers with sneaking" {
         OriginJobProp.entries.forEach { prop ->
             val geometry = originOddJobPropPieces(prop)

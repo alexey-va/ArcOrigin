@@ -24,6 +24,30 @@ private fun cleanWaiterMeal(progress: OriginWaiterProgress, player: UUID, reques
 }
 
 class OriginWaiterProgressTest : StringSpec({
+    "focused cooking and assembly remain one chain while background orders become actionable" {
+        val progress = OriginWaiterProgress(180_000, 10_000)
+        val player = UUID.randomUUID()
+        val chef = checkNotNull(progress.begin(player, waiterTarget(), 0))
+        val assembled = checkNotNull(progress.begin(player, waiterTarget(guest = 434), 0,
+            OriginWaiterFamily.ASSEMBLED, recipe = listOf("egg", "herbs")))
+        progress.guest(player, 433, "restaurant", 0)
+        progress.priority(player, 9_999, chef.id)?.id shouldBe chef.id
+        progress.guest(player, 434, "restaurant", 1)
+        progress.assemble(player, assembled.id, "restaurant", "egg", 0, 9_000)
+        progress.priority(player, 10_000, assembled.id)?.id shouldBe assembled.id
+        progress.assemble(player, assembled.id, "restaurant", "herbs", 1, 10_000)
+        // Jasper's older ready meal must not replace the meal just assembled by the player.
+        progress.priority(player, 10_001, assembled.id)?.id shouldBe assembled.id
+        progress.pickup(player, 439, "restaurant", 10_002, chef.id, "egg")
+        progress.priority(player, 10_002, assembled.id)?.id shouldBe chef.id
+        progress.guest(player, 433, "restaurant", 10_003)
+        progress.priority(player, 10_003, chef.id)?.id shouldBe assembled.id
+        progress.finishEating(player, chef.id, 28_003)
+        progress.priority(player, 28_003, assembled.id)?.id shouldBe assembled.id
+        progress.cancel(player, assembled.id)
+        progress.priority(player, 28_004, assembled.id)?.id shouldBe chef.id
+    }
+
     "two independent tickets permit a chosen ready order but never two carried dishes" {
         val progress = OriginWaiterProgress(180_000, 10_000)
         val player = UUID.randomUUID()

@@ -92,7 +92,13 @@ internal class OriginWaiterProgress(
     fun carried(playerId: UUID): OriginWaiterJob? = tickets(playerId).firstOrNull { it.carries }
     fun dispute(playerId: UUID): OriginWaiterDispute? = disputes[playerId]
 
-    fun priority(playerId: UUID, now: Long): OriginWaiterJob? = tickets(playerId)
+    fun priority(playerId: UUID, now: Long, focusedRequestId: UUID? = null): OriginWaiterJob? {
+        carried(playerId)?.let { return it }
+        // Finish the visible work chain before background tickets can replace its guidance.
+        focusedRequestId?.let { current(playerId, it) }
+            ?.takeUnless { it.stage == OriginWaiterStage.EATING || it.stage == OriginWaiterStage.PAYOUT }
+            ?.let { return it }
+        return tickets(playerId)
         .filter { it.stage != OriginWaiterStage.PAYOUT }
         .minWithOrNull(compareBy<OriginWaiterJob> {
             when (it.stage) {
@@ -108,6 +114,7 @@ internal class OriginWaiterProgress(
                 OriginWaiterStage.PAYOUT -> 10
             }
         }.thenBy { if (it.stage == OriginWaiterStage.PICKUP) it.freshUntil else it.startedAt })
+    }
 
     fun begin(
         playerId: UUID, target: OriginWaiterTarget, now: Long,

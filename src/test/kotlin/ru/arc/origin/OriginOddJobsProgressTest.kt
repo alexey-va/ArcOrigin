@@ -15,11 +15,11 @@ class OriginOddJobsProgressTest : StringSpec({
             dispatch.offers(OriginWorkShiftPhase.OPENING).first().variant shouldBe OriginOddJobVariant.FORGE_NEW
         }
     }
-    "reopening the board cannot reroll offers and every three acceptances cover all families" {
+    "reopening the employer cannot reroll offers and each bag covers all families" {
         for (kind in OriginOddJobKind.entries) {
             val board = OriginOddJobDispatch(kind, Random(7))
             repeat(3) {
-                val accepted = (0..2).map {
+                val accepted = OriginOddJobVariant.entries.filter { it.kind == kind }.map {
                     val shown = board.offers(OriginWorkShiftPhase.RUSH)
                     board.offers(OriginWorkShiftPhase.CLOSING) shouldBe shown
                     board.accept(UUID.randomUUID()) shouldBe null
@@ -29,53 +29,51 @@ class OriginOddJobsProgressTest : StringSpec({
             }
         }
     }
-    "water service completes three compartments and repeated cleaning cannot replace distinct targets" {
-        val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID(); var now = 0L
-        jobs.begin(id, offer(OriginOddJobVariant.YARD_WATER), now)
-        repeat(3) { compartment ->
-            jobs.current(id)!!.yard!!.waterCompartment shouldBe compartment
-            jobs.act(id, OriginOddJobAction.WATER, ++now)
-            jobs.act(id, OriginOddJobAction.WATER, ++now, 0)
-            jobs.act(id, OriginOddJobAction.WATER, ++now, 0).reason() shouldBe OriginOddJobRejection.WRONG_ZONE
-            jobs.act(id, OriginOddJobAction.WATER, ++now, 1)
-            jobs.act(id, OriginOddJobAction.WATER, ++now, 2)
-            jobs.act(id, OriginOddJobAction.WATER, ++now)
-            now += jobs.current(id)!!.yard!!.waterTarget * ODD_JOB_WATER_STEP_MILLIS
-            jobs.act(id, OriginOddJobAction.WATER, now)
+    "water and feed are single pickup delivery chains without timing levels or portions" {
+        for ((variant, pickup, delivery) in listOf(
+            Triple(OriginOddJobVariant.YARD_WATER, OriginOddJobAction.WATER, OriginOddJobAction.WATER),
+            Triple(OriginOddJobVariant.YARD_RATIONS, OriginOddJobAction.HAY, OriginOddJobAction.FEED),
+            Triple(OriginOddJobVariant.YARD_SADDLE, OriginOddJobAction.TACK, OriginOddJobAction.SADDLE))) {
+            val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
+            val target = OriginYardWork(422, "Буран")
+            val job = jobs.begin(id, offer(variant), 0, yardTarget = target)!!
+            jobs.choose(id, 0, 1).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+            jobs.act(id, pickup, 2)
+            jobs.current(id)!!.yard shouldBe target
+            jobs.act(id, delivery, 60_000)
+            jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
+            jobs.current(id)!!.quality shouldBe 100
+            jobs.act(id, delivery, 60_001).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+            jobs.act(id, OriginOddJobAction.RETURN, 60_002)
+            jobs.finish(id, job.id)!!.stage shouldBe OriginOddJobStage.PAYOUT
+            jobs.finish(id, job.id) shouldBe null
+        }
+    }
+    "grooming requires taking the brush and three ordinary untimed strokes" {
+        val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
+        jobs.begin(id, offer(OriginOddJobVariant.YARD_GROOM), 0, yardTarget = OriginYardWork(423, "Рыжик"))
+        jobs.act(id, OriginOddJobAction.GROOM, 1).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.BRUSH, 2)
+        repeat(ODD_JOB_GROOM_STROKES) { index ->
+            jobs.act(id, OriginOddJobAction.GROOM, 30_000L * (index + 1))
+            jobs.current(id)!!.yard!!.brushStrokes shouldBe index + 1
         }
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
-        jobs.act(id, OriginOddJobAction.RETURN, ++now)
-        val request = jobs.current(id)!!.id
-        jobs.finish(id, request)!!.stage shouldBe OriginOddJobStage.PAYOUT
-        jobs.finish(id, request) shouldBe null
+        jobs.current(id)!!.yard!!.animalId shouldBe 423
+        jobs.current(id)!!.quality shouldBe 100
     }
-    "caravan bad final load keeps carried bag and can rebalance the existing prefix" {
-        val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
-        jobs.begin(id, offer(OriginOddJobVariant.YARD_CARAVAN), 0)
-        repeat(3) { jobs.choose(id, 8 % 3, 1); jobs.choose(id, 0, 2) }
-        jobs.choose(id, 8 % 3, 3)
-        val before = jobs.current(id)!!.yard!!
-        jobs.choose(id, 1, 4).reason() shouldBe OriginOddJobRejection.UNBALANCED
-        jobs.current(id)!!.yard shouldBe before
-        jobs.choose(id, 2, 5)
-        jobs.current(id)!!.yard!!.loads shouldBe listOf(0, 0, 1)
-        jobs.choose(id, 1, 6)
-        jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
-    }
-    "rations reject mould and overfeeding instead of allowing one target to fill both sides" {
-        val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
-        jobs.begin(id, offer(OriginOddJobVariant.YARD_RATIONS), 0)
-        jobs.choose(id, 0, 1).reason() shouldBe OriginOddJobRejection.WRONG_RATION
-        jobs.choose(id, 2, 2)
-        repeat(2) { jobs.act(id, OriginOddJobAction.FEED, 3, 0) }
-        jobs.act(id, OriginOddJobAction.FEED, 4, 0).reason() shouldBe OriginOddJobRejection.WRONG_RATION
-        jobs.current(id)!!.yard!!.filled shouldBe listOf(2, 0)
-        jobs.act(id, OriginOddJobAction.FEED, 5, 2)
-        jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_HAY
+    "stable assignments never include a hidden rush penalty" {
+        val dispatch = OriginOddJobDispatch(OriginOddJobKind.MOUNTYARD, Random(7))
+        repeat(8) {
+            val offers = dispatch.offers(OriginWorkShiftPhase.RUSH)
+            offers.all { !it.urgent } shouldBe true
+            dispatch.accept(offers.first().id)
+        }
     }
     "forge orders use direct stations and a few forgiving strikes without craft choices or a final check" {
         for ((variant, strikes) in listOf(OriginOddJobVariant.FORGE_NEW to 4,
-            OriginOddJobVariant.FORGE_REPAIR to 2, OriginOddJobVariant.FORGE_PAIR to 2)) {
+            OriginOddJobVariant.FORGE_REPAIR to 2, OriginOddJobVariant.FORGE_PAIR to 2,
+            OriginOddJobVariant.FORGE_HOOK to 3, OriginOddJobVariant.FORGE_HINGE to 3, OriginOddJobVariant.FORGE_BRACKET to 3)) {
             val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID(); var now = 0L
             jobs.begin(id, offer(variant), now)
             jobs.current(id)!!.forge!!.remainingStrikes shouldBe strikes
@@ -105,6 +103,37 @@ class OriginOddJobsProgressTest : StringSpec({
             jobs.act(id, OriginOddJobAction.RETURN, ++now)
             jobs.current(id)!!.stage shouldBe OriginOddJobStage.PAYOUT
         }
+    }
+    "hauling needs three delivered loads and every forge employer shares the existing reward kind" {
+        val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
+        jobs.begin(id, offer(OriginOddJobVariant.HAUL_COPPER), 0)
+        jobs.current(id)!!.haul!!.cargo shouldBe OriginForgeCargo.COPPER
+        jobs.act(id, OriginOddJobAction.DELIVER, 1).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        repeat(3) { index ->
+            jobs.act(id, OriginOddJobAction.PICKUP, index * 10_000L + 2)
+            jobs.act(id, OriginOddJobAction.PICKUP, index * 10_000L + 3).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+            jobs.act(id, OriginOddJobAction.DELIVER, index * 10_000L + 4)
+            jobs.current(id)!!.haul!!.delivered shouldBe index + 1
+        }
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
+        listOf(OriginOddJobKind.FORGE, OriginOddJobKind.FORGE_HAUL, OriginOddJobKind.FORGE_ENGRAVE)
+            .map { it.rewardKind }.toSet() shouldBe setOf(OriginSideJobKind.FORGE)
+    }
+    "engraving keeps the completed letters on the anvil until explicitly collected" {
+        val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
+        jobs.begin(id, offer(OriginOddJobVariant.ENGRAVE_CAT), 0)
+        jobs.act(id, OriginOddJobAction.BLANK, 1)
+        jobs.act(id, OriginOddJobAction.PLACE, 2)
+        jobs.act(id, OriginOddJobAction.ENGRAVE, 3).reason() shouldBe OriginOddJobRejection.TOO_EARLY
+        repeat(6) { jobs.act(id, OriginOddJobAction.ENGRAVE, 2L + (it + 1) * 600) }
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.ENGRAVE_COLLECT
+        jobs.current(id)!!.engraving!!.word shouldBe "КОТ"
+        jobs.current(id)!!.engraving!!.strokes shouldBe 6
+        jobs.act(id, OriginOddJobAction.ENGRAVE, 4_000).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.RETURN, 4_001).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.COLLECT, 4_002)
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
+        jobs.current(id)!!.quality shouldBe 100
     }
     "forge dispatch never adds a hidden rush penalty" {
         val dispatch = OriginOddJobDispatch(OriginOddJobKind.FORGE, Random(7))
