@@ -1,11 +1,25 @@
 # ARC owns the interactive meals in both Origin restaurants.
 
 waiter-game:
-  # Both entrances share the durable reward quota. Ordinary Remi clicks keep his drink shop.
+  # Both entrances admit a shift on ordinary right-click and share the durable reward quota.
   venue-ids: [brewery, restaurant]
   venues:
-    brewery: {staff-id: 405, sneak-only: true}
-    restaurant: {staff-id: 439, sneak-only: false}
+    brewery:
+      staff-id: 405
+      sneak-only: false
+      # Verified floor anchors; packet-only worktops rise 0.9 blocks above them.
+      prep: "-3.5,70.0,59.75,90"
+      sink: "-3.5,70.0,61.5,0"
+      rack: "-2.5,70.0,62.5,0"
+      stand-height: 0.9
+    restaurant:
+      staff-id: 439
+      sneak-only: false
+      # Existing counter's carpet top; leave the ambient mug at z=56.5 free.
+      prep: "-52.5,73.0625,58.75,90"
+      sink: "-52.5,73.0625,55.25,90"
+      rack: "-52.5,73.0625,57.5,90"
+      stand-height: 0.0
   shift-seconds: 600
   finish-grace-seconds: 120
   # Per-guest bounds stay independent of the full shift.
@@ -14,15 +28,33 @@ waiter-game:
   freshness-seconds: 45
   rush-freshness-seconds: 30
   interaction-range: 4.5
+  eating-seconds: 18
+  work-action-millis: 700
+  soak-seconds: 3
+  dispute-every-orders: 4
+  ingredient-ids: [egg, bacon, herbs, fish, lemon, steak, potato]
+  ingredients:
+    egg: {material: EGG}
+    bacon: {material: COOKED_PORKCHOP}
+    herbs: {material: WHEAT}
+    fish: {material: COOKED_COD}
+    lemon: {material: HONEYCOMB}
+    steak: {material: COOKED_BEEF}
+    potato: {material: BAKED_POTATO}
+  recipe-ids: [egg, fish, steak]
+  recipes:
+    egg: {ingredients: [egg, bacon, herbs], wash: [SCRAPE, SOAP, RINSE, DRY]}
+    fish: {ingredients: [fish, lemon, herbs], wash: [SOAP, RINSE, DRY]}
+    steak: {ingredients: [steak, potato, herbs], wash: [SOAK, SOAP, RINSE, DRY]}
   text:
     title: "Смена официанта"
-    shift-introduction: "Смена — {minutes} минут. Веди до двух заказов, выбирай готовую подачу на кухне и неси по одному блюду. На последние заказы есть ещё до {grace} минут."
-    pay: "За полный заказ гостя — {amount} 💰. Общий лимит подработок: {daily-orders} поручений в сутки — до {daily-amount} 💰 при текущей ставке. Качество входит в итог смены и не уменьшает оплату."
+    shift-introduction: "Смена — {minutes} минут: до двух заказов, сборка блюд, подача и мытьё посуды. Следуй подсветке и нажимай ПКМ. На последние заказы есть ещё до {grace} минут."
+    pay: "За заказ с вымытой посудой — {amount} 💰. Общий лимит подработок: {daily-orders} поручений в сутки — до {daily-amount} 💰 при текущей ставке. Качество входит в итог смены и не уменьшает оплату."
     remaining: "Сегодня доступно ещё {count} заказов на все подработки."
     checking: "Проверяем доступные заказы…"
     start-shift: "Начать смену"
     finish-shift: "Завершить смену сейчас"
-    finish-help: "Можно завершить смену раньше: незаконченные заказы отменятся, подтверждённая оплата сохранится."
+    finish-help: "ПКМ выполняет действие. Этот журнал открывается через Shift + ПКМ у бармена. При завершении незаконченные заказы отменятся."
     shift-clock: "{phase} · до конца приёма заказов {time}"
     shift-finishing: "Новые заказы закрыты · закончи текущие за {time}"
     shift-score: "Оплачено заказов: {count} · {amount} 💰 · качество {quality}%"
@@ -37,6 +69,7 @@ waiter-game:
     family-meal: "одно блюдо"
     family-drink_first: "напиток перед блюдом"
     family-revised: "заказ с уточнением"
+    family-assembled: "собрать блюдо"
     focus-guest: "Следить за заказом · {guest}"
     pickup-dish: "Забрать {dish} · {guest}"
     remake-dish: "Переделать подачу · {guest}"
@@ -54,7 +87,7 @@ waiter-game:
     clarify-first: "Гость {guest} хочет изменить заказ. Сначала поговори с ним."
     clarification-requested: "{guest} уточняет заказ. Подойди к гостю перед выдачей."
     revised-instruction: "Уточнение гостя: вместо прежнего блюда подай «{dish}»."
-    wrong-dish: "Гость изменил заказ: нужна подача «{dish}». Выбери её на кухне."
+    wrong-dish: "Гость изменил заказ: нужна подача «{dish}». Забери её у бармена."
     drink-served: "{guest} получил напиток. Теперь кухня готовит «{dish}»."
     hands-full: "В руках уже есть подача для гостя {guest}. Сначала отнеси её."
     rework-required: "Подача остыла. На кухне можно приготовить её заново."
@@ -62,12 +95,12 @@ waiter-game:
     remaking: "Кухня заново готовит подачу для гостя {guest}. Оплата не уменьшится."
     guide-order: "Прими заказ · {guest} · ПКМ"
     guide-clarify: "Уточни заказ · {guest} · ПКМ"
-    guide-pickup: "Выбери готовую подачу · {staff} · {control}"
+    guide-pickup: "Забери подачу · {staff} · ПКМ"
     guide-preparing: "Кухня: ещё {seconds} с · {staff} · {control}"
     guide-deliver: "Неси подачу · {guest} · ПКМ"
     guide-rework: "Замени остывшую подачу · {staff} · {control}"
-    guide-board: "Проверь заказы · {staff} · {control}"
-    paying: "Заказ доставлен. Касса подтверждает оплату."
+    guide-board: "Ждём свободный стол · журнал: Shift + ПКМ у бармена"
+    paying: "Посуда чистая. Касса подтверждает оплату."
     order-paid: "Заказ оплачен · +{amount} 💰 · за смену {count}"
     payment-wait: "Заказ принят кассой в очередь. Следующая проверка оплаты через {seconds} с."
     receipt-title: "Смена официанта завершена · время {time}"
@@ -81,13 +114,62 @@ waiter-game:
     come-closer: "Подойди ближе к собеседнику."
     other-venue: "Твоя смена идёт в другом заведении. Вернись к своему бармену."
     other-work: "Сначала заверши текущую смену или работу в мастерской."
-    wrong-guest: "Эта подача для гостя {guest}. Выбери нужный заказ у бармена."
+    no-guest-food: "Во время смены чужие блюда не едят. Следуй подсветке заказа."
+    wrong-guest: "Твой гость — {guest}. Следуй подсветке."
     wrong-staff: "Забери подачу у бармена своего заведения."
-    pickup-first: "Сначала выбери готовую подачу на кухне."
+    pickup-first: "Забери подачу у подсвеченного бармена · ПКМ."
     cooldown: "Следующую смену можно начать через {seconds} с."
     daily-limit: "Дневной лимит в {daily-orders} поручений исчерпан. Общий лимит подработок обновится в 03:00 МСК."
     unconfirmed: "Оплату проверяет касса. Сообщи администрации, если деньги не пришли."
     unavailable: "Касса временно недоступна. Попробуй позже."
+
+    ingredient-egg: "яйцо"
+    ingredient-bacon: "бекон"
+    ingredient-herbs: "зелень"
+    ingredient-fish: "рыба"
+    ingredient-lemon: "лимон"
+    ingredient-steak: "стейк"
+    ingredient-potato: "картофель"
+    wash-scrape: "убери остатки"
+    wash-soak: "замочи тарелку"
+    wash-soap: "намыль тарелку"
+    wash-rinse: "смой пену"
+    wash-dry: "поставь на сушилку"
+    meal-served: "{guest} ест · можно заняться вторым заказом"
+    plate-collected: "Посуда в руках · неси к подсвеченной мойке"
+    assembly-order: "{dish}: {recipe} · рабочий стол подсвечен"
+    assemble-first: "Собери блюдо на подсвеченном столе · ПКМ по ингредиенту"
+    assembled: "{dish} готово · забери со стола · ПКМ"
+    wrong-ingredient: "Следующий ингредиент: {ingredient}"
+    wrong-wash-step: "Сначала {action} · нужный инструмент подсвечен"
+    action-already-done: "Этот шаг уже выполнен · следуй подсветке"
+    wash-board: "Посуда у мойки · следующий шаг: {action}"
+    work-next: "Дальше: {action} · ПКМ по подсвеченному предмету"
+    guide-assemble: "Добавь: {ingredient} · ПКМ по подсветке"
+    guide-pickup-board: "Блюдо готово · ПКМ по тарелке на рабочем столе"
+    guide-eating: "{guest} ест · ещё {seconds} с"
+    guide-collect: "Забери посуду · {guest} · ПКМ по гостю или тарелке"
+    guide-return-dishes: "Посуда к мойке · {action} · ПКМ"
+    guide-wash: "{action} · ПКМ по подсвеченному предмету"
+    guide-soaking: "Посуда отмокает · ещё {seconds} с"
+    dispute-start: "Подвыпившие гости спорят · выслушай подсвеченного гостя"
+    dispute-get-water: "Возьми воду у подсвеченного бармена · ПКМ"
+    dispute-wrong-guest: "Сейчас поговори с гостем {guest} · ПКМ"
+    guide-dispute-first_side: "Выслушай гостя · {guest} · ПКМ"
+    guide-dispute-second_side: "Выслушай второго гостя · {guest} · ПКМ"
+    guide-dispute-water: "Возьми воду у бармена · ПКМ"
+    guide-dispute-bring_water: "Отнеси воду · {guest} · ПКМ"
+    guide-dispute-reassure: "Успокой второго гостя · {guest} · ПКМ"
+    dispute-spilled_drink-first_side: "«Он задел мою кружку!» · теперь выслушай {next}"
+    dispute-spilled_drink-second_side: "«Случайно вышло…» · принеси первому гостю воды"
+    dispute-spilled_drink-water: "Вода в руках · отнеси гостю {next}"
+    dispute-spilled_drink-bring_water: "«Ладно, с кем не бывает» · успокой {next}"
+    dispute-spilled_drink-reassure: "Гости помирились · возвращайся к заказам"
+    dispute-loud_toast-first_side: "«Я всего лишь поднял тост!» · выслушай {next}"
+    dispute-loud_toast-second_side: "«Слишком шумно…» · принеси этому гостю воды"
+    dispute-loud_toast-water: "Вода в руках · отнеси гостю {next}"
+    dispute-loud_toast-bring_water: "«Спасибо, уже спокойнее» · попроси {next} говорить тише"
+    dispute-loud_toast-reassure: "Тосты стали тише · возвращайся к заказам"
 
 # Small, bounded choreography. ARC owns these props; no Denizen tasks.
 life:

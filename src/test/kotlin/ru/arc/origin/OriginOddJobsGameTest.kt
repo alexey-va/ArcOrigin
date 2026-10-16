@@ -11,6 +11,7 @@ import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import net.citizensnpcs.api.CitizensAPI
+import net.citizensnpcs.api.event.NPCLeftClickEvent
 import net.citizensnpcs.api.event.NPCRightClickEvent
 import net.citizensnpcs.api.npc.NPC
 import net.citizensnpcs.api.npc.NPCRegistry
@@ -51,7 +52,7 @@ class OriginOddJobsGameTest : StringSpec({
 
     "ordinary services actor identity and offhand paths retain their original boundaries" {
         failOnUnsupportedMockBukkitOperation {
-            for (id in listOf(440, 349, 365, 382)) {
+            for (id in listOf(440, 365, 382)) {
                 f.player.isSneaking = false; f.moveNpc(id)
                 val event = NPCRightClickEvent(f.npc(id), f.player)
                 f.game.onNpcClick(event); event.isCancelled shouldBe false
@@ -130,8 +131,8 @@ class OriginOddJobsGameTest : StringSpec({
             f.now += 800_000; f.game.tick(f.now)
             f.payments.size shouldBe 1
             f.game.isWorking(f.player.uniqueId) shouldBe false
-            f.begin(349, OriginOddJobVariant.FORGE_REPAIR)
-            f.open(349); f.press("odd_job_cancel")
+            f.begin(440, OriginOddJobVariant.YARD_RATIONS)
+            f.open(440); f.press("odd_job_cancel")
             f.payments.size shouldBe 1
             f.game.isWorking(f.player.uniqueId) shouldBe true
         }
@@ -152,41 +153,98 @@ class OriginOddJobsGameTest : StringSpec({
             f.payments shouldBe emptyList()
         }
     }
-    "reheating carries the already repaired profile through cold hot and placement states" {
+    "forge starts with ordinary clicks and keeps work hot at the real station until it is handed over once" {
         failOnUnsupportedMockBukkitOperation {
             var carried: Pair<OriginForgeWork, Boolean>? = null
             var placed: Pair<OriginForgeWork, Boolean>? = null
+            var placedAt: Location? = null
             every { f.visuals.forgeCarry(any(), any(), any(), any()) } answers {
                 carried = thirdArg<OriginForgeWork>() to arg(3)
             }
             every { f.visuals.forgeProfile(any(), any(), any(), any(), any()) } answers {
+                placedAt = thirdArg<Location>()
                 placed = arg<OriginForgeWork>(3) to arg(4)
             }
-            f.begin(349, OriginOddJobVariant.FORGE_REPAIR)
+            f.startForge()
+            val firstStation = f.currentStation()
+            (firstStation in setOf(OriginOddJobStationId.BLANK, OriginOddJobStationId.ANVIL)) shouldBe true
+            val duplicate = PlayerInteractAtEntityEvent(f.player, f.entity(349), Vector(), EquipmentSlot.HAND)
+            f.game.onEntityAt(duplicate); duplicate.isCancelled shouldBe true
+            f.leases.size shouldBe 1
+            f.screens shouldBe emptyList()
+            f.stroke(firstStation)
+            f.currentStation() shouldBe OriginOddJobStationId.FIRE
+            f.stroke(OriginOddJobStationId.FIRE)
+            f.now += 60_000; f.game.tick(f.now)
+            f.currentStation() shouldBe OriginOddJobStationId.FIRE
+            if (placed != null) placedAt shouldBe f.stations.getValue(OriginOddJobStationId.FIRE).point
+            else verify { f.visuals.place(f.player, any(), f.stations.getValue(OriginOddJobStationId.FIRE).point, OriginJobProp.FORGE_HEATED) }
+            f.stroke(OriginOddJobStationId.FIRE)
+            f.stroke(OriginOddJobStationId.ANVIL)
             val original = requireNotNull(placed).first
-            f.stroke(OriginOddJobStationId.ANVIL)
-            f.press("odd_job_choice_${original.shape.indices.first { original.shape[it] != original.target[it] }}")
-            carried shouldBe (original.copy(zone = original.shape.indices.first { original.shape[it] != original.target[it] }, inspected = true) to false)
-            f.stroke(OriginOddJobStationId.FIRE)
-            f.stroke(OriginOddJobStationId.FIRE, elapsed = ODD_JOB_HEAT_READY_MILLIS)
-            f.stroke(OriginOddJobStationId.ANVIL)
-            f.stroke(OriginOddJobStationId.ANVIL, left = true, elapsed = ODD_JOB_HAMMER_READY_MILLIS)
-            val shaped = requireNotNull(placed).first
-            (shaped.shape != original.shape) shouldBe true
+            placedAt shouldBe f.stations.getValue(OriginOddJobStationId.ANVIL).point
+            f.stroke(OriginOddJobStationId.ANVIL) // Right click no longer rotates or hits the work.
+            placed shouldBe (original to true)
             f.now += 30_000; f.game.tick(f.now)
-            placed shouldBe (shaped to false)
-            f.stroke(OriginOddJobStationId.FIRE)
-            carried shouldBe (shaped to false)
-            f.stroke(OriginOddJobStationId.FIRE)
-            carried shouldBe (shaped to false)
-            f.now += ODD_JOB_HEAT_READY_MILLIS; f.game.tick(f.now)
-            carried shouldBe (shaped to true)
-            f.stroke(OriginOddJobStationId.FIRE, elapsed = 300)
-            requireNotNull(carried).first.shape shouldBe shaped.shape
-            requireNotNull(carried).second shouldBe true
-            f.stroke(OriginOddJobStationId.ANVIL)
-            requireNotNull(placed).first.shape shouldBe shaped.shape
-            requireNotNull(placed).second shouldBe true
+            placed shouldBe (original to true)
+            repeat(original.remainingStrikes) {
+                f.stroke(OriginOddJobStationId.ANVIL, left = true, elapsed = ODD_JOB_HAMMER_READY_MILLIS)
+            }
+            f.currentStation() shouldBe OriginOddJobStationId.QUENCH
+            carried shouldBe (original.copy(shape = original.target) to true)
+            f.stroke(OriginOddJobStationId.QUENCH)
+            carried shouldBe (original.copy(shape = original.target) to false)
+            val edgar = f.entity(349)
+            verify { f.glow.setEntityGlowingFor(edgar, f.player, true) }
+            f.clickNpc(349, sneaking = false)
+            val payment = f.payments.single()
+            payment.kind shouldBe OriginSideJobKind.FORGE
+            f.clickNpc(349, sneaking = false)
+            f.payments.size shouldBe 1
+            payment.callback(SideJobRewardOutcome.PAID); payment.callback(SideJobRewardOutcome.PAID)
+            f.actionBars().count { it.contains("+20 💰") } shouldBe 1
+            f.game.isWorking(f.player.uniqueId) shouldBe true
+            f.now += 2_000; f.game.tick(f.now)
+            f.leftClickForge()
+            f.game.isWorking(f.player.uniqueId) shouldBe false
+            f.released shouldBe f.leases
+            f.screens shouldBe emptyList()
+        }
+    }
+    "forge finish request preserves the current order and closes after its confirmed payment" {
+        failOnUnsupportedMockBukkitOperation {
+            f.startForge()
+            f.leftClickForge()
+            f.game.isWorking(f.player.uniqueId) shouldBe true
+            f.finishForge()
+            f.payments.single().callback(SideJobRewardOutcome.PAID)
+            f.game.isWorking(f.player.uniqueId) shouldBe false
+            f.screens shouldBe emptyList()
+        }
+    }
+    "forge admission stays asynchronous and a late status cannot start after departure" {
+        failOnUnsupportedMockBukkitOperation {
+            val delayed = CompletableFuture<SideJobRewardStatus>(); f.nextStatus = delayed
+            f.open(349, flush = false, sneaking = false)
+            f.screens shouldBe emptyList()
+            f.game.isWorking(f.player.uniqueId) shouldBe false
+            f.leases shouldBe emptyList()
+            f.game.stop(f.player.uniqueId, "quit")
+            delayed.complete(f.ready); f.scheduler.executeImmediate()
+            f.game.isWorking(f.player.uniqueId) shouldBe false
+            f.leases shouldBe emptyList()
+        }
+    }
+    "forge idle highlight is removed on reload without an active order" {
+        failOnUnsupportedMockBukkitOperation {
+            f.startForge(); f.finishForge()
+            f.payments.single().callback(SideJobRewardOutcome.PAID)
+            f.now += 2_000; f.game.tick(f.now)
+            val edgar = f.entity(349)
+            verify(exactly = 2) { f.glow.setEntityGlowingFor(edgar, f.player, true) }
+            f.game.close()
+            verify(exactly = 2) { f.glow.setEntityGlowingFor(edgar, f.player, false) }
+            f.game.isWorking(f.player.uniqueId) shouldBe false
         }
     }
     "station actions cannot cross walls or wrong blocks and cleanup still releases after glow failure" {
@@ -243,6 +301,8 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     var nextStatus = CompletableFuture.completedFuture(ready)
     val rewards = mockk<OriginSideJobRewards>(relaxed = true)
     val visuals = mockk<OriginOddJobVisuals>(relaxed = true)
+    var target: Location? = null
+    var forgeWork: OriginForgeWork? = null
     val glow = mockk<ArcOriginViewerGlow>(relaxed = true)
     val screens = mutableListOf<PaperDialogScreen>()
     var dismiss: () -> Unit = {}
@@ -275,6 +335,9 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
         every { rewards.payoutIntervalMillis } returns 20_000L
         every { rewards.status(any()) } answers { nextStatus }
         every { rewards.pay(any(), any(), any(), any(), any()) } answers { payments += Payment(firstArg(), thirdArg(), arg(3), arg(4)) }
+        every { visuals.target(any(), any(), any(), any()) } answers { target = arg<Location?>(2)?.clone() }
+        every { visuals.forgeProfile(any(), any(), any(), any(), any()) } answers { forgeWork = arg(3) }
+        every { visuals.forgeCarry(any(), any(), any(), any()) } answers { forgeWork = thirdArg() }
         for (id in listOf(440, 349, 365, 382)) {
             val entity = mockk<Villager>(relaxed = true) {
                 every { world } returns this@OddJobsFixture.world
@@ -307,10 +370,35 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     }
 
     fun npc(id: Int) = actors.getValue(id)
-    fun entity(id: Int) = npc(id).entity
+    fun entity(id: Int) = npc(id).entity as Villager
     fun moveNpc(id: Int) { now += 300; player.teleport(entity(id).location) }
-    fun clickNpc(id: Int) { moveNpc(id); player.isSneaking = true; game.interact(player, id) shouldBe true }
-    fun open(id: Int, flush: Boolean = true) { clickNpc(id); if (flush) scheduler.executeImmediate() }
+    fun clickNpc(id: Int, sneaking: Boolean = true) { moveNpc(id); player.isSneaking = sneaking; game.interact(player, id) shouldBe true }
+    fun open(id: Int, flush: Boolean = true, sneaking: Boolean = true) { clickNpc(id, sneaking); if (flush) scheduler.executeImmediate() }
+    fun currentStation() = stations.entries.single { it.value.point == target }.key
+    fun startForge() {
+        moveNpc(349); player.isSneaking = false
+        val event = NPCRightClickEvent(npc(349), player)
+        game.onNpcClick(event); event.isCancelled shouldBe true
+        scheduler.executeImmediate(); scheduler.executeImmediate()
+        game.isWorking(player.uniqueId) shouldBe true
+    }
+    fun leftClickForge() {
+        moveNpc(349); player.isSneaking = false
+        val event = NPCLeftClickEvent(npc(349), player)
+        game.onNpcLeftClick(event); event.isCancelled shouldBe true
+    }
+    fun finishForge() {
+        stroke(currentStation())
+        stroke(OriginOddJobStationId.FIRE)
+        stroke(OriginOddJobStationId.FIRE, elapsed = ODD_JOB_HEAT_READY_MILLIS + 1_500)
+        stroke(OriginOddJobStationId.ANVIL)
+        repeat(requireNotNull(forgeWork).remainingStrikes) {
+            stroke(OriginOddJobStationId.ANVIL, left = true, elapsed = ODD_JOB_HAMMER_READY_MILLIS)
+        }
+        currentStation() shouldBe OriginOddJobStationId.QUENCH
+        stroke(OriginOddJobStationId.QUENCH)
+        clickNpc(349, sneaking = false)
+    }
     fun press(id: String) {
         val context = mockk<PaperDialogClickContext> { every { player } returns this@OddJobsFixture.player }
         screens.last().buttons.single { it.id.value == id }.onClick.handle(context)

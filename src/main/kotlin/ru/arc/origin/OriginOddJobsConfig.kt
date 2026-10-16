@@ -79,7 +79,7 @@ internal fun originOddJobStation(stage: OriginOddJobStage): OriginOddJobStationI
     OriginOddJobStage.YARD_DRAIN, OriginOddJobStage.YARD_CLEAN, OriginOddJobStage.YARD_FILL, OriginOddJobStage.YARD_FILLING -> OriginOddJobStationId.WATER
     OriginOddJobStage.FORGE_BLANK -> OriginOddJobStationId.BLANK
     OriginOddJobStage.FORGE_HEAT, OriginOddJobStage.FORGE_HEATING -> OriginOddJobStationId.FIRE
-    OriginOddJobStage.FORGE_INSPECT, OriginOddJobStage.FORGE_PLACE, OriginOddJobStage.FORGE_HAMMER, OriginOddJobStage.FORGE_CHECK -> OriginOddJobStationId.ANVIL
+    OriginOddJobStage.FORGE_INSPECT, OriginOddJobStage.FORGE_PLACE, OriginOddJobStage.FORGE_HAMMER -> OriginOddJobStationId.ANVIL
     OriginOddJobStage.FORGE_QUENCH -> OriginOddJobStationId.QUENCH
     else -> null
 }
@@ -140,22 +140,15 @@ internal fun originOddJobClock(millis: Long): String = (millis.coerceAtLeast(0) 
 internal fun originOddJobGuide(config: OriginOddJobsConfig, job: OriginOddJobSession, now: Long): String {
     val key = when (job.stage) {
         OriginOddJobStage.FORGE_HEATING -> when {
-            now - job.stageStartedAt > originOddJobHeatReady(job) + 3_000 -> "forge-heat-missed"
             now - job.stageStartedAt >= originOddJobHeatReady(job) -> "forge-heat-ready"
             else -> "forge-heating"
         }
-        OriginOddJobStage.FORGE_HAMMER -> when {
-            now >= requireNotNull(job.forge).heatUntil -> "forge-cold"
-            job.forge.shape == job.forge.target -> "forge-finished"
-            originOddJobHammerReady(job, now) -> "forge-hammer-ready"
-            else -> "forge-hammer"
-        }
+        OriginOddJobStage.RETURN -> if (job.kind == OriginOddJobKind.FORGE) "forge-return" else "return"
         else -> job.stage.name.lowercase(Locale.ROOT).replace('_', '-')
     }
     val f = job.forge; val y = job.yard
     return config.line("guide.$key", "name" to config.venue(job.kind).name,
-        "zone" to config.line("forge.zone-${f?.zone ?: 0}"), "shape" to (f?.let { it.shape[it.zone] } ?: 0),
-        "target" to (f?.let { it.target[it.zone] } ?: 0), "level" to originOddJobWaterLevel(job, now),
+        "strikes" to (f?.remainingStrikes ?: 0), "level" to originOddJobWaterLevel(job, now),
         "water" to (y?.waterTarget ?: 0), "compartment" to ((y?.waterCompartment ?: 0) + 1), "clean" to (y?.let { Integer.bitCount(it.cleanMask) } ?: 0),
         "left" to (y?.filled?.get(0) ?: 0), "left-target" to (y?.required?.get(0) ?: 0),
         "right" to (y?.filled?.get(1) ?: 0), "right-target" to (y?.required?.get(1) ?: 0),
@@ -173,8 +166,6 @@ internal fun originOddJobChoices(config: OriginOddJobsConfig, job: OriginOddJobS
             add(0 to line("mountyard.load-left")); add(1 to line("mountyard.load-right"))
             if (job.yard?.loads?.isNotEmpty() == true) add(2 to line("mountyard.move-last"))
         }
-        OriginOddJobStage.FORGE_BLANK -> listOf(0 to line("forge.light-blank"), 1 to line("forge.heavy-blank"))
-        OriginOddJobStage.FORGE_INSPECT -> (0..2).map { it to line("forge.inspect-zone", "zone" to line("forge.zone-$it")) }
         OriginOddJobStage.AUCTION_ITEM -> originAuctionCandidates(job).mapIndexed { index, lot -> index to lotName(lot) }
         OriginOddJobStage.AUCTION_INSPECT -> listOf(0 to line("auction.accept-record"), 1 to line("auction.verify-record"))
         OriginOddJobStage.AUCTION_PACK -> OriginAuctionPacking.entries.mapIndexed { index, packing ->
@@ -194,6 +185,7 @@ internal fun originOddJobsScreen(
     start: () -> Unit = {}, accept: (UUID) -> Unit = {}, choose: (Int) -> Unit = {},
     finishShift: () -> Unit = {}, cancel: () -> Unit = {},
 ): PaperDialogScreen {
+    require(venue.kind != OriginOddJobKind.FORGE) { "Forge orders use physical stations and action-bar guidance" }
     val prefix = venue.kind.name.lowercase(Locale.ROOT)
     fun button(id: String, label: String, close: Boolean = false, red: Boolean = false, action: () -> Unit) = PaperDialogButton(
         PaperDialogActionId.of(id), waiterText(label, TextColor.color(if (red) 0xFF6B61 else 0x9BD48D)),
@@ -217,13 +209,6 @@ internal fun originOddJobsScreen(
                 }
             } else {
                 add(config.line("variants.${job.variant.key()}.title")); add(originOddJobGuide(config, job, now))
-                job.forge?.let { f ->
-                    if (job.stage == OriginOddJobStage.FORGE_BLANK) add(config.line("forge.material", "load" to config.line(if (job.offer.seed % 2 == 0) "forge.light" else "forge.heavy")))
-                    if (job.stage == OriginOddJobStage.FORGE_INSPECT) {
-                        add(config.line("forge.inspection"))
-                        f.shape.indices.forEach { i -> add(config.line("forge.profile", "zone" to config.line("forge.zone-$i"), "shape" to f.shape[i], "target" to f.target[i])) }
-                    }
-                }
                 job.yard?.let { y ->
                     if (job.stage == OriginOddJobStage.YARD_HAY) add(config.line("mountyard.fresh-rule"))
                     if (job.stage == OriginOddJobStage.YARD_LOAD) {

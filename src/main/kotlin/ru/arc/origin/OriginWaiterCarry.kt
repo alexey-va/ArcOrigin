@@ -39,14 +39,33 @@ internal fun waiterCarryTransform(
 internal class OriginWaiterCarry(
     private val item: (String) -> ItemStack?,
     private val createOwner: () -> PaperPacketDisplays = { PaperPacketDisplays(ArcOriginPlugin.instance, "dining-waiter") },
+    private val emptyPlate: (String) -> ItemStack? = { null },
+    private val water: () -> ItemStack? = { null },
 ) : AutoCloseable {
-    private data class Carried(val dishId: String, val display: PacketItemDisplay)
+    private data class Carried(val display: PacketItemDisplay, val scale: Float, val lift: Float)
     private var owner: PaperPacketDisplays? = null
     private val carried = mutableMapOf<UUID, Carried>()
 
-    fun pickup(player: Player, dishId: String): Boolean {
+    fun pickup(player: Player, dishId: String): Boolean = pickup(player, item(dishId),
+        OriginDiningLayout.displayScale(dishId), OriginDiningLayout.displayLift(dishId))
+
+    fun pickupPlate(player: Player, dishId: String): Boolean {
+        val config = OriginDiningLayout.lifeConfig
+        val prop = config.emptyPlates[dishId] ?: config.emptyPlate
+        return pickup(player, emptyPlate(dishId), prop.scale, prop.lift)
+    }
+
+    fun pickupWater(player: Player): Boolean {
+        val prop = OriginDiningLayout.lifeConfig.mug
+        return pickup(player, water(), prop.scale, prop.lift)
+    }
+
+    fun plateItem(dishId: String): ItemStack? = emptyPlate(dishId)?.clone()
+    fun dishItem(dishId: String): ItemStack? = item(dishId)?.clone()
+
+    private fun pickup(player: Player, stack: ItemStack?, scale: Float, lift: Float): Boolean {
         if (player.uniqueId in carried) return false
-        val stack = item(dishId) ?: return false
+        if (stack == null) return false
         val renderer = owner ?: createOwner().also { owner = it }
         val anchor = player.location.apply { yaw = 0f; pitch = 0f }
         val display = renderer.spawnItem(anchor, stack)
@@ -60,9 +79,9 @@ internal class OriginWaiterCarry(
             display.shadowRadius = 0f
             display.teleportDuration = 0
             display.interpolationDuration = 0
-            pose(display, player, dishId)
+            pose(display, player, scale, lift)
             display.attachTo(player)
-            carried[player.uniqueId] = Carried(dishId, display)
+            carried[player.uniqueId] = Carried(display, scale, lift)
             return true
         } catch (failure: Exception) {
             display.remove()
@@ -74,15 +93,15 @@ internal class OriginWaiterCarry(
         carried.forEach { (playerId, item) ->
             Bukkit.getPlayer(playerId)?.takeIf(Player::isOnline)?.let { player ->
                 item.display.interpolationDuration = 1
-                pose(item.display, player, item.dishId)
+                pose(item.display, player, item.scale, item.lift)
             }
         }
     }
 
-    private fun pose(display: PacketItemDisplay, player: Player, dishId: String) {
+    private fun pose(display: PacketItemDisplay, player: Player, scale: Float, lift: Float) {
         val config = OriginDiningLayout.lifeConfig
         display.transformation = waiterCarryTransform(player.bodyYaw.toDouble(), player.height, player.isSneaking,
-            OriginDiningLayout.displayScale(dishId), OriginDiningLayout.displayLift(dishId),
+            scale, lift,
             config.handSide, config.handForward, config.handHeight)
     }
 

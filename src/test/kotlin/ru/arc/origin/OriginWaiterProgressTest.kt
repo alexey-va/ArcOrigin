@@ -12,6 +12,17 @@ internal fun waiterTarget(venue: String = "restaurant", guest: Int = 433): Origi
     OriginWaiterDish("herbal_tea", "Пиво"), OriginWaiterDish("fish", "Запечённая рыба"),
 )
 
+private fun cleanWaiterMeal(progress: OriginWaiterProgress, player: UUID, request: UUID) {
+    val job = checkNotNull(progress.current(player, request))
+    var now = job.readyAt
+    progress.finishEating(player, request, now)
+    progress.guest(player, job.target.guestId, job.target.venueId, now)
+    job.washing.forEachIndexed { index, action ->
+        progress.wash(player, request, job.target.venueId, action, index, now)
+        now += if (action == OriginWaiterWash.SOAK) 3_000 else 700
+    }
+}
+
 class OriginWaiterProgressTest : StringSpec({
     "two independent tickets permit a chosen ready order but never two carried dishes" {
         val progress = OriginWaiterProgress(180_000, 10_000)
@@ -30,8 +41,9 @@ class OriginWaiterProgressTest : StringSpec({
             OriginWaiterStep.Rejected(OriginWaiterRejection.ALREADY_CARRYING)
         progress.guest(player, 435, "restaurant", 10_202) shouldBe OriginWaiterStep.Rejected(OriginWaiterRejection.WRONG_GUEST)
         progress.carried(player)?.id shouldBe second.id
-        (progress.guest(player, 434, "restaurant", 10_203) as OriginWaiterStep.Changed).job.stage shouldBe OriginWaiterStage.PAYOUT
+        (progress.guest(player, 434, "restaurant", 10_203) as OriginWaiterStep.Changed).job.stage shouldBe OriginWaiterStage.EATING
         progress.current(player, first.id)?.stage shouldBe OriginWaiterStage.PICKUP
+        cleanWaiterMeal(progress, player, second.id)
         progress.finish(player, second.id)?.id shouldBe second.id
         progress.finish(player, second.id) shouldBe null
         progress.tickets(player).map { it.id } shouldBe listOf(first.id)
@@ -56,7 +68,8 @@ class OriginWaiterProgressTest : StringSpec({
         progress.finish(player, job.id) shouldBe null
         progress.pickup(player, 439, "restaurant", 20_101, job.id, "egg") shouldBe OriginWaiterStep.Rejected(OriginWaiterRejection.PREPARING)
         progress.pickup(player, 439, "restaurant", 20_102, job.id, "egg")
-        (progress.guest(player, 433, "restaurant", 20_103) as OriginWaiterStep.Changed).job.stage shouldBe OriginWaiterStage.PAYOUT
+        (progress.guest(player, 433, "restaurant", 20_103) as OriginWaiterStep.Changed).job.stage shouldBe OriginWaiterStage.EATING
+        cleanWaiterMeal(progress, player, job.id)
         progress.finish(player, job.id)?.id shouldBe job.id
         progress.finish(player, job.id) shouldBe null
     }
@@ -73,7 +86,7 @@ class OriginWaiterProgressTest : StringSpec({
         progress.pickup(player, 439, "restaurant", 20_101, job.id, "egg") shouldBe OriginWaiterStep.Rejected(OriginWaiterRejection.WRONG_DISH)
         progress.current(player, job.id)?.stage shouldBe OriginWaiterStage.PICKUP
         (progress.pickup(player, 439, "restaurant", 20_101, job.id, "fish") as OriginWaiterStep.Changed).job.servingTarget().dishId shouldBe "fish"
-        (progress.guest(player, 433, "restaurant", 20_102) as OriginWaiterStep.Changed).job.stage shouldBe OriginWaiterStage.PAYOUT
+        (progress.guest(player, 433, "restaurant", 20_102) as OriginWaiterStep.Changed).job.stage shouldBe OriginWaiterStage.EATING
     }
 
     "an expired carried dish needs a fresh kitchen preparation without creating another paid order" {
@@ -91,7 +104,8 @@ class OriginWaiterProgressTest : StringSpec({
         remake.quality shouldBe 85
         progress.pickup(player, 439, "restaurant", 50_001, job.id, "egg") shouldBe OriginWaiterStep.Rejected(OriginWaiterRejection.PREPARING)
         progress.pickup(player, 439, "restaurant", 50_002, job.id, "egg")
-        (progress.guest(player, 433, "restaurant", 50_003) as OriginWaiterStep.Changed).job.stage shouldBe OriginWaiterStage.PAYOUT
+        (progress.guest(player, 433, "restaurant", 50_003) as OriginWaiterStep.Changed).job.stage shouldBe OriginWaiterStage.EATING
+        cleanWaiterMeal(progress, player, job.id)
         progress.finish(player, job.id)?.id shouldBe job.id
     }
 
@@ -117,6 +131,7 @@ class OriginWaiterProgressTest : StringSpec({
         progress.guest(player, 433, "restaurant", 1)
         progress.pickup(player, 439, "restaurant", 10_001)
         progress.guest(player, 433, "restaurant", 10_002)
+        cleanWaiterMeal(progress, player, old.id)
         progress.refresh(player, 500_000) shouldBe emptyList()
         progress.current(player, old.id)?.stage shouldBe OriginWaiterStage.PAYOUT
         progress.finish(player, old.id)?.id shouldBe old.id
@@ -125,6 +140,83 @@ class OriginWaiterProgressTest : StringSpec({
         progress.current(player) shouldBe next
         progress.clear() shouldBe listOf(player to next)
         progress.entries() shouldBe emptyList()
+    }
+
+    "assembly is ordered and replayed or rapid actions cannot skip ingredients" {
+        val progress = OriginWaiterProgress(180_000, 10_000)
+        val player = UUID.randomUUID()
+        val job = checkNotNull(progress.begin(player, waiterTarget(), 0, OriginWaiterFamily.ASSEMBLED,
+            recipe = listOf("egg", "bacon", "herbs")))
+        progress.guest(player, 433, "restaurant", 1)
+        progress.assemble(player, job.id, "restaurant", "bacon", 0, 10_001) shouldBe
+            OriginWaiterStep.Rejected(OriginWaiterRejection.WRONG_INGREDIENT)
+        progress.assemble(player, job.id, "restaurant", "egg", 0, 10_001)
+        progress.assemble(player, job.id, "restaurant", "egg", 0, 10_701) shouldBe
+            OriginWaiterStep.Rejected(OriginWaiterRejection.STALE_ACTION)
+        progress.assemble(player, job.id, "restaurant", "bacon", 1, 10_700) shouldBe
+            OriginWaiterStep.Rejected(OriginWaiterRejection.PREPARING)
+        progress.assemble(player, job.id, "restaurant", "bacon", 1, 10_701)
+        val ready = progress.assemble(player, job.id, "restaurant", "herbs", 2, 11_401) as OriginWaiterStep.Changed
+        ready.job.stage shouldBe OriginWaiterStage.PICKUP
+        ready.job.assembled shouldBe 3
+        ready.job.id shouldBe job.id
+        progress.finish(player, job.id) shouldBe null
+    }
+
+    "serving eating collection and ordered soak rinse dry retain one unpaid ticket" {
+        val progress = OriginWaiterProgress(180_000, 10_000)
+        val player = UUID.randomUUID()
+        val wash = listOf(OriginWaiterWash.SOAK, OriginWaiterWash.SOAP, OriginWaiterWash.RINSE, OriginWaiterWash.DRY)
+        val job = checkNotNull(progress.begin(player, waiterTarget(), 0, washing = wash))
+        progress.guest(player, 433, "restaurant", 1)
+        progress.pickup(player, 439, "restaurant", 10_001)
+        progress.guest(player, 433, "restaurant", 10_002)
+        progress.finish(player, job.id) shouldBe null
+        progress.refresh(player, 28_002) shouldBe emptyList()
+        progress.current(player, job.id)?.stage shouldBe OriginWaiterStage.EATING
+        progress.finishEating(player, job.id, 28_001) shouldBe OriginWaiterStep.Rejected(OriginWaiterRejection.EATING)
+        progress.finishEating(player, job.id, 28_002)
+        progress.guest(player, 433, "restaurant", 28_003)
+        progress.carried(player)?.stage shouldBe OriginWaiterStage.RETURN_DISHES
+        progress.wash(player, job.id, "restaurant", OriginWaiterWash.DRY, 0, 28_004) shouldBe
+            OriginWaiterStep.Rejected(OriginWaiterRejection.WRONG_WASH_STEP)
+        progress.wash(player, job.id, "restaurant", OriginWaiterWash.SOAK, 0, 28_004)
+        progress.carried(player) shouldBe null
+        progress.wash(player, job.id, "restaurant", OriginWaiterWash.SOAP, 1, 31_003) shouldBe
+            OriginWaiterStep.Rejected(OriginWaiterRejection.PREPARING)
+        progress.wash(player, job.id, "restaurant", OriginWaiterWash.SOAP, 1, 31_004)
+        progress.wash(player, job.id, "restaurant", OriginWaiterWash.RINSE, 2, 31_704)
+        progress.finish(player, job.id) shouldBe null
+        (progress.wash(player, job.id, "restaurant", OriginWaiterWash.DRY, 3, 32_404) as OriginWaiterStep.Changed)
+            .job.stage shouldBe OriginWaiterStage.PAYOUT
+        progress.finish(player, job.id)?.id shouldBe job.id
+        progress.finish(player, job.id) shouldBe null
+    }
+
+    "a peaceful dispute requires both sides water to the right guest and reassurance without a payout" {
+        for (kind in OriginWaiterDisputeKind.entries) {
+            val progress = OriginWaiterProgress(180_000, 10_000)
+            val player = UUID.randomUUID()
+            val first = checkNotNull(progress.begin(player, waiterTarget(), 0, hardStopAt = 190_000))
+            progress.begin(player, waiterTarget(guest = 434), 0, hardStopAt = 190_000)
+            progress.guest(player, 433, "restaurant", 1)
+            progress.guest(player, 434, "restaurant", 1)
+            checkNotNull(progress.beginDispute(player, kind, 2))
+            progress.calm(player, 434, 3) shouldBe false
+            progress.guest(player, 433, "restaurant", 3) shouldBe OriginWaiterStep.Rejected(OriginWaiterRejection.DISPUTE)
+            progress.calm(player, 433, 1_000) shouldBe true
+            progress.calm(player, 434, 2_000) shouldBe true
+            progress.calm(player, 439, 3_000) shouldBe true
+            val waterGuest = if (kind == OriginWaiterDisputeKind.SPILLED_DRINK) 433 else 434
+            val otherGuest = if (waterGuest == 433) 434 else 433
+            progress.calm(player, otherGuest, 4_000) shouldBe false
+            progress.dispute(player)?.stage shouldBe OriginWaiterDisputeStage.BRING_WATER
+            progress.calm(player, waterGuest, 4_000) shouldBe true
+            progress.calm(player, otherGuest, 5_000) shouldBe true
+            progress.dispute(player) shouldBe null
+            progress.current(player, first.id)?.readyAt shouldBe 14_999
+            progress.entries().all { it.second.stage != OriginWaiterStage.PAYOUT } shouldBe true
+        }
     }
 
     "shared coordinator exact-lease cleanup does not release a later owner" {

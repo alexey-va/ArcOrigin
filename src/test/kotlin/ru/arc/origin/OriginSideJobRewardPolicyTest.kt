@@ -26,7 +26,8 @@ class OriginSideJobRewardPolicyTest : StringSpec({
             val oddJobs = oddJobTestConfig().copy(rewardPolicy = after)
             val status = SideJobRewardStatus(true, 51, 0, false)
             val screens = listOf(waiterScreen(waiter, waiter.venues.first(), null, emptyList(), after.rewardPerOrder, status, 0)) +
-                oddJobs.venues.map { originOddJobsScreen(oddJobs, it, null, after.rewardPerOrder, status, 0) }
+                oddJobs.venues.filter { it.kind != OriginOddJobKind.FORGE }
+                    .map { originOddJobsScreen(oddJobs, it, null, after.rewardPerOrder, status, 0) }
             for (screen in screens) {
                 val text = screen.body.joinToString("\n") { PlainTextComponentSerializer.plainText().serialize(it.text) }
                 text shouldContain "35 💰"
@@ -35,6 +36,8 @@ class OriginSideJobRewardPolicyTest : StringSpec({
                 text.contains("{daily-") shouldBe false
             }
             waiter.line("daily-limit") shouldContain "60"
+            // Forge uses the same reloaded policy through its action bar, without an employer dialog.
+            oddJobs.line("forge.paid", "amount" to after.rewardPerOrder) shouldContain "35 💰"
         } finally { directory.toFile().deleteRecursively() }
     }
 

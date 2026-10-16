@@ -22,7 +22,7 @@ internal class OriginOddJobDispatch(private val kind: OriginOddJobKind, private 
         if (shown.isNotEmpty()) return shown
         if (bag.isEmpty()) bag = OriginOddJobVariant.entries.filter { it.kind == kind }.shuffled(random)
         shown = List(2) { index -> OriginOddJobOffer(UUID.randomUUID(), bag[index % bag.size], random.nextInt(1, 10_000),
-            phase == OriginWorkShiftPhase.RUSH && index == 1) }
+            kind != OriginOddJobKind.FORGE && phase == OriginWorkShiftPhase.RUSH && index == 1) }
         return shown
     }
     fun accept(id: UUID): OriginOddJobOffer? = shown.firstOrNull { it.id == id }?.also {
@@ -32,11 +32,11 @@ internal class OriginOddJobDispatch(private val kind: OriginOddJobKind, private 
 
 internal enum class OriginOddJobStage {
     YARD_HAY, YARD_FEED, YARD_DRAIN, YARD_CLEAN, YARD_FILL, YARD_FILLING, YARD_LOAD,
-    FORGE_BLANK, FORGE_INSPECT, FORGE_HEAT, FORGE_HEATING, FORGE_PLACE, FORGE_HAMMER, FORGE_CHECK, FORGE_QUENCH,
+    FORGE_BLANK, FORGE_INSPECT, FORGE_HEAT, FORGE_HEATING, FORGE_PLACE, FORGE_HAMMER, FORGE_QUENCH,
     AUCTION_ITEM, AUCTION_INSPECT, AUCTION_VERIFY, AUCTION_DOCUMENT, AUCTION_PACK, AUCTION_LOAD, AUCTION_DELIVER, AUCTION_RECEIPT,
     RETURN, PAYOUT,
 }
-internal enum class OriginOddJobAction { HAY, FEED, WATER, BLANK, HEAT, PLACE, HAMMER, ROTATE, CHECK, QUENCH, HANDOFF, RETURN }
+internal enum class OriginOddJobAction { HAY, FEED, WATER, BLANK, HEAT, PLACE, HAMMER, QUENCH, HANDOFF, RETURN }
 internal enum class OriginAuctionPacking { PADDED_BOX, PAPER_WRAP, SCABBARD }
 internal enum class OriginAuctionParcel(val packing: OriginAuctionPacking, val weight: Int) {
     VASE(OriginAuctionPacking.PADDED_BOX, 1), BOOK(OriginAuctionPacking.PAPER_WRAP, 2), BLADE(OriginAuctionPacking.SCABBARD, 3),
@@ -46,10 +46,9 @@ internal data class OriginYardWork(
     val required: List<Int>, val filled: List<Int> = listOf(0, 0), val carried: Int = 0,
     val cleanMask: Int = 0, val waterTarget: Int = 3, val waterCompartment: Int = 0, val loads: List<Int> = emptyList(),
 )
-internal data class OriginForgeWork(
-    val target: List<Int>, val shape: List<Int>, val zone: Int = 0, val inspected: Boolean = false,
-    val heatUntil: Long = 0, val checked: Boolean = false,
-)
+internal data class OriginForgeWork(val target: List<Int>, val shape: List<Int>) {
+    val remainingStrikes: Int get() = target.indices.sumOf { (target[it] - shape[it]).coerceAtLeast(0) }
+}
 internal data class OriginAuctionWork(
     val lots: List<OriginAuctionLot>, val index: Int = 0, val approved: Boolean = false,
     val selected: Int? = null, val packed: Int = 0, val loaded: List<Int> = emptyList(),
@@ -65,8 +64,8 @@ internal data class OriginOddJobSession(
     fun finalQuality(now: Long): Int = (quality - if (offer.urgent && now - startedAt > 100_000) 10 else 0).coerceAtLeast(0)
 }
 internal enum class OriginOddJobRejection {
-    NO_JOB, EXPIRED, WRONG_ACTION, TOO_EARLY, OVERHEATED, MISSED_BEAT, COLD,
-    WRONG_ITEM, WRONG_PACKING, WRONG_MATERIAL, WRONG_ZONE, SHAPE_INCOMPLETE,
+    NO_JOB, EXPIRED, WRONG_ACTION, TOO_EARLY,
+    WRONG_ITEM, WRONG_PACKING, WRONG_ZONE,
     DIRTY_WATER, WRONG_LEVEL, WRONG_RATION, UNBALANCED, MANIFEST_MISMATCH, WRONG_RECEIPT, PAYOUT_PENDING,
 }
 internal sealed interface OriginOddJobStep {
@@ -74,14 +73,10 @@ internal sealed interface OriginOddJobStep {
     data class Rejected(val reason: OriginOddJobRejection, val job: OriginOddJobSession?) : OriginOddJobStep
 }
 internal const val ODD_JOB_HEAT_READY_MILLIS = 4_000L
-internal const val ODD_JOB_HEAT_LIMIT_MILLIS = 7_000L
-internal const val ODD_JOB_HAMMER_PERIOD_MILLIS = 2_200L
-internal const val ODD_JOB_HAMMER_READY_MILLIS = 1_100L
-internal const val ODD_JOB_HAMMER_END_MILLIS = 1_800L
+internal const val ODD_JOB_HAMMER_READY_MILLIS = 600L
 internal const val ODD_JOB_WATER_STEP_MILLIS = 700L
 internal fun originOddJobHammerReady(job: OriginOddJobSession, now: Long): Boolean = job.stage == OriginOddJobStage.FORGE_HAMMER &&
-    now < requireNotNull(job.forge).heatUntil && (now - job.stageStartedAt).coerceAtLeast(0) % ODD_JOB_HAMMER_PERIOD_MILLIS in
-        ODD_JOB_HAMMER_READY_MILLIS..ODD_JOB_HAMMER_END_MILLIS
+    now - job.stageStartedAt >= ODD_JOB_HAMMER_READY_MILLIS
 internal fun originOddJobWaterLevel(job: OriginOddJobSession, now: Long): Int =
     ((now - job.stageStartedAt).coerceAtLeast(0) / ODD_JOB_WATER_STEP_MILLIS).toInt().coerceAtMost(7)
 internal fun originOddJobHeatReady(job: OriginOddJobSession): Long = ODD_JOB_HEAT_READY_MILLIS +
@@ -99,7 +94,7 @@ internal fun originAuctionManifestSerial(job: OriginOddJobSession): Int = requir
 /** Explicit craft rules; transient progress never owns a durable payment claim. */
 internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
     private val jobs = linkedMapOf<UUID, OriginOddJobSession>()
-    init { require(lifetimeMillis > ODD_JOB_HEAT_LIMIT_MILLIS) }
+    init { require(lifetimeMillis > ODD_JOB_HEAT_READY_MILLIS + 1_500) }
     fun current(playerId: UUID): OriginOddJobSession? = jobs[playerId]
     fun entries(): List<Pair<UUID, OriginOddJobSession>> = jobs.toList()
     fun begin(playerId: UUID, offer: OriginOddJobOffer, now: Long, hardStopAt: Long = now + lifetimeMillis): OriginOddJobSession? {
@@ -109,6 +104,7 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
         val shape = when (offer.variant) {
             OriginOddJobVariant.FORGE_REPAIR -> target.mapIndexed { i, v -> if (i == n % 3) v - 2 else v }
             OriginOddJobVariant.FORGE_PAIR -> target.mapIndexed { i, v -> v - if (i == n % 3) 0 else 1 }
+            OriginOddJobVariant.FORGE_NEW -> target.mapIndexed { i, v -> v - if (i == n % 3) 2 else 1 }
             else -> listOf(0, 0, 0)
         }
         val parcel = OriginAuctionParcel.entries[n % 3]
@@ -166,30 +162,25 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
                             waterTarget = 3 + (job.offer.seed + yard.waterCompartment + 1) % 3)))
                 } else next(OriginOddJobStage.RETURN)
             }
+            OriginOddJobStage.FORGE_BLANK, OriginOddJobStage.FORGE_INSPECT ->
+                if (action == OriginOddJobAction.BLANK) next(OriginOddJobStage.FORGE_HEAT) else wrong()
             OriginOddJobStage.FORGE_HEAT -> if (action == OriginOddJobAction.HEAT) next(OriginOddJobStage.FORGE_HEATING) else wrong()
             OriginOddJobStage.FORGE_HEATING -> when {
                 action != OriginOddJobAction.HEAT -> wrong()
                 now - job.stageStartedAt < originOddJobHeatReady(job) -> rejected(OriginOddJobRejection.TOO_EARLY, job)
-                now - job.stageStartedAt > originOddJobHeatReady(job) + 3_000 -> mistake(OriginOddJobRejection.OVERHEATED,
-                    job.copy(stage = OriginOddJobStage.FORGE_HEAT, stageStartedAt = now))
-                else -> next(OriginOddJobStage.FORGE_PLACE, job.copy(forge = requireNotNull(forge).copy(heatUntil = now + 28_000)))
+                else -> next(OriginOddJobStage.FORGE_PLACE)
             }
             OriginOddJobStage.FORGE_PLACE -> if (action == OriginOddJobAction.PLACE) next(OriginOddJobStage.FORGE_HAMMER) else wrong()
             OriginOddJobStage.FORGE_HAMMER -> when {
-                action == OriginOddJobAction.HEAT -> next(OriginOddJobStage.FORGE_HEAT)
-                action == OriginOddJobAction.ROTATE -> changed(job.copy(forge = requireNotNull(forge).copy(zone = (forge.zone + 1) % 3)))
-                action == OriginOddJobAction.CHECK -> if (requireNotNull(forge).shape == forge.target)
-                    next(OriginOddJobStage.FORGE_QUENCH, job.copy(forge = forge.copy(checked = true)))
-                    else rejected(OriginOddJobRejection.SHAPE_INCOMPLETE, job)
                 action != OriginOddJobAction.HAMMER -> wrong()
-                now >= requireNotNull(forge).heatUntil -> rejected(OriginOddJobRejection.COLD, job)
-                !originOddJobHammerReady(job, now) -> mistake(OriginOddJobRejection.MISSED_BEAT, job)
+                !originOddJobHammerReady(job, now) -> rejected(OriginOddJobRejection.TOO_EARLY, job)
                 else -> {
-                    val index = forge.zone; val value = forge.shape[index]; val goal = forge.target[index]
-                    if (value == goal) mistake(OriginOddJobRejection.WRONG_ZONE, job.copy(forge = forge.copy(
-                        shape = forge.shape.mapIndexed { i, v -> if (i == index) v + 1 else v })))
-                    else changed(job.copy(stageStartedAt = now, progress = job.progress + 1, forge = forge.copy(
-                        shape = forge.shape.mapIndexed { i, v -> if (i != index) v else v + if (value < goal) 1 else -1 })))
+                    val work = requireNotNull(forge)
+                    val index = work.shape.indices.first { work.shape[it] < work.target[it] }
+                    val updated = job.copy(stageStartedAt = now, progress = job.progress + 1,
+                        forge = work.copy(shape = work.shape.mapIndexed { i, v -> v + if (i == index) 1 else 0 }))
+                    if (updated.forge!!.remainingStrikes == 0) next(OriginOddJobStage.FORGE_QUENCH, updated)
+                    else changed(updated)
                 }
             }
             OriginOddJobStage.FORGE_QUENCH -> if (action == OriginOddJobAction.QUENCH) next(OriginOddJobStage.RETURN) else wrong()
@@ -226,11 +217,6 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
                         job.copy(yard = y.copy(loads = loads, carried = 0)))
                 }
             }
-            OriginOddJobStage.FORGE_BLANK -> if (choice != job.offer.seed % 2) mistake(OriginOddJobRejection.WRONG_MATERIAL, job)
-                else next(OriginOddJobStage.FORGE_INSPECT)
-            OriginOddJobStage.FORGE_INSPECT -> if (choice != requireNotNull(job.forge).shape.indices.firstOrNull { job.forge.shape[it] != job.forge.target[it] })
-                mistake(OriginOddJobRejection.WRONG_ZONE, job)
-                else next(OriginOddJobStage.FORGE_HEAT, job.copy(forge = job.forge.copy(zone = choice, inspected = true)))
             OriginOddJobStage.AUCTION_ITEM -> {
                 val work = requireNotNull(job.auction); val lot = originAuctionCandidates(job).getOrNull(choice)
                 if (lot != work.lot) mistake(OriginOddJobRejection.WRONG_ITEM, job)

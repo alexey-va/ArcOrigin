@@ -160,7 +160,12 @@ object OriginDiningModule : PluginModule, Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     fun onBlockInteract(event: PlayerInteractEvent) {
-        if (event.hand != EquipmentSlot.HAND || event.action != Action.RIGHT_CLICK_BLOCK) return
+        if (event.hand != EquipmentSlot.HAND || event.action !in setOf(Action.RIGHT_CLICK_BLOCK, Action.RIGHT_CLICK_AIR)) return
+        if (service?.interactWorkstation(event.player) == true) {
+            event.isCancelled = true
+            return
+        }
+        if (event.action != Action.RIGHT_CLICK_BLOCK) return
         val block = event.clickedBlock ?: return
         service?.interactBlock(event.player, block)?.let { handled ->
             // The server's chair handler owns the actual mount. ARC only
@@ -263,6 +268,9 @@ internal object OriginDiningAudiencePolicy {
 }
 
 internal object OriginDiningServicePolicy {
+    fun mayConsumeMeal(working: Boolean, playerId: UUID, ownerId: UUID?): Boolean =
+        !working || playerId == ownerId
+
     fun mayApproach(now: Long, serviceCooldownUntil: Long): Boolean = now >= serviceCooldownUntil
 
     fun ambientAvailableAt(now: Long, returnReleaseTicks: Long, restMillis: Long): Long =
@@ -1181,6 +1189,8 @@ private class OriginDiningService : AutoCloseable {
         reserve = ::reservePlayerWaiterTarget,
         targetValid = ::playerWaiterTargetValid,
         serve = ::servePlayerWaiterTarget,
+        finishEating = { target -> playerWaiterTargetValid(target) && life.finishEating(target.tableId) },
+        collectPlate = ::collectPlayerWaiterPlate,
         release = { target -> diningCoordinator.release(target.lease, System.currentTimeMillis(), 0) },
         guestVenue = ::guestVenue,
         playerVenue = { player -> when (OriginDiningLayout.dynamicMenu(player.location)) {
@@ -1190,7 +1200,7 @@ private class OriginDiningService : AutoCloseable {
         } },
         debounce = ::debounce,
         carry = OriginWaiterCarry(item = { id -> (BreweryTableDialogs.food + BreweryTableDialogs.drinks)
-            .firstOrNull { it.id == id }?.let(::dishItem) }),
+            .firstOrNull { it.id == id }?.let(::dishItem) }, emptyPlate = life::emptyPlateItem, water = life::conversationMug),
     )
     private var nextAmbientAt = 0L
     private var nextGuestSeatReconcileAt = 0L
@@ -1511,6 +1521,7 @@ private class OriginDiningService : AutoCloseable {
             return true
         }
         guestMealEntity[entity.uniqueId]?.let { meal ->
+            if (waiterGame.interactMeal(player, meal.table.id)) return true
             info(
                 "ORIGIN_DINING phase=GUEST_MEAL_INPUT player={} source={} table={} dish={} hitbox={} actual={}",
                 player.name,
@@ -1884,6 +1895,8 @@ private class OriginDiningService : AutoCloseable {
     fun cancelWaiterJob(player: Player, reason: String) = waiterGame.stop(player.uniqueId, reason)
 
     fun isWaiterWorking(playerId: UUID): Boolean = waiterGame.isWorking(playerId)
+
+    fun interactWorkstation(player: Player): Boolean = waiterGame.interactWorkstation(player)
 
     private fun cleanupWorldSeats() {
         val world = Bukkit.getWorld(OriginDiningLayout.WORLD)
@@ -2726,6 +2739,7 @@ private class OriginDiningService : AutoCloseable {
     }
 
     private fun consume(player: Player, meal: OriginDiningMeal) {
+        if (!mayConsumeMeal(player, meal.ownerId)) return
         if (!meal.display.isValid || !meal.hitbox.isValid) {
             warn(
                 "ORIGIN_DINING phase=CONSUME_REJECTED player={} table={} dish={} display_valid={} hitbox_valid={}",
@@ -3181,6 +3195,13 @@ private class OriginDiningService : AutoCloseable {
         return replaceGuestMeal(table, dish, "player-waiter")
     }
 
+    private fun collectPlayerWaiterPlate(target: OriginWaiterTarget): Boolean {
+        if (!playerWaiterTargetValid(target) || !life.isEmpty(target.tableId)) return false
+        val meal = guestMeals.remove(target.tableId) ?: return false
+        removeGuestMeal(meal)
+        return true
+    }
+
     private fun removeGuestMeal(meal: OriginDiningGuestMeal) {
         life.forgetMeal(meal.table.id)
         guestMealEntity.remove(meal.hitbox.uniqueId)
@@ -3189,6 +3210,7 @@ private class OriginDiningService : AutoCloseable {
     }
 
     private fun consumeGuestMeal(player: Player, meal: OriginDiningGuestMeal) {
+        if (!mayConsumeMeal(player, null)) return
         if (!meal.display.isValid || !meal.hitbox.isValid || guestMeals[meal.table.id] !== meal) return
         if (life.isEmpty(meal.table.id)) {
             player.sendActionBar(Component.text("Тут уже пусто. Официант скоро уберёт посуду.", NamedTextColor.GRAY))
@@ -3211,6 +3233,12 @@ private class OriginDiningService : AutoCloseable {
         scoldGuest(player, meal.table)
         info("ORIGIN_DINING phase=AMBIENT_MEAL_STOLEN player={} table={} guest={} dish={} refill=queued", player.name, meal.table.id, meal.table.npcId, meal.dish.id)
         tasks.runLater(2L) { startAmbientRoute(meal.table, "stolen-refill") }
+    }
+
+    private fun mayConsumeMeal(player: Player, ownerId: UUID?): Boolean {
+        if (OriginDiningServicePolicy.mayConsumeMeal(waiterGame.isWorking(player.uniqueId), player.uniqueId, ownerId)) return true
+        player.sendActionBar(waiterText(OriginDiningLayout.waiterGameConfig.line("no-guest-food")))
+        return false
     }
 
     private fun scoldGuest(player: Player, table: OriginDiningGuestTable) {

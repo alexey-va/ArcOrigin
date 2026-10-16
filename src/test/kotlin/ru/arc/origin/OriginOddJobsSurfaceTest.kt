@@ -1,5 +1,6 @@
 package ru.arc.origin
 
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -27,13 +28,13 @@ internal fun oddJobTestConfig(): OriginOddJobsConfig {
 }
 
 class OriginOddJobsSurfaceTest : StringSpec({
-    "all professions explain the timed shift and shared configured quota with readable controls" {
+    "yard and auction dialogs explain the timed shift and shared configured quota with readable controls" {
         val config = oddJobTestConfig()
         config.venues.map { it.npcId } shouldBe listOf(440, 349, 365)
         config.handoffNpcId shouldBe 382
         config.shiftMillis shouldBe 600_000
         config.lifetimeMillis shouldBe 240_000
-        for (venue in config.venues) {
+        for (venue in config.venues.filter { it.kind != OriginOddJobKind.FORGE }) {
             val screen = originOddJobsScreen(config, venue, null, 20, SideJobRewardStatus(true, 12, 0, false), 0)
             screen.title.color() shouldBe TextColor.color(0xFFB277)
             val body = screen.body.joinToString("\n") { plain(it.text) }
@@ -50,11 +51,11 @@ class OriginOddJobsSurfaceTest : StringSpec({
 
     "native board preserves exact offer IDs while master overview hides out-of-reach craft choices" {
         val config = oddJobTestConfig()
-        val venue = config.venue(OriginOddJobKind.FORGE)
+        val venue = config.venue(OriginOddJobKind.MOUNTYARD)
         val shift = OriginWorkShift.begin(0)
         val offers = listOf(
-            OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.FORGE_REPAIR, 8, false),
-            OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.FORGE_PAIR, 9, true),
+            OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_RATIONS, 8, false),
+            OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_CARAVAN, 9, true),
         )
         val board = originOddJobsScreen(config, venue, null, 20, null, 0, shift = shift, offers = offers)
         board.buttons.map { it.id.value } shouldBe listOf("odd_job_offer_0", "odd_job_offer_1", "odd_job_finish")
@@ -87,12 +88,31 @@ class OriginOddJobsSurfaceTest : StringSpec({
                 OriginOddJobKind.MOUNTYARD -> "YARD"; OriginOddJobKind.FORGE -> "FORGE"; OriginOddJobKind.AUCTION -> "AUCTION"
             } }) } + listOf(OriginOddJobStage.RETURN, OriginOddJobStage.PAYOUT)) {
                 val state = job.copy(stage = stage)
+                if (variant.kind == OriginOddJobKind.FORGE) {
+                    originOddJobGuide(config, state, 0).let { it.isNotBlank() && !it.contains("{") } shouldBe true
+                    originOddJobChoices(config, state) shouldBe emptyList()
+                    continue
+                }
                 val screen = originOddJobsScreen(config, config.venue(variant.kind), state, 20, null, 0, shift = OriginWorkShift.begin(0))
                 screen.body.all { plain(it.text).isNotBlank() && !plain(it.text).contains("{") } shouldBe true
                 screen.buttons.all { it.label.color() != NamedTextColor.GRAY } shouldBe true
             }
         }
         for (rejection in OriginOddJobRejection.entries) config.line("errors.${rejection.name.lowercase().replace('_', '-')}").isNotBlank() shouldBe true
+    }
+
+    "forge has no dialog and keeps the ready cue after a long pause with a white coin receipt" {
+        val config = oddJobTestConfig()
+        shouldThrow<IllegalArgumentException> {
+            originOddJobsScreen(config, config.venue(OriginOddJobKind.FORGE), null, 20, null, 0)
+        }
+        val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(),
+            OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.FORGE_NEW, 8, false), 0)!!
+            .copy(stage = OriginOddJobStage.FORGE_HEATING)
+        originOddJobGuide(config, job, 60_000) shouldBe config.line("guide.forge-heat-ready")
+        val receipt = waiterText(config.line("forge.paid", "amount" to 20))
+        plain(receipt) shouldBe "Принято · +20 💰 · Следующий заказ у Эдгара"
+        components(receipt).single { plain(it) == "💰" }.color() shouldBe NamedTextColor.WHITE
     }
 
     "station resolution uses loaded real blocks including the trough one block away from its old anchor" {

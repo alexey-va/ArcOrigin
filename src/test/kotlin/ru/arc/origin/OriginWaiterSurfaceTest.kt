@@ -18,9 +18,9 @@ internal fun waiterTestConfig(): OriginWaiterConfig {
 }
 
 class OriginWaiterSurfaceTest : StringSpec({
-    "both bartender entrances explain the full shift and preserve the configured trade gesture" {
+    "both ordinary bartender entrances keep a compact optional shift journal" {
         val config = waiterTestConfig()
-        config.venues shouldBe listOf(OriginWaiterVenue("brewery", 405, true), OriginWaiterVenue("restaurant", 439, false))
+        config.venues shouldBe listOf(OriginWaiterVenue("brewery", 405, false), OriginWaiterVenue("restaurant", 439, false))
         config.lifetimeMillis shouldBe 180_000
         config.preparationMillis shouldBe 10_000
         config.shiftMillis shouldBe 600_000

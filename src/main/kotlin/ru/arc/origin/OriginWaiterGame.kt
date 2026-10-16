@@ -8,6 +8,7 @@ import net.kyori.adventure.text.format.TextDecoration
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.Bukkit
+import org.bukkit.Material
 import org.bukkit.Sound
 import org.bukkit.SoundCategory
 import org.bukkit.entity.LivingEntity
@@ -37,6 +38,14 @@ internal data class OriginWaiterConfig(
     val freshnessMillis: Long = 45_000,
     val rushFreshnessMillis: Long = 30_000,
     val rewardPolicy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy(),
+    val eatingMillis: Long = 18_000,
+    val actionMillis: Long = 700,
+    val soakMillis: Long = 3_000,
+    val disputeEveryOrders: Int = 4,
+    val recipes: Map<String, List<String>> = emptyMap(),
+    val ingredients: Map<String, Material> = emptyMap(),
+    val washing: Map<String, List<OriginWaiterWash>> = emptyMap(),
+    val stations: Map<String, OriginWaiterStationsLayout> = emptyMap(),
 ) {
     fun line(key: String, vararg values: Pair<String, Any>): String = values.fold(rewardPolicy.limits(text.string(key))) { line, (name, value) ->
         line.replace("{$name}", value.toString())
@@ -45,6 +54,21 @@ internal data class OriginWaiterConfig(
     companion object {
         fun load(source: Config, rewardPolicy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy()) = OriginWaiterConfig(
             rewardPolicy = rewardPolicy,
+            eatingMillis = source.integer("waiter-game.eating-seconds", 18).coerceIn(5, 40) * 1000L,
+            actionMillis = source.integer("waiter-game.work-action-millis", 700).coerceIn(700, 2000).toLong(),
+            soakMillis = source.integer("waiter-game.soak-seconds", 3).coerceIn(1, 10) * 1000L,
+            disputeEveryOrders = source.integer("waiter-game.dispute-every-orders", 4).coerceIn(0, 20),
+            recipes = source.stringList("waiter-game.recipe-ids").associateWith { source.stringList("waiter-game.recipes.$it.ingredients").take(4) },
+            ingredients = source.stringList("waiter-game.ingredient-ids").associateWith {
+                Material.matchMaterial(source.string("waiter-game.ingredients.$it.material")) ?: Material.BOWL },
+            washing = source.stringList("waiter-game.recipe-ids").associateWith { dish ->
+                source.stringList("waiter-game.recipes.$dish.wash").mapNotNull { runCatching { OriginWaiterWash.valueOf(it.uppercase()) }.getOrNull() }
+                    .filter { it != OriginWaiterWash.DRY } + OriginWaiterWash.DRY },
+            stations = source.stringList("waiter-game.venue-ids").associateWith { venue ->
+                OriginWaiterStationsLayout(OriginDiningLayout.configPoint(source, "waiter-game.venues.$venue.prep"),
+                    OriginDiningLayout.configPoint(source, "waiter-game.venues.$venue.sink"),
+                    OriginDiningLayout.configPoint(source, "waiter-game.venues.$venue.rack"),
+                    source.real("waiter-game.venues.$venue.stand-height", 0.0).takeIf(Double::isFinite)?.coerceIn(0.0, 1.1) ?: 0.0) },
             venues = source.stringList("waiter-game.venue-ids").map { id ->
                 OriginWaiterVenue(id, source.integer("waiter-game.venues.$id.staff-id"),
                     source.boolean("waiter-game.venues.$id.sneak-only", false))
@@ -137,9 +161,15 @@ internal fun waiterScreen(
                 OriginWaiterStage.PICKUP -> if (now >= job.readyAt) "dish-ready" else "preparing"
                 OriginWaiterStage.DELIVER -> "deliver"
                 OriginWaiterStage.REWORK -> "rework-required"
+                OriginWaiterStage.ASSEMBLE -> "assemble-first"
+                OriginWaiterStage.EATING -> "guide-eating"
+                OriginWaiterStage.COLLECT -> "guide-collect"
+                OriginWaiterStage.RETURN_DISHES -> "guide-return-dishes"
+                OriginWaiterStage.WASH -> "wash-board"
                 OriginWaiterStage.PAYOUT -> "paying"
             }, "seconds" to waiterSeconds(if (now >= job.readyAt) job.freshUntil - now else job.readyAt - now),
-                "guest" to job.target.guestName))
+                "guest" to job.target.guestName,
+                "action" to config.line("wash-${job.washing.getOrNull(job.washed)?.name?.lowercase()}")))
             if (job.clarified) add(config.line("revised-instruction", "dish" to job.dish.name))
         }
         notice?.let(::add)
@@ -158,7 +188,7 @@ internal fun waiterScreen(
                 add(button("waiter_start", config.line("start-shift"), 0x9BD48D, action = start))
             }
             if (shift != null) {
-                val carrying = jobs.any { it.stage == OriginWaiterStage.DELIVER }
+                val carrying = jobs.any { it.carries }
                 jobs.forEachIndexed { index, job ->
                     if (job.stage != OriginWaiterStage.PAYOUT) add(button("waiter_focus_$index",
                         config.line("focus-guest", "guest" to job.target.guestName), 0xFFFFFF) { focus(job.id) })
@@ -190,6 +220,8 @@ internal class OriginWaiterGame(
     private val reserve: (OriginWaiterVenue) -> OriginWaiterTarget?,
     private val targetValid: (OriginWaiterTarget) -> Boolean,
     private val serve: (OriginWaiterTarget) -> Boolean,
+    private val finishEating: (OriginWaiterTarget) -> Boolean,
+    private val collectPlate: (OriginWaiterTarget) -> Boolean,
     private val release: (OriginWaiterTarget) -> Unit,
     private val guestVenue: (Int) -> String?,
     private val playerVenue: (Player) -> String?,
@@ -199,9 +231,12 @@ internal class OriginWaiterGame(
     private val tasks: LifecycleTaskScope = LifecycleTaskScope(),
     private val clock: () -> Long = System::currentTimeMillis,
     private val otherWork: (UUID) -> Boolean = { OriginOddJobsModule.isWorking(it) || OriginWorkshopGame.isWorking(it) },
+    private val stations: OriginWaiterStations = OriginWaiterStations(),
 ) : AutoCloseable {
     private class Session(val venue: OriginWaiterVenue, var shift: OriginWorkShift, var remaining: Int) {
         var admitted = 0
+        var nextDispute = 4
+        var disputes = 0
         var focused: UUID? = null
         var inFlight: UUID? = null
         var payoutAttempt = 0L
@@ -213,7 +248,7 @@ internal class OriginWaiterGame(
         var phase = OriginWorkShiftPhase.OPENING
     }
 
-    private val progress = OriginWaiterProgress(config.lifetimeMillis, config.preparationMillis)
+    private val progress = OriginWaiterProgress(config.lifetimeMillis, config.preparationMillis, config.eatingMillis, config.actionMillis, config.soakMillis)
     private val sessions = mutableMapOf<UUID, Session>()
     private val receipts = mutableMapOf<UUID, OriginWaiterReceipt>()
     private val requests = mutableMapOf<UUID, UUID>()
@@ -229,14 +264,17 @@ internal class OriginWaiterGame(
         if (closed) return false
         val venue = config.venues.firstOrNull { it.staffId == npcId }
         if (venue != null) {
-            // Remi's ordinary click still belongs to his existing Citizens shop command.
             if (venue.sneakOnly && !player.isSneaking) return false
             if (!near(player, npcId)) return true
             if (debounce(player)) return true
             val session = sessions[player.uniqueId]
             if (session != null && session.venue.id != venue.id) { feedback(player, "other-venue"); return true }
-            OriginMenus.beginDialogFlow(player)
-            if (session != null) show(player, venue) else status(player, venue, start = false)
+            if (session == null) {
+                status(player, venue, start = true)
+            } else if (player.isSneaking) {
+                OriginMenus.beginDialogFlow(player)
+                show(player, venue)
+            } else staffAction(player, venue)
             return true
         }
         val session = sessions[player.uniqueId] ?: return false
@@ -245,6 +283,10 @@ internal class OriginWaiterGame(
         if (!near(player, npcId)) { feedback(player, "come-closer"); return true }
         val now = clock()
         refresh(player.uniqueId, now)
+        if (progress.dispute(player.uniqueId) != null) {
+            calm(player, npcId, now)
+            return true
+        }
         val before = progress.tickets(player.uniqueId).firstOrNull { it.target.guestId == npcId }
         if (before != null && before.stage != OriginWaiterStage.PAYOUT && !targetValid(before.target)) {
             cancelTicket(player.uniqueId, before, "target-gone")
@@ -262,19 +304,117 @@ internal class OriginWaiterGame(
                         feedback(player, "target-gone")
                         return true
                     }
-                    if (step.job.stage == OriginWaiterStage.PAYOUT) {
+                    if (step.job.stage == OriginWaiterStage.EATING) {
                         info("ORIGIN_WAITER phase=SERVED player={} request={} table={}", player.uniqueId, step.job.id, step.job.target.tableId)
-                        feedback(player, "paying")
-                        settleNext(player.uniqueId, now)
+                        feedback(player, "meal-served", "guest" to step.job.target.guestName, "seconds" to waiterSeconds(config.eatingMillis))
                     } else feedback(player, "drink-served", "guest" to step.job.target.guestName, "dish" to step.job.dish.name)
-                } else feedback(player, if (before?.stage == OriginWaiterStage.CLARIFY) "revised-instruction" else "order-accepted",
-                    "dish" to step.job.dish.name, "guest" to step.job.target.guestName)
+                } else if (before?.stage == OriginWaiterStage.COLLECT) {
+                    val collected = runCatching { carry.pickupPlate(player, step.job.dish.id) && collectPlate(step.job.servingTarget()) }
+                        .onFailure { warn("ORIGIN_WAITER phase=PLATE_FAILED player={} request={}", player.uniqueId, step.job.id, it) }
+                        .getOrDefault(false)
+                    if (!collected) {
+                        carry.remove(player.uniqueId)
+                        cancelTicket(player.uniqueId, step.job, "plate-unavailable")
+                        feedback(player, "target-gone")
+                        return true
+                    }
+                    feedback(player, "plate-collected")
+                } else feedback(player, when {
+                    before?.stage == OriginWaiterStage.CLARIFY -> "revised-instruction"
+                    step.job.stage == OriginWaiterStage.ASSEMBLE -> "assembly-order"
+                    else -> "order-accepted"
+                }, "dish" to step.job.dish.name, "guest" to step.job.target.guestName,
+                    "recipe" to recipeLine(step.job))
                 fillOrders(player.uniqueId, now)
                 guide(player, announce = false)
                 player.playSound(player.location, Sound.UI_BUTTON_CLICK, SoundCategory.PLAYERS, 0.35f, 1.15f)
             }
         }
         return true
+    }
+
+    fun interactMeal(player: Player, tableId: String): Boolean {
+        if (!isWorking(player.uniqueId)) return false
+        val job = progress.tickets(player.uniqueId).firstOrNull { it.target.tableId == tableId } ?: return false
+        return interact(player, job.target.guestId)
+    }
+
+    private fun staffAction(player: Player, venue: OriginWaiterVenue) {
+        val now = clock()
+        refresh(player.uniqueId, now)
+        if (progress.dispute(player.uniqueId) != null) { calm(player, venue.staffId, now); return }
+        val job = progress.priority(player.uniqueId, now)
+        when (job?.stage) {
+            OriginWaiterStage.PICKUP -> pickup(player, venue, job.id, job.dish.id)
+            OriginWaiterStage.REWORK -> remake(player, venue, job.id)
+            else -> guide(player)
+        }
+    }
+
+    /** The same action handles right-clicking a visible prop or its underlying counter. */
+    fun interactWorkstation(player: Player): Boolean {
+        val session = sessions[player.uniqueId] ?: return false
+        if (closed || session.endedAt != null || playerVenue(player) != session.venue.id) return false
+        val hit = stations.aimed(player, config.interactionRange) ?: return false
+        if (debounce(player)) return true
+        val now = clock()
+        refresh(player.uniqueId, now)
+        val job = progress.current(player.uniqueId, hit.requestId) ?: return true
+        val action = hit.action
+        if (!targetValid(job.target)) { cancelTicket(player.uniqueId, job, "target-gone"); return true }
+        val step = when {
+            action.startsWith("ingredient:") -> progress.assemble(player.uniqueId, job.id, session.venue.id,
+                action.substringAfter(':'), hit.stepIndex, now)
+            action.startsWith("wash:") -> progress.wash(player.uniqueId, job.id, session.venue.id,
+                OriginWaiterWash.valueOf(action.substringAfter(':')), hit.stepIndex, now)
+            action == "pickup" -> { pickup(player, session.venue, job.id, job.dish.id, atWorkstation = true); return true }
+            else -> return false
+        }
+        when (step) {
+            is OriginWaiterStep.Rejected -> reject(player, step.reason, job)
+            is OriginWaiterStep.Changed -> {
+                session.focused = job.id
+                if (job.stage == OriginWaiterStage.RETURN_DISHES) carry.remove(player.uniqueId)
+                player.swingMainHand()
+                player.playSound(player.location, if (action.startsWith("wash:")) Sound.ITEM_BUCKET_EMPTY else Sound.BLOCK_WOOD_PLACE,
+                    SoundCategory.PLAYERS, 0.3f, 1.1f)
+                if (step.job.stage == OriginWaiterStage.PAYOUT) {
+                    stations.show(player, job.id, waiterStationChoices(config, session.venue, step.job),
+                        config.stations[session.venue.id], step.job.washed) { carry.plateItem(job.dish.id) }
+                    feedback(player, "paying")
+                    settleNext(player.uniqueId, now)
+                } else if (step.job.stage == OriginWaiterStage.PICKUP) feedback(player, "assembled", "dish" to step.job.dish.name)
+                else feedback(player, "work-next", "action" to if (step.job.stage == OriginWaiterStage.ASSEMBLE)
+                    config.line("ingredient-${step.job.recipe[step.job.assembled]}") else
+                    config.line("wash-${step.job.washing[step.job.washed].name.lowercase()}"))
+                guide(player, announce = false)
+            }
+        }
+        return true
+    }
+
+    private fun recipeLine(job: OriginWaiterJob): String = job.recipe.joinToString(" → ") { config.line("ingredient-$it") }
+
+    private fun calm(player: Player, npcId: Int, now: Long) {
+        val dispute = progress.dispute(player.uniqueId) ?: return
+        val target = progress.disputeGuest(player.uniqueId)
+        val expected = if (dispute.stage == OriginWaiterDisputeStage.WATER) sessions[player.uniqueId]?.venue?.staffId else target?.target?.guestId
+        if (npcId != expected) {
+            feedback(player, if (dispute.stage == OriginWaiterDisputeStage.WATER) "dispute-get-water" else "dispute-wrong-guest",
+                "guest" to target?.target?.guestName.orEmpty())
+            return
+        }
+        if (dispute.stage == OriginWaiterDisputeStage.WATER && !runCatching { carry.pickupWater(player) }.getOrDefault(false)) {
+            feedback(player, "dish-unavailable")
+            return
+        }
+        if (!progress.calm(player.uniqueId, npcId, now)) return
+        if (dispute.stage == OriginWaiterDisputeStage.BRING_WATER) carry.remove(player.uniqueId)
+        feedback(player, "dispute-${dispute.kind.name.lowercase()}-${dispute.stage.name.lowercase()}",
+            "guest" to target?.target?.guestName.orEmpty(),
+            "next" to progress.disputeGuest(player.uniqueId)?.target?.guestName.orEmpty())
+        player.playSound(player.location, Sound.ENTITY_VILLAGER_YES, SoundCategory.PLAYERS, 0.35f, 1.0f)
+        guide(player, announce = false)
     }
 
     private fun status(player: Player, venue: OriginWaiterVenue, start: Boolean) {
@@ -311,6 +451,7 @@ internal class OriginWaiterGame(
                 }
                 if (otherWork(playerId)) { feedback(player, "other-work"); return@runSync }
                 val session = Session(venue, OriginWorkShift.begin(now, config.shiftMillis, config.graceMillis), state.remainingOrders)
+                    .also { it.nextDispute = config.disputeEveryOrders }
                 sessions[playerId] = session
                 fillOrders(playerId, now)
                 if (progress.tickets(playerId).isEmpty()) {
@@ -362,21 +503,31 @@ internal class OriginWaiterGame(
             val supported = when {
                 family == OriginWaiterFamily.DRINK_FIRST && target.drink == null -> OriginWaiterFamily.MEAL
                 family == OriginWaiterFamily.REVISED && target.replacement == null -> OriginWaiterFamily.MEAL
+                family == OriginWaiterFamily.ASSEMBLED && config.recipes[target.dishId].isNullOrEmpty() -> OriginWaiterFamily.MEAL
                 else -> family
             }
             val job = progress.begin(playerId, target, now, supported,
-                if (rush) config.rushFreshnessMillis else config.freshnessMillis, session.shift.hardStopAt)
+                if (rush) config.rushFreshnessMillis else config.freshnessMillis, session.shift.hardStopAt,
+                recipe = if (supported == OriginWaiterFamily.ASSEMBLED) config.recipes[target.dishId].orEmpty() else emptyList(),
+                washing = config.washing[target.dishId].orEmpty().ifEmpty {
+                    listOf(OriginWaiterWash.SCRAPE, OriginWaiterWash.SOAP, OriginWaiterWash.RINSE, OriginWaiterWash.DRY) })
             if (job == null) { release(target); session.reserveAt = now + 5_000; return }
             session.admitted++
             info("ORIGIN_WAITER phase=ORDER_RESERVED player={} shift={} request={} guest={} family={}",
                 playerId, session.shift.id, job.id, target.guestId, job.family)
             tickets = progress.tickets(playerId)
         }
+        if (config.disputeEveryOrders > 0 && session.admitted >= session.nextDispute &&
+            progress.beginDispute(playerId, OriginWaiterDisputeKind.entries[session.disputes % OriginWaiterDisputeKind.entries.size], now) != null) {
+            session.nextDispute = session.admitted + config.disputeEveryOrders
+            session.disputes++
+            Bukkit.getPlayer(playerId)?.let { feedback(it, "dispute-start") }
+        }
     }
 
-    private fun pickup(player: Player, venue: OriginWaiterVenue, requestId: UUID, dishId: String) {
+    private fun pickup(player: Player, venue: OriginWaiterVenue, requestId: UUID, dishId: String, atWorkstation: Boolean = false) {
         val job = progress.current(player.uniqueId, requestId) ?: return
-        if (!near(player, venue.staffId)) { feedback(player, "come-closer"); return }
+        if (!atWorkstation && !near(player, venue.staffId)) { feedback(player, "come-closer"); return }
         if (!targetValid(job.target)) { cancelTicket(player.uniqueId, job, "target-gone"); feedback(player, "target-gone"); return }
         val now = clock()
         refresh(player.uniqueId, now)
@@ -478,7 +629,8 @@ internal class OriginWaiterGame(
                 else {
                     refresh(playerId, now)
                     progress.tickets(playerId).filter { it.stage != OriginWaiterStage.PAYOUT }.forEach { job ->
-                        val rejection = if (now >= job.expiresAt) "expired" else if (!targetValid(job.target)) "target-gone" else null
+                        val rejection = if (now >= job.expiresAt && progress.dispute(playerId) == null) "expired"
+                            else if (!targetValid(job.target)) "target-gone" else null
                         if (rejection != null) {
                             cancelTicket(playerId, job, rejection)
                             player?.let { feedback(it, rejection) }
@@ -502,6 +654,11 @@ internal class OriginWaiterGame(
         val carried = progress.carried(playerId)?.id
         val changes = progress.refresh(playerId, now)
         if (carried != null && progress.carried(playerId)?.id != carried) carry.remove(playerId)
+        if (progress.dispute(playerId) == null) progress.tickets(playerId)
+            .filter { it.stage == OriginWaiterStage.EATING && now >= it.readyAt && now < it.expiresAt }.forEach { job ->
+                if (targetValid(job.target) && finishEating(job.servingTarget())) progress.finishEating(playerId, job.id, now)
+                else cancelTicket(playerId, job, "meal-unavailable")
+            }
         val player = Bukkit.getPlayer(playerId)?.takeIf(Player::isOnline) ?: return
         changes.firstOrNull { it.stage == OriginWaiterStage.CLARIFY }?.let {
             feedback(player, "clarification-requested", "guest" to it.target.guestName)
@@ -516,9 +673,16 @@ internal class OriginWaiterGame(
         val now = clock()
         val focused = session.focused?.let { progress.current(player.uniqueId, it) }?.takeIf { it.stage != OriginWaiterStage.PAYOUT }
         val job = progress.carried(player.uniqueId) ?: focused ?: progress.priority(player.uniqueId, now)
-        val npcId = when (job?.stage) {
-            OriginWaiterStage.TAKE_ORDER, OriginWaiterStage.CLARIFY, OriginWaiterStage.DELIVER -> job.target.guestId
-            else -> session.venue.staffId
+        val dispute = progress.dispute(player.uniqueId)
+        val workstation = job?.takeIf { dispute == null }?.let { waiterStationChoices(config, session.venue, it) }.orEmpty()
+        if (job != null) stations.show(player, job.id, workstation, config.stations[session.venue.id],
+            if (job.stage == OriginWaiterStage.ASSEMBLE) job.assembled else job.washed,
+            item = { choice -> choice.dishId?.let { if (choice.emptyPlate) carry.plateItem(it) else carry.dishItem(it) } })
+        else stations.show(player, session.shift.id, emptyList(), config.stations[session.venue.id], 0) { null }
+        val npcId = if (dispute != null) progress.disputeGuest(player.uniqueId)?.target?.guestId ?: session.venue.staffId else when (job?.stage) {
+            OriginWaiterStage.TAKE_ORDER, OriginWaiterStage.CLARIFY, OriginWaiterStage.DELIVER,
+            OriginWaiterStage.EATING, OriginWaiterStage.COLLECT -> job.target.guestId
+            else -> if (workstation.isEmpty()) session.venue.staffId else -1
         }
         val entity = actor(npcId)
         if (glowing[player.uniqueId] !== entity) {
@@ -529,16 +693,31 @@ internal class OriginWaiterGame(
             }
         }
         if (!announce || now < session.hintUntil) return
+        if (dispute != null) {
+            val who = progress.disputeGuest(player.uniqueId)?.target?.guestName.orEmpty()
+            feedback(player, "shift-hud", "time" to waiterTime(session.shift.hardStopAt - now), "next" to config.line(
+                "guide-dispute-${dispute.stage.name.lowercase()}", "guest" to who))
+            return
+        }
         val key = when (job?.stage) {
             OriginWaiterStage.TAKE_ORDER -> "guide-order"
             OriginWaiterStage.CLARIFY -> "guide-clarify"
-            OriginWaiterStage.PICKUP -> if (now >= job.readyAt) "guide-pickup" else "guide-preparing"
+            OriginWaiterStage.PICKUP -> if (now < job.readyAt) "guide-preparing"
+                else if (job.family == OriginWaiterFamily.ASSEMBLED) "guide-pickup-board" else "guide-pickup"
             OriginWaiterStage.DELIVER -> "guide-deliver"
             OriginWaiterStage.REWORK -> "guide-rework"
+            OriginWaiterStage.ASSEMBLE -> if (now < job.readyAt) "guide-preparing" else "guide-assemble"
+            OriginWaiterStage.EATING -> "guide-eating"
+            OriginWaiterStage.COLLECT -> "guide-collect"
+            OriginWaiterStage.RETURN_DISHES -> "guide-return-dishes"
+            OriginWaiterStage.WASH -> if (now < job.readyAt) "guide-soaking" else "guide-wash"
             OriginWaiterStage.PAYOUT, null -> "guide-board"
         }
         val next = config.line(key, "guest" to (job?.target?.guestName ?: ""), "dish" to (job?.dish?.name ?: ""),
             "seconds" to waiterSeconds((job?.readyAt ?: now) - now),
+            "ingredient" to config.line("ingredient-${job?.recipe?.getOrNull(job.assembled)}"),
+            "action" to config.line("wash-${job?.washing?.getOrNull(job.washed)?.name?.lowercase()}"),
+            "recipe" to (job?.let(::recipeLine) ?: ""),
             "control" to config.line(if (session.venue.sneakOnly) "control-sneak" else "control-click"),
             "staff" to waiterNpcName(CitizensAPI.getNPCRegistry().getById(session.venue.staffId)?.name ?: config.line("kitchen")))
         feedback(player, "shift-hud", "time" to waiterTime((if (session.shift.acceptsOrders(now)) session.shift.closesAt else session.shift.hardStopAt) - now), "next" to next)
@@ -559,16 +738,28 @@ internal class OriginWaiterGame(
             OriginWaiterRejection.ALREADY_CARRYING -> "hands-full"
             OriginWaiterRejection.REWORK_REQUIRED -> "rework-required"
             OriginWaiterRejection.PAYOUT_PENDING -> "paying"
+            OriginWaiterRejection.ASSEMBLE_FIRST -> "assemble-first"
+            OriginWaiterRejection.WRONG_INGREDIENT -> "wrong-ingredient"
+            OriginWaiterRejection.EATING -> "guide-eating"
+            OriginWaiterRejection.COLLECT_FIRST -> "guide-collect"
+            OriginWaiterRejection.WASH_FIRST -> "guide-return-dishes"
+            OriginWaiterRejection.WRONG_WASH_STEP -> "wrong-wash-step"
+            OriginWaiterRejection.STALE_ACTION -> "action-already-done"
+            OriginWaiterRejection.DISPUTE -> "dispute-start"
         }
         val target = progress.carried(player.uniqueId) ?: job ?: progress.priority(player.uniqueId, clock())
         feedback(player, key, "guest" to (target?.target?.guestName ?: ""), "dish" to (job?.dish?.name ?: ""),
-            "seconds" to waiterSeconds((job?.readyAt ?: 0) - clock()))
+            "seconds" to waiterSeconds((job?.readyAt ?: 0) - clock()),
+            "ingredient" to config.line("ingredient-${job?.recipe?.getOrNull(job.assembled)}"),
+            "action" to config.line("wash-${job?.washing?.getOrNull(job.washed)?.name?.lowercase()}"))
         if (reason == OriginWaiterRejection.EXPIRED && job != null) cancelTicket(player.uniqueId, job, "expired")
     }
 
     private fun cancelTicket(playerId: UUID, job: OriginWaiterJob, reason: String) {
+        val hadDispute = progress.dispute(playerId) != null
         val removed = progress.cancel(playerId, job.id) ?: return
-        if (removed.stage == OriginWaiterStage.DELIVER) carry.remove(playerId)
+        if (removed.carries || hadDispute) carry.remove(playerId)
+        stations.remove(playerId)
         release(removed.target)
         if (sessions[playerId]?.focused == job.id) sessions[playerId]?.focused = null
         info("ORIGIN_WAITER phase=ORDER_CANCELLED player={} request={} reason={}", playerId, job.id, reason)
@@ -596,6 +787,7 @@ internal class OriginWaiterGame(
 
     fun stop(playerId: UUID, reason: String) {
         requests.remove(playerId)
+        stations.remove(playerId)
         carry.remove(playerId)
         clearGlow(playerId)
         val session = sessions[playerId] ?: return
@@ -611,6 +803,7 @@ internal class OriginWaiterGame(
         val session = sessions[playerId] ?: return
         if (progress.tickets(playerId).isNotEmpty() || session.inFlight != null || !session.shift.shouldFinish(now, false)) return
         sessions.remove(playerId, session)
+        stations.remove(playerId)
         carry.remove(playerId)
         clearGlow(playerId)
         val receipt = OriginWaiterReceipt(session.shift, session.endedAt ?: now, session.unpaidOrders)
@@ -633,5 +826,6 @@ internal class OriginWaiterGame(
         sessions.clear()
         receipts.clear()
         carry.close()
+        stations.close()
     }
 }

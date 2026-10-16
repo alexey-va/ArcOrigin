@@ -35,28 +35,22 @@ class OriginWaiterGameTest : StringSpec({
     beforeEach { f = WaiterGameFixture() }
     afterEach { f.close() }
 
-    "a competing carry activity acquired during the status request blocks waiter admission" {
-        f.openStaff()
+    "a competing carry activity acquired during direct admission blocks the shift without a dialog" {
         f.nextStatus = CompletableFuture()
-        f.press("waiter_start")
+        f.clickNpc(439)
         f.otherWork = true
         f.nextStatus.complete(f.ready)
         f.scheduler.executeImmediate()
         f.reservations shouldBe 0
         f.game.isWorking(f.player.uniqueId) shouldBe false
         f.actionBars().last() shouldContain "Сначала"
+        f.screens shouldBe emptyList()
     }
 
-    "Citizens and entity entries preserve Remi trade and debounce the work click" {
+    "Remi ordinary right click admits work and duplicate Citizens entity entries are debounced" {
         failOnUnsupportedMockBukkitOperation {
+            f.currentVenue = "brewery"
             f.moveTo(405)
-            originDiningNpcInteraction(f.player, f.entity(405), f.game::interact) shouldBe false
-            val trade = NPCRightClickEvent(f.npc(405), f.player)
-            f.listener.onNpcClick(trade)
-            trade.isCancelled shouldBe false
-            trade.isDelayedCancellation shouldBe false
-            verify(exactly = 0) { f.rewards.status(any()) }
-            f.player.isSneaking = true
             val work = NPCRightClickEvent(f.npc(405), f.player)
             f.listener.onNpcClick(work)
             originDiningNpcInteraction(f.player, f.entity(405), f.game::interact) shouldBe true
@@ -64,17 +58,18 @@ class OriginWaiterGameTest : StringSpec({
             work.isDelayedCancellation shouldBe true
             verify(exactly = 1) { f.rewards.status(f.player.uniqueId) }
             f.scheduler.executeImmediate()
-            f.press("waiter_start")
-            f.scheduler.executeImmediate()
+            f.screens shouldBe emptyList()
             f.game.reserves(416) shouldBe true
             f.clickNpc(416)
             f.game.reserves(417) shouldBe true
             f.now += 10_000
             f.clickNpc(405)
-            f.pressPickup(416, "Яичница")
             f.clickNpc(416)
+            f.payments shouldBe emptyList()
+            f.clean(416)
             f.payments.size shouldBe 1
             f.served.single().venueId shouldBe "brewery"
+            f.screens shouldBe emptyList()
         }
     }
 
@@ -96,6 +91,8 @@ class OriginWaiterGameTest : StringSpec({
             f.clickNpc(433)
             f.clickNpc(433)
             f.served.map { it.guestId } shouldBe listOf(433)
+            f.payments shouldBe emptyList()
+            f.clean(433)
             f.payments.size shouldBe 1
             f.payments.single().valid() shouldBe true
             val callback = f.payments.single().callback
@@ -124,12 +121,15 @@ class OriginWaiterGameTest : StringSpec({
             f.pressPickup(434, "Пиво")
             f.clickNpc(434)
             f.served.map { it.dishId } shouldBe listOf("egg", "herbal_tea")
+            f.payments shouldBe emptyList()
+            f.clean(433)
             f.payments.size shouldBe 1
             f.now += 10_000
             f.openStaff()
             f.pressPickup(434, "Яичница")
             f.clickNpc(434)
             f.served.map { it.dishId } shouldBe listOf("egg", "herbal_tea", "egg")
+            f.clean(434)
             f.payments.size shouldBe 1
             f.payments[0].callback(SideJobRewardOutcome.PAID)
             f.now += SIDE_JOB_PAYOUT_INTERVAL_MILLIS - 1
@@ -155,6 +155,7 @@ class OriginWaiterGameTest : StringSpec({
             f.openStaff()
             f.pressPickup(433, "Яичница")
             f.clickNpc(433)
+            f.clean(433)
             f.payments.single().callback(SideJobRewardOutcome.PAID)
             f.reservations shouldBe 1
             f.game.isWorking(f.player.uniqueId) shouldBe false
@@ -167,6 +168,7 @@ class OriginWaiterGameTest : StringSpec({
             f.begin()
             f.prepareAndPickup()
             f.clickNpc(433)
+            f.clean(433)
             val first = f.payments.single()
             first.callback(SideJobRewardOutcome.COOLDOWN)
             f.game.reserves(433) shouldBe true
@@ -193,6 +195,7 @@ class OriginWaiterGameTest : StringSpec({
             f.begin()
             f.prepareAndPickup()
             f.clickNpc(433)
+            f.clean(433)
             val payment = f.payments.single()
             f.openStaff()
             f.press("waiter_finish")
@@ -209,9 +212,6 @@ class OriginWaiterGameTest : StringSpec({
             f.game.reserves(433) shouldBe false
             f.messages() shouldContain "Оплачено заказов: 1 · 20 💰"
             f.currentVenue = "restaurant"
-            f.openStaff()
-            f.screenText() shouldContain "Смена официанта завершена"
-            f.screenText() shouldContain "20 💰"
         }
     }
 
@@ -221,6 +221,7 @@ class OriginWaiterGameTest : StringSpec({
                 f.begin()
                 f.prepareAndPickup()
                 f.clickNpc(433)
+                f.clean(433)
                 val count = f.payments.size
                 f.payments.last().callback(outcome)
                 f.game.isWorking(f.player.uniqueId) shouldBe false
@@ -239,6 +240,7 @@ class OriginWaiterGameTest : StringSpec({
             f.begin()
             f.prepareAndPickup()
             f.clickNpc(433)
+            f.clean(433)
             val payment = f.payments.single()
             f.now = 86_401_000
             payment.valid() shouldBe true
@@ -290,6 +292,7 @@ class OriginWaiterGameTest : StringSpec({
             f.openStaff()
             f.pressPickup(433, "Яичница")
             f.clickNpc(433)
+            f.clean(433)
             f.payments.single().id shouldBe original
         }
     }
@@ -304,7 +307,7 @@ class OriginWaiterGameTest : StringSpec({
             f.clockReadAdvance = 1
             f.clickNpc(433)
             f.served.map { it.guestId } shouldBe listOf(433)
-            f.payments.size shouldBe 1
+            f.payments shouldBe emptyList()
             verify(exactly = 1) { f.carry.remove(f.player.uniqueId) }
         }
     }
@@ -330,10 +333,10 @@ class OriginWaiterGameTest : StringSpec({
         }
     }
 
-    "late status and old dialog actions cannot enter or alter a replacement shift" {
+    "late admission and old optional journal actions cannot alter a replacement shift" {
         failOnUnsupportedMockBukkitOperation {
             f.nextStatus = CompletableFuture()
-            f.openStaff()
+            f.clickNpc(439)
             f.game.stop(f.player.uniqueId, "quit")
             f.nextStatus.complete(f.ready)
             f.scheduler.executeImmediate()
@@ -361,6 +364,7 @@ class OriginWaiterGameTest : StringSpec({
             f.begin()
             f.prepareAndPickup()
             f.clickNpc(433)
+            f.clean(433)
             val payment = f.payments.single()
             f.game.close()
             payment.valid() shouldBe false
@@ -372,7 +376,7 @@ class OriginWaiterGameTest : StringSpec({
         }
     }
 
-    "late start rejection stays visible after the dialog flow closes" {
+    "direct admission rejection stays in the actionbar without opening a menu" {
         failOnUnsupportedMockBukkitOperation {
             for ((status, message) in listOf(
                 SideJobRewardStatus(true, 0, 0, false) to "Дневной лимит в 100 поручений",
@@ -380,23 +384,52 @@ class OriginWaiterGameTest : StringSpec({
                 SideJobRewardStatus(false, 5, 0, false) to "Касса временно недоступна",
                 SideJobRewardStatus(true, 5, 0, true) to "Оплату проверяет касса",
             )) {
-                f.nextStatus = CompletableFuture.completedFuture(f.ready)
-                f.openStaff()
                 val pending = CompletableFuture<SideJobRewardStatus>()
                 f.nextStatus = pending
-                val screenCount = f.screens.size
-                f.press("waiter_start")
+                f.clickNpc(439)
                 pending.complete(status)
                 f.scheduler.executeImmediate()
-                f.screens.size shouldBe screenCount
+                f.screens shouldBe emptyList()
                 f.actionBars().last() shouldContain message
                 f.reservations shouldBe 0
             }
         }
     }
+
+    "wrong dispute guest keeps the water and the peaceful resolution earns no separate payment" {
+        f.close()
+        f = WaiterGameFixture(disputeEveryOrders = 2)
+        f.begin()
+        f.clickNpc(433)
+        f.clickNpc(433)
+        f.clickNpc(434)
+        f.clickNpc(439)
+        verify(exactly = 1) { f.carry.pickupWater(f.player) }
+        f.clickNpc(434)
+        verify(exactly = 0) { f.carry.remove(f.player.uniqueId) }
+        f.clickNpc(433)
+        verify(exactly = 1) { f.carry.remove(f.player.uniqueId) }
+        f.clickNpc(434)
+        f.payments shouldBe emptyList()
+        f.leased shouldBe setOf(433, 434)
+        f.screens shouldBe emptyList()
+    }
+
+    "failed eating transition and unavailable empty plate cancel only that ticket without pay" {
+        f.begin()
+        f.prepareAndPickup()
+        f.clickNpc(433)
+        f.canFinishEating = false
+        f.now += 18_000
+        f.game.tick(f.now)
+        f.payments shouldBe emptyList()
+        f.released.any { it.guestId == 433 } shouldBe true
+        f.game.reserves(434) shouldBe true
+    }
+
 })
 
-private class WaiterGameFixture : AutoCloseable {
+private class WaiterGameFixture(private val disputeEveryOrders: Int = 0) : AutoCloseable {
     val paper = MockBukkitTestRuntime.open()
     val world = paper.addSimpleWorld(OriginDiningLayout.WORLD)
     val player = paper.addPlayer("WaiterTest")
@@ -405,6 +438,11 @@ private class WaiterGameFixture : AutoCloseable {
     var nextStatus = CompletableFuture.completedFuture(ready)
     val rewards = mockk<OriginSideJobRewards>(relaxed = true)
     val carry = mockk<OriginWaiterCarry>(relaxed = true)
+    val stations = mockk<OriginWaiterStations>(relaxed = true)
+    var stationHit: OriginWaiterStationHit? = null
+    var stationRequest: UUID? = null
+    var stationChoices = emptyList<OriginWaiterStationChoice>()
+    var stationStep = 0
     val screens = mutableListOf<PaperDialogScreen>()
     val payments = mutableListOf<Payment>()
     val reserved = mutableListOf<OriginWaiterTarget>()
@@ -418,6 +456,7 @@ private class WaiterGameFixture : AutoCloseable {
     var shiftStarted = 0L
     var currentVenue: String? = "restaurant"
     var canServe = true
+    var canFinishEating = true
     var reservations = 0
     var otherWork = false
     private var lastClick = Long.MIN_VALUE
@@ -440,6 +479,14 @@ private class WaiterGameFixture : AutoCloseable {
             payments += Payment(thirdArg(), arg(3), arg(4))
         }
         every { carry.pickup(any(), any()) } returns true
+        every { carry.pickupPlate(any(), any()) } returns true
+        every { carry.pickupWater(any()) } returns true
+        every { stations.aimed(any(), any()) } answers { stationHit }
+        every { stations.show(any(), any(), any(), any(), any(), any()) } answers {
+            stationRequest = arg(1)
+            stationChoices = arg(2)
+            stationStep = arg(4)
+        }
         for ((id, x) in mapOf(439 to 0.0, 405 to 20.0, 433 to 8.0, 434 to 9.0, 435 to 10.0, 436 to 11.0, 416 to 28.0, 417 to 29.0)) {
             val entity = mockk<Villager>(relaxed = true) {
                 every { world } returns this@WaiterGameFixture.world
@@ -453,7 +500,7 @@ private class WaiterGameFixture : AutoCloseable {
                 every { name } returns "&6Бармен"
             }
         }
-        game = OriginWaiterGame(waiterTestConfig(),
+        game = OriginWaiterGame(waiterTestConfig().copy(disputeEveryOrders = disputeEveryOrders),
             reserve = { venue ->
                 val guest = (if (venue.id == "restaurant") 433..436 else 416..417).firstOrNull { it !in leased }
                 guest?.let {
@@ -464,11 +511,12 @@ private class WaiterGameFixture : AutoCloseable {
             },
             targetValid = { it.guestId in leased },
             serve = { served += it; canServe },
+            finishEating = { canFinishEating }, collectPlate = { true },
             release = { released += it; leased.remove(it.guestId) },
             guestVenue = { if (it in 416..417) "brewery" else if (it in 433..436) "restaurant" else null },
             playerVenue = { currentVenue }, debounce = { (lastClick == now).also { lastClick = now } },
             carry = carry, rewards = rewards, tasks = LifecycleTaskScope(scheduler),
-            clock = { now.also { now += clockReadAdvance } }, otherWork = { otherWork })
+            clock = { now.also { now += clockReadAdvance } }, otherWork = { otherWork }, stations = stations)
         listener = OriginDiningCitizensListener(game::interact)
     }
 
@@ -476,7 +524,12 @@ private class WaiterGameFixture : AutoCloseable {
     fun entity(id: Int) = npc(id).entity
     fun moveTo(id: Int) { now++; player.teleport(entity(id).location) }
     fun clickNpc(id: Int) { moveTo(id); game.interact(player, id) shouldBe true }
-    fun openStaff() { clickNpc(439); scheduler.executeImmediate() }
+    fun openStaff() {
+        player.isSneaking = game.isWorking(player.uniqueId)
+        clickNpc(439)
+        player.isSneaking = false
+        scheduler.executeImmediate()
+    }
     fun click(button: PaperDialogButton) {
         val context = mockk<PaperDialogClickContext> { every { player } returns this@WaiterGameFixture.player }
         button.onClick.handle(context)
@@ -489,8 +542,6 @@ private class WaiterGameFixture : AutoCloseable {
     fun begin(remaining: Int = 20) {
         nextStatus = CompletableFuture.completedFuture(ready.copy(remainingOrders = remaining))
         openStaff()
-        press("waiter_start")
-        scheduler.executeImmediate()
         shiftStarted = now
         game.reserves(433) shouldBe true
     }
@@ -499,6 +550,18 @@ private class WaiterGameFixture : AutoCloseable {
         now += 10_000
         openStaff()
         pressPickup(433, "Яичница")
+    }
+    fun clean(guest: Int) {
+        now += 18_000
+        game.tick(now)
+        clickNpc(guest)
+        // Direct world input uses the rendered request/index, just as the actual ray hit does.
+        for (action in listOf(OriginWaiterWash.SCRAPE, OriginWaiterWash.SOAP, OriginWaiterWash.RINSE, OriginWaiterWash.DRY)) {
+            now += 700
+            stationHit = OriginWaiterStationHit(checkNotNull(stationRequest), "wash:${action.name}", stationStep)
+            game.interactWorkstation(player) shouldBe true
+        }
+        stationHit = null
     }
     fun screenText(): String = screens.last().body.joinToString("\n") { plain(it.text) }
     fun actionBars(): List<String> = generateSequence { player.nextActionBar() }.map(::plain).toList()

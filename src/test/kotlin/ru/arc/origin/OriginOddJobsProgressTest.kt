@@ -67,46 +67,46 @@ class OriginOddJobsProgressTest : StringSpec({
         jobs.act(id, OriginOddJobAction.FEED, 5, 2)
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_HAY
     }
-    "all forge families require diagnosis target shape heat and final check; a wrong-zone hit is repairable" {
-        for (variant in listOf(OriginOddJobVariant.FORGE_NEW, OriginOddJobVariant.FORGE_REPAIR, OriginOddJobVariant.FORGE_PAIR)) {
+    "forge orders use direct stations and a few forgiving strikes without craft choices or a final check" {
+        for ((variant, strikes) in listOf(OriginOddJobVariant.FORGE_NEW to 4,
+            OriginOddJobVariant.FORGE_REPAIR to 2, OriginOddJobVariant.FORGE_PAIR to 2)) {
             val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID(); var now = 0L
             jobs.begin(id, offer(variant), now)
-            if (variant == OriginOddJobVariant.FORGE_NEW) {
-                jobs.choose(id, 1, ++now).reason() shouldBe OriginOddJobRejection.WRONG_MATERIAL
-                jobs.choose(id, 0, ++now)
-            }
-            val first = jobs.current(id)!!.forge!!.let { f -> f.shape.indices.first { f.shape[it] != f.target[it] } }
-            jobs.choose(id, first, ++now)
+            jobs.current(id)!!.forge!!.remainingStrikes shouldBe strikes
+            jobs.choose(id, 0, ++now).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+            jobs.act(id, OriginOddJobAction.HAMMER, ++now).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+            jobs.act(id, OriginOddJobAction.BLANK, ++now)
+            jobs.current(id)!!.stage shouldBe OriginOddJobStage.FORGE_HEAT
             jobs.act(id, OriginOddJobAction.HEAT, ++now)
-            now += originOddJobHeatReady(jobs.current(id)!!)
+            jobs.act(id, OriginOddJobAction.HEAT, ++now).reason() shouldBe OriginOddJobRejection.TOO_EARLY
+            // Pausing at the fire or anvil must never overheat, cool or damage the work.
+            now += 60_000
             jobs.act(id, OriginOddJobAction.HEAT, now)
+            jobs.current(id)!!.stage shouldBe OriginOddJobStage.FORGE_PLACE
             jobs.act(id, OriginOddJobAction.PLACE, ++now)
-            jobs.act(id, OriginOddJobAction.CHECK, now).reason() shouldBe OriginOddJobRejection.SHAPE_INCOMPLETE
-            repeat(3) {
-                while (jobs.current(id)!!.forge!!.let { it.shape[it.zone] != it.target[it.zone] }) {
-                    now = jobs.current(id)!!.stageStartedAt + ODD_JOB_HAMMER_READY_MILLIS
-                    jobs.act(id, OriginOddJobAction.HAMMER, now)
-                }
-                jobs.act(id, OriginOddJobAction.ROTATE, ++now)
+            jobs.act(id, OriginOddJobAction.HAMMER, ++now).reason() shouldBe OriginOddJobRejection.TOO_EARLY
+            repeat(strikes) {
+                now += 30_000
+                (jobs.act(id, OriginOddJobAction.HAMMER, now) is OriginOddJobStep.Changed) shouldBe true
             }
-            val done = jobs.current(id)!!.forge!!
-            done.shape shouldBe done.target
-            jobs.act(id, OriginOddJobAction.CHECK, ++now)
-            jobs.current(id)!!.stage shouldBe OriginOddJobStage.FORGE_QUENCH
+            val done = jobs.current(id)!!
+            done.forge!!.shape shouldBe done.forge.target
+            done.quality shouldBe 100
+            done.stage shouldBe OriginOddJobStage.FORGE_QUENCH
+            jobs.act(id, OriginOddJobAction.HAMMER, ++now).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
             jobs.act(id, OriginOddJobAction.QUENCH, ++now)
             jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
+            jobs.act(id, OriginOddJobAction.RETURN, ++now)
+            jobs.current(id)!!.stage shouldBe OriginOddJobStage.PAYOUT
         }
     }
-    "cold forge can reheat without losing shape and wrong finished-zone hit can be corrected" {
-        val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
-        jobs.begin(id, offer(OriginOddJobVariant.FORGE_REPAIR), 0)
-        jobs.choose(id, 2, 1); jobs.act(id, OriginOddJobAction.HEAT, 2); jobs.act(id, OriginOddJobAction.HEAT, 4_002)
-        jobs.act(id, OriginOddJobAction.PLACE, 4_003)
-        jobs.act(id, OriginOddJobAction.HAMMER, 33_000).reason() shouldBe OriginOddJobRejection.COLD
-        val shape = jobs.current(id)!!.forge!!.shape
-        jobs.act(id, OriginOddJobAction.HEAT, 33_001)
-        jobs.current(id)!!.forge!!.shape shouldBe shape
-        jobs.current(id)!!.stage shouldBe OriginOddJobStage.FORGE_HEAT
+    "forge dispatch never adds a hidden rush penalty" {
+        val dispatch = OriginOddJobDispatch(OriginOddJobKind.FORGE, Random(7))
+        repeat(6) {
+            val offers = dispatch.offers(OriginWorkShiftPhase.RUSH)
+            offers.all { !it.urgent } shouldBe true
+            dispatch.accept(offers.first().id)
+        }
     }
     "auction checks serial and condition, amendment visits Greta, grouped packing orders heavy below fragile" {
         for (variant in listOf(OriginOddJobVariant.AUCTION_DISPATCH, OriginOddJobVariant.AUCTION_AMEND, OriginOddJobVariant.AUCTION_GROUP)) {

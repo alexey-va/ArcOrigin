@@ -2,6 +2,7 @@ package ru.arc.origin
 
 import io.papermc.paper.event.player.PlayerArmSwingEvent
 import net.citizensnpcs.api.CitizensAPI
+import net.citizensnpcs.api.event.NPCLeftClickEvent
 import net.citizensnpcs.api.event.NPCRightClickEvent
 import net.kyori.adventure.text.format.TextColor
 import org.bukkit.Bukkit
@@ -144,6 +145,15 @@ internal class OriginOddJobsGame(
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
+    fun onNpcLeftClick(event: NPCLeftClickEvent) {
+        val shift = shifts[event.clicker.uniqueId] ?: return
+        if (closed || shift.venue.kind != OriginOddJobKind.FORGE || event.npc.id != shift.venue.npcId || actor(event.npc.id) == null) return
+        event.isCancelled = true
+        if (!near(event.clicker, event.npc.id)) { feedback(event.clicker, "come-closer"); return }
+        if (!duplicate(event.clicker)) finishRequested(event.clicker)
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     fun onEntity(event: PlayerInteractEntityEvent) {
         if (event is PlayerInteractAtEntityEvent || event.hand != EquipmentSlot.HAND) return
         if (entityInteraction(event.player, event.rightClicked)) event.isCancelled = true
@@ -177,11 +187,12 @@ internal class OriginOddJobsGame(
     fun onTeleport(event: PlayerTeleportEvent) { stop(event.player.uniqueId, "teleport") }
 
     fun interact(player: Player, npcId: Int): Boolean {
-        if (closed || !player.isSneaking) return false
+        if (closed) return false
         val playerId = player.uniqueId
         val current = progress.current(playerId)
         val shift = shifts[playerId]
         val venue = config.venues.firstOrNull { it.npcId == npcId }
+        if (venue?.kind != OriginOddJobKind.FORGE && !player.isSneaking) return false
         val handoff = current?.kind == OriginOddJobKind.AUCTION && npcId == config.handoffNpcId
         if (venue == null && !handoff || actor(npcId) == null) return false
         if (!near(player, npcId)) { feedback(player, "come-closer"); return true }
@@ -198,6 +209,14 @@ internal class OriginOddJobsGame(
         } else if (current?.stage in setOf(OriginOddJobStage.RETURN, OriginOddJobStage.AUCTION_DOCUMENT)) {
             apply(player, progress.act(playerId, OriginOddJobAction.RETURN, clock()))
             if (progress.current(playerId)?.stage == OriginOddJobStage.AUCTION_INSPECT) { OriginMenus.beginDialogFlow(player); show(player) }
+        } else if (venue?.kind == OriginOddJobKind.FORGE) {
+            when {
+                shift == null -> status(player, venue, start = true)
+                current != null -> guide(player, current, clock(), true)
+                playerId in accepted -> feedback(player, "paying")
+                playerId in requests -> feedback(player, "checking")
+                else -> nextForgeOrder(player, shift)
+            }
         } else {
             OriginMenus.beginDialogFlow(player)
             if (shift == null) status(player, requireNotNull(venue), start = false) else show(player)
@@ -214,7 +233,8 @@ internal class OriginOddJobsGame(
         if (playerId in requests) { feedback(player, "checking"); return }
         val request = UUID.randomUUID(); requests[playerId] = request
         val epoch = tasks.token()
-        OriginMenus.openDialog(player, originOddJobsScreen(config, venue, null, rewards.amount, null, clock()),
+        if (venue.kind == OriginOddJobKind.FORGE) feedback(player, "checking")
+        else OriginMenus.openDialog(player, originOddJobsScreen(config, venue, null, rewards.amount, null, clock()),
             onDismiss = { requests.remove(playerId, request) })
         rewards.status(playerId).whenComplete { state, failure -> tasks.runSync(epoch) {
             if (!requests.remove(playerId, request) || closed || !near(player, venue.npcId) || isWorking(playerId)) return@runSync
@@ -232,10 +252,17 @@ internal class OriginOddJobsGame(
             }
             if (rejected != null) { feedback(player, rejected, "seconds" to waiterSeconds((state?.nextAtMillis ?: clock()) - clock())); return@runSync }
             val score = OriginWorkShift.begin(clock(), config.shiftMillis)
-            shifts[playerId] = Shift(venue, score, OriginOddJobDispatch(venue.kind))
+            val shift = Shift(venue, score, OriginOddJobDispatch(venue.kind))
+            shifts[playerId] = shift
             info("ORIGIN_ODD_JOBS phase=SHIFT_STARTED player={} shift={} kind={}", playerId, score.id, venue.kind)
-            show(player)
+            if (venue.kind == OriginOddJobKind.FORGE) nextForgeOrder(player, shift) else show(player)
         } }
+    }
+
+    private fun nextForgeOrder(player: Player, shift: Shift) {
+        val now = clock()
+        if (!shift.score.acceptsOrders(now)) { finishIfReady(player.uniqueId, now); return }
+        accept(player, shift.score.id, shift.dispatch.offers(shift.score.phase(now)).first().id)
     }
 
     private fun accept(player: Player, shiftId: UUID, offerId: UUID) {
@@ -264,12 +291,18 @@ internal class OriginOddJobsGame(
             if (lease != null) leases[id] = lease
             if (!render(player, job, clock())) return@runSync
             info("ORIGIN_ODD_JOBS phase=STARTED player={} shift={} request={} kind={} variant={}", id, shiftId, job.id, job.kind, job.variant)
-            if (job.kind == OriginOddJobKind.AUCTION) show(player) else guide(player, job, clock(), true)
+            when (job.kind) {
+                OriginOddJobKind.AUCTION -> show(player)
+                OriginOddJobKind.FORGE -> message(player, config.line("forge.started",
+                    "order" to config.line("variants.${job.variant.key()}.title"), "guide" to originOddJobGuide(config, job, clock())))
+                OriginOddJobKind.MOUNTYARD -> guide(player, job, clock(), true)
+            }
         } }
     }
 
     private fun show(player: Player, notice: String? = null) {
         val id = player.uniqueId; val shift = shifts[id] ?: return; val job = progress.current(id)
+        if (shift.venue.kind == OriginOddJobKind.FORGE) return
         val atMaster = near(player, shift.venue.npcId)
         val atTask = contextNear(player, job, shift.venue)
         if (closed || !atMaster && !atTask) return
@@ -305,8 +338,7 @@ internal class OriginOddJobsGame(
     /** Every intercepted action still passes the actual block, reach and line-of-sight checks. */
     fun work(player: Player, left: Boolean, clicked: Block?): Boolean {
         val job = progress.current(player.uniqueId) ?: return false
-        val wanted = if (job.stage == OriginOddJobStage.FORGE_HAMMER && clicked != null &&
-            stations[OriginOddJobStationId.FIRE]?.block == clicked) OriginOddJobStationId.FIRE else originOddJobStation(job.stage)
+        val wanted = originOddJobStation(job.stage)
         val station = wanted?.let(stations::get) ?: return false
         if (!originOddJobAimed(player, station, config.range, clicked)) return false
         if (!valid(player, job)) { stop(player.uniqueId, "unavailable"); feedback(player, "unavailable"); return true }
@@ -317,18 +349,14 @@ internal class OriginOddJobsGame(
         val action = when (job.stage) {
             OriginOddJobStage.YARD_FEED -> OriginOddJobAction.FEED
             OriginOddJobStage.YARD_DRAIN, OriginOddJobStage.YARD_CLEAN, OriginOddJobStage.YARD_FILL, OriginOddJobStage.YARD_FILLING -> OriginOddJobAction.WATER
+            OriginOddJobStage.FORGE_BLANK, OriginOddJobStage.FORGE_INSPECT -> OriginOddJobAction.BLANK
             OriginOddJobStage.FORGE_HEAT, OriginOddJobStage.FORGE_HEATING -> OriginOddJobAction.HEAT
             OriginOddJobStage.FORGE_PLACE -> OriginOddJobAction.PLACE
-            OriginOddJobStage.FORGE_HAMMER -> when {
-                wanted == OriginOddJobStationId.FIRE -> OriginOddJobAction.HEAT
-                left -> OriginOddJobAction.HAMMER
-                player.isSneaking -> OriginOddJobAction.CHECK
-                else -> OriginOddJobAction.ROTATE
-            }
+            OriginOddJobStage.FORGE_HAMMER -> OriginOddJobAction.HAMMER
             OriginOddJobStage.FORGE_QUENCH -> OriginOddJobAction.QUENCH
             else -> return false
         }
-        if (job.stage != OriginOddJobStage.FORGE_HAMMER && left) { guide(player, job, clock(), true); return true }
+        if ((job.stage == OriginOddJobStage.FORGE_HAMMER) != left) { guide(player, job, clock(), true); return true }
         apply(player, progress.act(player.uniqueId, action, clock(), originOddJobZone(player, station)))
         return true
     }
@@ -338,13 +366,19 @@ internal class OriginOddJobsGame(
             is OriginOddJobStep.Rejected -> {
                 if (step.reason == OriginOddJobRejection.EXPIRED) { cancelOrder(player.uniqueId, "expired"); finishIfReady(player.uniqueId, clock()) }
                 else step.job?.let { if (!render(player, it, clock())) return }
-                feedback(player, rejectionKey(step.reason))
+                feedback(player, if (step.reason == OriginOddJobRejection.TOO_EARLY && step.job?.stage == OriginOddJobStage.FORGE_HAMMER)
+                    "forge.hammer-wait" else rejectionKey(step.reason))
             }
             is OriginOddJobStep.Changed -> {
                 if (step.job.stage == OriginOddJobStage.PAYOUT) { acceptResult(player, step.job); return }
                 if (!render(player, step.job, clock())) return
                 guide(player, step.job, clock(), true)
-                player.playSound(player.location, if (step.job.stage == OriginOddJobStage.FORGE_HAMMER) Sound.BLOCK_ANVIL_USE else Sound.UI_BUTTON_CLICK,
+                val sound = when {
+                    step.job.stage in setOf(OriginOddJobStage.FORGE_HAMMER, OriginOddJobStage.FORGE_QUENCH) -> Sound.BLOCK_ANVIL_USE
+                    step.job.stage == OriginOddJobStage.RETURN && step.job.kind == OriginOddJobKind.FORGE -> Sound.BLOCK_FIRE_EXTINGUISH
+                    else -> Sound.UI_BUTTON_CLICK
+                }
+                player.playSound(player.location, sound,
                     SoundCategory.PLAYERS, 0.3f, 1.1f)
             }
         }
@@ -377,7 +411,7 @@ internal class OriginOddJobsGame(
             val shift = shifts[id]?.takeIf { it.score.id == result.shiftId }
             if (outcome in setOf(SideJobRewardOutcome.PAID, SideJobRewardOutcome.ALREADY_PAID)) {
                 if (shift != null) shift.score = shift.score.record(result.job.id, rewards.amount, result.quality)
-                feedback("paid", "amount" to rewards.amount, "quality" to result.quality)
+                feedback(if (result.job.kind == OriginOddJobKind.FORGE) "forge.paid" else "paid", "amount" to rewards.amount, "quality" to result.quality)
             } else {
                 if (shift != null) shift.score = shift.score.requestFinish()
                 feedback(when (outcome) {
@@ -396,7 +430,9 @@ internal class OriginOddJobsGame(
     private fun finishRequested(player: Player) {
         val shift = shifts[player.uniqueId] ?: return
         shift.score = shift.score.requestFinish()
-        feedback(player, "shift.closing"); finishIfReady(player.uniqueId, clock())
+        if (shift.venue.kind != OriginOddJobKind.FORGE || progress.current(player.uniqueId) != null) feedback(player,
+            if (shift.venue.kind == OriginOddJobKind.FORGE) "forge.closing" else "shift.closing")
+        finishIfReady(player.uniqueId, clock())
     }
 
     private fun finishIfReady(id: UUID, now: Long) {
@@ -404,6 +440,7 @@ internal class OriginOddJobsGame(
         if (now >= shift.score.hardStopAt) cancelOrder(id, "expired")
         if (id in accepted || progress.current(id) != null || !shift.score.shouldFinish(now, false)) return
         shifts.remove(id, shift); requests.remove(id); lastClicks.remove(id)
+        clearGlow(id)
         Bukkit.getPlayer(id)?.takeIf { it.isOnline }?.sendMessage(waiterText("\n  " + config.line("shift.receipt",
             "done" to shift.score.completedOrders, "amount" to shift.score.earnedAmount,
             "quality" to if (shift.score.completedOrders == 0) 0 else shift.score.quality) + "\n"))
@@ -421,8 +458,11 @@ internal class OriginOddJobsGame(
                 job != null && (!valid(player, job) || now >= job.expiresAt) -> { cancelOrder(id, "expired"); feedback(player, "expired") }
                 job != null && render(player, job, now) -> guide(player, job, now)
                 job == null && id !in accepted && (noticeUntil[id] ?: 0) <= now -> {
-                    if (shift.score.acceptsOrders(now)) player.sendActionBar(waiterText(config.line("shift.board-guide", "name" to shift.venue.name,
-                        "clock" to originOddJobClock(shift.score.closesAt - now), "done" to shift.score.completedOrders)))
+                    if (shift.score.acceptsOrders(now)) {
+                        if (shift.venue.kind == OriginOddJobKind.FORGE) glow(player, shift.venue.npcId)
+                        player.sendActionBar(waiterText(config.line(if (shift.venue.kind == OriginOddJobKind.FORGE) "forge.board-guide" else "shift.board-guide",
+                            "name" to shift.venue.name, "clock" to originOddJobClock(shift.score.closesAt - now), "done" to shift.score.completedOrders)))
+                    }
                 }
             }
             finishIfReady(id, now)
@@ -447,26 +487,32 @@ internal class OriginOddJobsGame(
             OriginOddJobStage.RETURN -> if (job.kind == OriginOddJobKind.FORGE) OriginJobProp.FORGE_COOLED else null
             else -> null
         }
-        val placed = job.stage in setOf(OriginOddJobStage.FORGE_INSPECT, OriginOddJobStage.FORGE_HAMMER)
-        val forgeProfile = job.forge?.takeIf { forge -> placed || job.stage in setOf(OriginOddJobStage.FORGE_QUENCH, OriginOddJobStage.RETURN) ||
+        val placedAt = when (job.stage) {
+            OriginOddJobStage.FORGE_INSPECT, OriginOddJobStage.FORGE_HAMMER -> OriginOddJobStationId.ANVIL
+            OriginOddJobStage.FORGE_HEATING -> OriginOddJobStationId.FIRE
+            else -> null
+        }
+        val placed = placedAt != null
+        val forgeProfile = job.forge?.takeIf { job.stage in setOf(OriginOddJobStage.FORGE_INSPECT, OriginOddJobStage.FORGE_HAMMER,
+            OriginOddJobStage.FORGE_QUENCH, OriginOddJobStage.RETURN) ||
             job.stage in setOf(OriginOddJobStage.FORGE_HEAT, OriginOddJobStage.FORGE_HEATING, OriginOddJobStage.FORGE_PLACE) &&
-                (job.variant != OriginOddJobVariant.FORGE_NEW || forge.shape.any { it > 0 }) }
+                job.variant != OriginOddJobVariant.FORGE_NEW }
         if (props[player.uniqueId] != (prop to placed)) {
             if (prop == null) { visuals.clear(player.uniqueId, job.id); targets.remove(player.uniqueId) }
             else if (forgeProfile == null) {
-                if (placed) visuals.place(player, job.id, stations.getValue(OriginOddJobStationId.ANVIL).point, prop)
+                if (placedAt != null) visuals.place(player, job.id, stations.getValue(placedAt).point, prop)
                 else visuals.carry(player, job.id, prop)
             }
             props[player.uniqueId] = prop to placed; renderedForge.remove(player.uniqueId); renderedCleaning.remove(player.uniqueId)
         }
         if (forgeProfile != null) {
             val heated = when (job.stage) {
-                OriginOddJobStage.RETURN -> false
                 OriginOddJobStage.FORGE_HEATING -> now - job.stageStartedAt >= originOddJobHeatReady(job)
-                else -> now < forgeProfile.heatUntil
+                OriginOddJobStage.FORGE_PLACE, OriginOddJobStage.FORGE_HAMMER, OriginOddJobStage.FORGE_QUENCH -> true
+                else -> false
             }
             if (renderedForge[player.uniqueId] != (forgeProfile to heated)) {
-                if (placed) visuals.forgeProfile(player, job.id, stations.getValue(OriginOddJobStationId.ANVIL).point, forgeProfile, heated)
+                if (placedAt != null) visuals.forgeProfile(player, job.id, stations.getValue(placedAt).point, forgeProfile, heated)
                 else visuals.forgeCarry(player, job.id, forgeProfile, heated)
                 renderedForge[player.uniqueId] = forgeProfile to heated
             }
@@ -478,8 +524,11 @@ internal class OriginOddJobsGame(
             visuals.clear(player.uniqueId, job.id)
         }
         val stationId = originOddJobStation(job.stage)
-        val caption = if (job.stage == OriginOddJobStage.FORGE_HAMMER) config.line("forge.zone-target", "zone" to config.line("forge.zone-${job.forge?.zone}"))
-            else stationId?.let { config.line("targets.${it.name.lowercase()}") }.orEmpty()
+        val caption = when (job.stage) {
+            OriginOddJobStage.FORGE_HAMMER -> config.line("forge.hammer-target")
+            OriginOddJobStage.FORGE_INSPECT -> config.line("guide.forge-inspect")
+            else -> stationId?.let { config.line("targets.${it.name.lowercase()}") }.orEmpty()
+        }
         // Update the label even at the same station when its current operation changes.
         visuals.target(player, job.id, stationId?.let { stations.getValue(it).point }, caption)
         if (stationId == null) targets.remove(player.uniqueId) else targets[player.uniqueId] = stationId
@@ -489,11 +538,7 @@ internal class OriginOddJobsGame(
             OriginOddJobStage.AUCTION_LOAD, OriginOddJobStage.AUCTION_DOCUMENT, OriginOddJobStage.RETURN -> config.venue(job.kind).npcId
             else -> null
         }
-        val entity = npcId?.let(::actor)
-        if (glowing[player.uniqueId] !== entity) {
-            clearGlow(player.uniqueId)
-            if (entity != null) { OriginServices.viewerGlow.setEntityGlowingFor(entity, player, true); glowing[player.uniqueId] = entity }
-        }
+        glow(player, npcId)
         true
     } catch (failure: Exception) {
         warn("ORIGIN_ODD_JOBS phase=VISUAL_FAILED player={} request={}", player.uniqueId, job.id, failure)
@@ -504,8 +549,9 @@ internal class OriginOddJobsGame(
         if (!force && (noticeUntil[player.uniqueId] ?: 0) > now) return
         val shift = shifts[player.uniqueId]?.score ?: return
         val ready = originOddJobHammerReady(job, now) || job.stage == OriginOddJobStage.FORGE_HEATING &&
-            now - job.stageStartedAt in originOddJobHeatReady(job)..originOddJobHeatReady(job) + 3_000
-        player.sendActionBar(waiterText(config.line("shift.hud", "guide" to originOddJobGuide(config, job, now),
+            now - job.stageStartedAt >= originOddJobHeatReady(job)
+        player.sendActionBar(waiterText(config.line(if (job.kind == OriginOddJobKind.FORGE) "forge.hud" else "shift.hud",
+            "guide" to originOddJobGuide(config, job, now),
             "clock" to originOddJobClock((if (shift.acceptsOrders(now)) shift.closesAt else shift.hardStopAt) - now),
             "done" to shift.completedOrders, "quality" to job.quality), TextColor.color(if (ready) 0x9BD48D else 0xE8DFD2)))
     }
@@ -546,6 +592,12 @@ internal class OriginOddJobsGame(
     }
     private fun feedback(player: Player, key: String, vararg values: Pair<String, Any>) = message(player, config.line(key, *values))
     private fun message(player: Player, text: String) { noticeUntil[player.uniqueId] = clock() + 1_500; player.sendActionBar(waiterText(text)) }
+    private fun glow(player: Player, npcId: Int?) {
+        val entity = npcId?.let(::actor)
+        if (glowing[player.uniqueId] === entity) return
+        clearGlow(player.uniqueId)
+        if (entity != null) { OriginServices.viewerGlow.setEntityGlowingFor(entity, player, true); glowing[player.uniqueId] = entity }
+    }
     private fun clearGlow(playerId: UUID) {
         val entity = glowing.remove(playerId) ?: return
         Bukkit.getPlayer(playerId)?.let { if (entity.isValid) OriginServices.viewerGlow.setEntityGlowingFor(entity, it, false) }
@@ -566,6 +618,7 @@ internal class OriginOddJobsGame(
     }
     fun stop(playerId: UUID, reason: String) {
         requests.remove(playerId); lastClicks.remove(playerId); cancelOrder(playerId, reason)
+        runCatching { clearGlow(playerId) }.onFailure { warn("ORIGIN_ODD_JOBS phase=GLOW_CLEAR_FAILED player={} reason={}", playerId, reason, it) }
         if (reason == "reload") { accepted.remove(playerId); shifts.remove(playerId) }
         else {
             shifts[playerId]?.let { it.score = it.score.requestFinish() }

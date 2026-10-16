@@ -105,6 +105,17 @@ internal class OriginDiningLife(
 
     fun isEmpty(key: String): Boolean = meals[key]?.portion == DiningPortion.EMPTY
 
+    /** A player waiter owns this guest's lease, so the ambient bite cycle cannot acquire it. */
+    fun finishEating(key: String): Boolean {
+        val meal = meals[key]?.takeIf { it.display.isValid } ?: return false
+        if (meal.portion == DiningPortion.EMPTY) return true
+        cycles["bite:$key"]?.execution?.interrupt("player-waiter-meal-finished", OriginSceneRecoveryPolicy.KEEP_CURRENT_POSITION)
+        return runCatching { updatePortion(meal, DiningPortion.EMPTY); true }.getOrElse { failure ->
+            warn("ORIGIN_DINING_LIFE phase=WAITER_PLATE_FAILED table={}", key, failure)
+            false
+        }
+    }
+
     fun preempt(actorId: Int) {
         cycles.values.filter { actorId in it.actors }.toList().forEach {
             it.execution.interrupt("player-or-service-priority", OriginSceneRecoveryPolicy.KEEP_CURRENT_POSITION)
