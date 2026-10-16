@@ -11,7 +11,6 @@ import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import net.citizensnpcs.api.CitizensAPI
-import net.citizensnpcs.api.event.NPCLeftClickEvent
 import net.citizensnpcs.api.event.NPCRightClickEvent
 import net.citizensnpcs.api.npc.NPC
 import net.citizensnpcs.api.npc.NPCRegistry
@@ -30,9 +29,11 @@ import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.inventory.EquipmentSlot
+import org.bukkit.inventory.meta.ItemMeta
 import org.bukkit.util.Vector
 import org.bukkit.util.RayTraceResult
 import org.mockbukkit.mockbukkit.world.WorldMock
+import org.mockbukkit.mockbukkit.inventory.meta.ItemMetaMock
 import ru.arc.core.LifecycleTaskScope
 import ru.arc.core.TestTaskScheduler
 import ru.arc.origin.api.ArcOriginViewerGlow
@@ -50,249 +51,209 @@ class OriginOddJobsGameTest : StringSpec({
     beforeEach { f = OddJobsFixture() }
     afterEach { f.close() }
 
-    "ordinary services actor identity and offhand paths retain their original boundaries" {
+    "every employer opens an ordinary right click confirmation and never starts before acceptance" {
         failOnUnsupportedMockBukkitOperation {
-            for (id in listOf(440, 365, 382)) {
-                f.player.isSneaking = false; f.moveNpc(id)
-                val event = NPCRightClickEvent(f.npc(id), f.player)
-                f.game.onNpcClick(event); event.isCancelled shouldBe false
+            for (id in listOf(440, 349, 365)) {
+                f.open(id, sneaking = false)
+                f.game.isWorking(f.player.uniqueId) shouldBe false
+                f.screens.last().buttons.map { it.id.value } shouldBe listOf("odd_job_start", "odd_job_later")
+                f.screens.last().buttons.last().label.let(f::plain) shouldBe "Не сейчас"
             }
-            verify(exactly = 0) { f.rewards.status(any()) }
-            f.player.isSneaking = true; f.moveNpc(440)
+            f.press("odd_job_start"); f.scheduler.executeImmediate(); f.scheduler.executeImmediate()
+            f.game.isWorking(f.player.uniqueId) shouldBe true
+            f.game.currentJob(f.player.uniqueId)!!.kind shouldBe OriginOddJobKind.AUCTION
+        }
+    }
+    "employer identity offhand reach and dismissed asynchronous admission remain fenced" {
+        failOnUnsupportedMockBukkitOperation {
+            f.moveNpc(440)
             val offhand = PlayerInteractEntityEvent(f.player, f.entity(440), EquipmentSlot.OFF_HAND)
             f.game.onEntity(offhand); offhand.isCancelled shouldBe false
-            val at = PlayerInteractAtEntityEvent(f.player, f.entity(440), Vector(), EquipmentSlot.HAND)
-            f.game.onEntityAt(at); at.isCancelled shouldBe true
-            val duplicate = NPCRightClickEvent(f.npc(440), f.player)
-            f.game.onNpcClick(duplicate); duplicate.isCancelled shouldBe true
-            f.scheduler.executeImmediate()
-            verify(exactly = 1) { f.rewards.status(f.player.uniqueId) }
+            f.nextStatus = CompletableFuture()
+            f.open(440, flush = false, sneaking = false)
+            f.dismiss(); f.nextStatus.complete(f.ready); f.scheduler.executeImmediate()
+            f.game.isWorking(f.player.uniqueId) shouldBe false
             every { f.npc(440).uniqueId } returns UUID.randomUUID()
             f.game.interact(f.player, 440) shouldBe false
         }
     }
-    "completed order releases worksite while shift survives and accepts a different next family" {
+    "active employers expose only continue and finish and exit cancels unfinished work immediately" {
         failOnUnsupportedMockBukkitOperation {
-            f.begin(440, OriginOddJobVariant.YARD_CARAVAN)
-            val lease = f.leases.last()
-            f.finishCaravan()
-            f.released.contains(lease) shouldBe true
-            val payment = f.payments.single(); payment.valid() shouldBe true
-            payment.callback(SideJobRewardOutcome.PAID); payment.callback(SideJobRewardOutcome.PAID)
-            f.game.isWorking(f.player.uniqueId) shouldBe true
-            f.open(440)
-            val body = f.screens.last().body.joinToString { f.plain(it.text) }
-            body shouldContain "Принято 1"
-            body shouldContain "20 💰"
-            f.screens.last().buttons.filter { it.id.value.startsWith("odd_job_offer_") }.none {
-                f.plain(it.label) == f.config.line("variants.yard-caravan.action")
-            } shouldBe true
+            f.begin(440, OriginOddJobVariant.YARD_RATIONS)
+            f.open(440, sneaking = false)
+            f.screens.last().buttons.map { it.id.value } shouldBe listOf("odd_job_continue", "odd_job_finish")
             f.press("odd_job_finish")
             f.game.isWorking(f.player.uniqueId) shouldBe false
-            f.actionBars().count { it.contains("+20 💰") } shouldBe 1
+            f.payments shouldBe emptyList()
+            f.released.size shouldBe 1
         }
     }
-    "known cooldown preserves exact completed order through deadline and lease loss then settles once" {
+    "stock is an inventory pickup with one visible service item and duplicate clicks cannot duplicate it" {
         failOnUnsupportedMockBukkitOperation {
-            f.begin(440, OriginOddJobVariant.YARD_CARAVAN); f.finishCaravan()
-            val first = f.payments.single()
-            first.callback(SideJobRewardOutcome.COOLDOWN)
-            f.leaseValid = false
-            f.now += 19_999; f.game.tick(f.now)
-            f.payments.size shouldBe 1
-            f.now += 1; f.game.tick(f.now)
-            f.payments.size shouldBe 2
-            val retry = f.payments.last(); retry.id shouldBe first.id
-            f.now += 800_000; f.game.tick(f.now)
-            retry.valid() shouldBe true
-            retry.callback(SideJobRewardOutcome.PAID)
-            f.game.isWorking(f.player.uniqueId) shouldBe false
-            f.payments.size shouldBe 2
+            f.player.inventory.setItem(0, org.bukkit.inventory.ItemStack(Material.DIAMOND, 7))
+            f.startForge()
+            f.game.currentJob(f.player.uniqueId)!!.variant shouldBe OriginOddJobVariant.FORGE_NEW
+            f.stroke(OriginOddJobStationId.BLANK)
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.FORGE_BLANK
+            val stock = f.player.openInventory.topInventory
+            (stock.holder is OriginOddJobSupplies.Stock) shouldBe true
+            f.stockClick(); f.stockClick(); f.scheduler.tick()
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.FORGE_HEAT
+            f.player.inventory.contents.filterNotNull().count { it.type == Material.STRUCTURE_VOID } shouldBe 1
+            f.player.inventory.getItem(1)!!.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("iron_ingot")
+            stock.getItem(4) shouldBe null
+            f.player.inventory.getItem(0)!!.amount shouldBe 7
+            f.player.closeInventory()
+            f.stroke(OriginOddJobStationId.FIRE)
+            f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+            verify { f.visuals.hang(f.player, any(), f.stations.getValue(OriginOddJobStationId.FIRE).point, OriginJobProp.FORGE_BLANK) }
         }
     }
-    "accepted payment survives quit and stale duplicate callback cannot inflate a new shift" {
+    "full storage keeps the blank in stock and a later free slot permits the same order" {
         failOnUnsupportedMockBukkitOperation {
-            f.begin(365, OriginOddJobVariant.AUCTION_AMEND); f.finishAuction()
-            val payment = f.payments.single()
+            repeat(36) { f.player.inventory.setItem(it, org.bukkit.inventory.ItemStack(Material.DIAMOND, 64)) }
+            f.startForge(); f.stroke(OriginOddJobStationId.BLANK)
+            val request = f.game.currentJob(f.player.uniqueId)!!.id
+            f.stockClick(); f.scheduler.tick()
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.FORGE_BLANK
+            f.player.openInventory.topInventory.getItem(4)!!.amount shouldBe 1
+            f.player.inventory.setItem(7, null)
+            f.stockClick(); f.scheduler.tick()
+            f.game.currentJob(f.player.uniqueId)!!.id shouldBe request
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.FORGE_HEAT
+            f.player.inventory.getItem(6)!!.amount shouldBe 64
+        }
+    }
+    "service item cannot move to crafting drop or offhand and quit removes only the tagged material" {
+        failOnUnsupportedMockBukkitOperation {
+            f.player.inventory.setItem(0, org.bukkit.inventory.ItemStack(Material.IRON_INGOT, 13))
+            f.startForge(); f.pickupBlank()
+            val token = f.player.inventory.getItem(1)!!
+            val click = mockk<org.bukkit.event.inventory.InventoryClickEvent>(relaxed = true) {
+                every { whoClicked } returns f.player; every { view } returns f.player.openInventory
+                every { currentItem } returns token; every { hotbarButton } returns -1
+            }
+            f.game.onInventoryClick(click); verify { click.isCancelled = true }
+            val drop = mockk<org.bukkit.event.player.PlayerDropItemEvent>(relaxed = true) {
+                every { itemDrop.itemStack } returns token
+            }
+            f.game.onDrop(drop); verify { drop.isCancelled = true }
+            val swap = mockk<org.bukkit.event.player.PlayerSwapHandItemsEvent>(relaxed = true) {
+                every { mainHandItem } returns token
+            }
+            f.game.onSwap(swap); verify { swap.isCancelled = true }
             f.game.onQuit(mockk<PlayerQuitEvent> { every { player } returns f.player })
-            payment.valid() shouldBe true
-            payment.callback(SideJobRewardOutcome.PAID)
-            f.game.isWorking(f.player.uniqueId) shouldBe false
-            f.startShift(365)
-            payment.callback(SideJobRewardOutcome.PAID)
-            f.open(365)
-            f.screens.last().body.joinToString { f.plain(it.text) } shouldContain "Принято 0"
-        }
-    }
-    "unknown payment is never retried and incomplete cancellation never calls money" {
-        failOnUnsupportedMockBukkitOperation {
-            f.begin(365, OriginOddJobVariant.AUCTION_GROUP); f.finishAuction()
-            f.payments.single().callback(SideJobRewardOutcome.UNCONFIRMED)
-            f.now += 800_000; f.game.tick(f.now)
-            f.payments.size shouldBe 1
-            f.game.isWorking(f.player.uniqueId) shouldBe false
-            f.begin(440, OriginOddJobVariant.YARD_RATIONS)
-            f.open(440); f.press("odd_job_cancel")
-            f.payments.size shouldBe 1
-            f.game.isWorking(f.player.uniqueId) shouldBe true
-        }
-    }
-    "master overview remains reachable far from current station and finish after current order can be cancelled" {
-        failOnUnsupportedMockBukkitOperation {
-            f.begin(440, OriginOddJobVariant.YARD_RATIONS)
-            val master = f.entity(440)
-            every { master.location } answers { Location(f.world, -10.0, 70.0, 0.0) }
-            f.open(440)
-            val screen = f.screens.last()
-            screen.buttons.none { it.id.value.startsWith("odd_job_choice_") } shouldBe true
-            screen.buttons.any { it.id.value == "odd_job_finish" } shouldBe true
-            f.press("odd_job_finish")
-            f.game.isWorking(f.player.uniqueId) shouldBe true
-            f.open(440); f.press("odd_job_cancel")
-            f.game.isWorking(f.player.uniqueId) shouldBe false
+            f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+            f.player.inventory.getItem(0)!!.amount shouldBe 13
             f.payments shouldBe emptyList()
         }
     }
-    "forge starts with ordinary clicks and keeps work hot at the real station until it is handed over once" {
+    "raw new forging remains a billet at placement and becomes a horseshoe only after hammering" {
         failOnUnsupportedMockBukkitOperation {
-            var carried: Pair<OriginForgeWork, Boolean>? = null
-            var placed: Pair<OriginForgeWork, Boolean>? = null
-            var placedAt: Location? = null
-            every { f.visuals.forgeCarry(any(), any(), any(), any()) } answers {
-                carried = thirdArg<OriginForgeWork>() to arg(3)
-            }
-            every { f.visuals.forgeProfile(any(), any(), any(), any(), any()) } answers {
-                placedAt = thirdArg<Location>()
-                placed = arg<OriginForgeWork>(3) to arg(4)
-            }
-            f.startForge()
-            val firstStation = f.currentStation()
-            (firstStation in setOf(OriginOddJobStationId.BLANK, OriginOddJobStationId.ANVIL)) shouldBe true
-            val duplicate = PlayerInteractAtEntityEvent(f.player, f.entity(349), Vector(), EquipmentSlot.HAND)
-            f.game.onEntityAt(duplicate); duplicate.isCancelled shouldBe true
-            f.leases.size shouldBe 1
-            f.screens shouldBe emptyList()
-            f.stroke(firstStation)
-            f.currentStation() shouldBe OriginOddJobStationId.FIRE
+            f.startForge(); f.pickupBlank()
             f.stroke(OriginOddJobStationId.FIRE)
-            f.now += 60_000; f.game.tick(f.now)
-            f.currentStation() shouldBe OriginOddJobStationId.FIRE
-            if (placed != null) placedAt shouldBe f.stations.getValue(OriginOddJobStationId.FIRE).point
-            else verify { f.visuals.place(f.player, any(), f.stations.getValue(OriginOddJobStationId.FIRE).point, OriginJobProp.FORGE_HEATED) }
-            f.stroke(OriginOddJobStationId.FIRE)
+            f.stroke(OriginOddJobStationId.FIRE, elapsed = 60_000)
             f.stroke(OriginOddJobStationId.ANVIL)
-            val original = requireNotNull(placed).first
-            placedAt shouldBe f.stations.getValue(OriginOddJobStationId.ANVIL).point
-            f.stroke(OriginOddJobStationId.ANVIL) // Right click no longer rotates or hits the work.
-            placed shouldBe (original to true)
-            f.now += 30_000; f.game.tick(f.now)
-            placed shouldBe (original to true)
-            repeat(original.remainingStrikes) {
+            verify { f.visuals.place(f.player, any(), f.stations.getValue(OriginOddJobStationId.ANVIL).point, OriginJobProp.FORGE_HEATED) }
+            val initial = f.game.currentJob(f.player.uniqueId)!!
+            repeat(initial.forge!!.remainingStrikes) { index ->
                 f.stroke(OriginOddJobStationId.ANVIL, left = true, elapsed = ODD_JOB_HAMMER_READY_MILLIS)
+                val current = f.game.currentJob(f.player.uniqueId)!!
+                if (index + 1 < initial.forge.remainingStrikes) (originOddJobNewForgeShape(current) == OriginJobProp.FORGE_HORSESHOE) shouldBe false
             }
-            f.currentStation() shouldBe OriginOddJobStationId.QUENCH
-            carried shouldBe (original.copy(shape = original.target) to true)
-            f.stroke(OriginOddJobStationId.QUENCH)
-            carried shouldBe (original.copy(shape = original.target) to false)
-            val edgar = f.entity(349)
-            verify { f.glow.setEntityGlowingFor(edgar, f.player, true) }
-            f.clickNpc(349, sneaking = false)
-            val payment = f.payments.single()
-            payment.kind shouldBe OriginSideJobKind.FORGE
-            f.clickNpc(349, sneaking = false)
-            f.payments.size shouldBe 1
-            payment.callback(SideJobRewardOutcome.PAID); payment.callback(SideJobRewardOutcome.PAID)
-            f.actionBars().count { it.contains("+20 💰") } shouldBe 1
-            f.game.isWorking(f.player.uniqueId) shouldBe true
-            f.now += 2_000; f.game.tick(f.now)
-            f.leftClickForge()
-            f.game.isWorking(f.player.uniqueId) shouldBe false
-            f.released shouldBe f.leases
-            f.screens shouldBe emptyList()
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.FORGE_QUENCH
+            f.stroke(OriginOddJobStationId.QUENCH); f.clickNpc(349, sneaking = false)
+            f.payments.single().kind shouldBe OriginSideJobKind.FORGE
         }
     }
-    "forge finish request preserves the current order and closes after its confirmed payment" {
-        failOnUnsupportedMockBukkitOperation {
-            f.startForge()
-            f.leftClickForge()
-            f.game.isWorking(f.player.uniqueId) shouldBe true
-            f.finishForge()
-            f.payments.single().callback(SideJobRewardOutcome.PAID)
-            f.game.isWorking(f.player.uniqueId) shouldBe false
-            f.screens shouldBe emptyList()
-        }
-    }
-    "forge admission stays asynchronous and a late status cannot start after departure" {
-        failOnUnsupportedMockBukkitOperation {
-            val delayed = CompletableFuture<SideJobRewardStatus>(); f.nextStatus = delayed
-            f.open(349, flush = false, sneaking = false)
-            f.screens shouldBe emptyList()
-            f.game.isWorking(f.player.uniqueId) shouldBe false
-            f.leases shouldBe emptyList()
-            f.game.stop(f.player.uniqueId, "quit")
-            delayed.complete(f.ready); f.scheduler.executeImmediate()
-            f.game.isWorking(f.player.uniqueId) shouldBe false
-            f.leases shouldBe emptyList()
-        }
-    }
-    "forge idle highlight is removed on reload without an active order" {
+    "confirmed payment schedules the next task automatically without reopening an employer" {
         failOnUnsupportedMockBukkitOperation {
             f.startForge(); f.finishForge()
-            f.payments.single().callback(SideJobRewardOutcome.PAID)
-            f.now += 2_000; f.game.tick(f.now)
-            val edgar = f.entity(349)
-            verify(exactly = 2) { f.glow.setEntityGlowingFor(edgar, f.player, true) }
-            f.game.close()
-            verify(exactly = 2) { f.glow.setEntityGlowingFor(edgar, f.player, false) }
+            val first = f.payments.single()
+            first.callback(SideJobRewardOutcome.PAID); first.callback(SideJobRewardOutcome.PAID)
+            val screens = f.screens.size
+            f.game.tick(f.now); f.scheduler.executeImmediate()
+            (f.game.currentJob(f.player.uniqueId)!!.variant == OriginOddJobVariant.FORGE_NEW) shouldBe false
+            f.screens.size shouldBe screens
+            f.actionBars().count { "+20" in it } shouldBe 1
+        }
+    }
+    "accepted payment survives quit and known cooldown retries exactly the same request" {
+        failOnUnsupportedMockBukkitOperation {
+            f.startForge(); f.finishForge()
+            val first = f.payments.single(); first.callback(SideJobRewardOutcome.COOLDOWN)
+            f.game.onQuit(mockk<PlayerQuitEvent> { every { player } returns f.player })
+            first.valid() shouldBe true
+            f.now += 20_000; f.game.tick(f.now)
+            f.payments.size shouldBe 2
+            f.payments.last().id shouldBe first.id
+            f.payments.last().callback(SideJobRewardOutcome.PAID)
             f.game.isWorking(f.player.uniqueId) shouldBe false
         }
     }
-    "station actions cannot cross walls or wrong blocks and cleanup still releases after glow failure" {
+    "a badly balanced caravan is recoverable by left clicking its last load without reopening a menu" {
         failOnUnsupportedMockBukkitOperation {
-            f.begin(440, OriginOddJobVariant.YARD_RATIONS); f.aim(OriginOddJobStationId.HAY)
-            val wrong = f.stations.getValue(OriginOddJobStationId.WATER).block
-            f.game.work(f.player, false, wrong) shouldBe false
-            f.world.obstruction = RayTraceResult(Vector(1.5, 71.5, 2.0), wrong, BlockFace.NORTH)
-            f.game.work(f.player, false, null) shouldBe false
-            f.world.obstruction = null
-            every { f.glow.setEntityGlowingFor(any(), any(), false) } throws IllegalStateException("host unavailable")
-            f.game.stop(f.player.uniqueId, "cancelled")
-            f.released shouldBe f.leases
-            f.game.isWorking(f.player.uniqueId) shouldBe false
+            f.begin(440, OriginOddJobVariant.YARD_CARAVAN)
+            val screens = f.screens.size
+            repeat(3) {
+                f.stroke(OriginOddJobStationId.HAY)
+                f.stroke(OriginOddJobStationId.FEED, zone = 0)
+            }
+            f.stroke(OriginOddJobStationId.HAY)
+            f.stroke(OriginOddJobStationId.FEED, zone = 2)
+            val rejected = f.game.currentJob(f.player.uniqueId)!!
+            rejected.stage shouldBe OriginOddJobStage.YARD_LOAD
+            rejected.yard!!.loads shouldBe listOf(0, 0, 0)
+            originOddJobGuide(f.config, rejected, f.now) shouldContain "груз 6:0"
+            f.stroke(OriginOddJobStationId.FEED, left = true)
+            f.game.currentJob(f.player.uniqueId)!!.yard!!.loads shouldBe listOf(0, 0, 1)
+            f.stroke(OriginOddJobStationId.FEED, zone = 2)
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.RETURN
+            f.screens.size shouldBe screens
         }
     }
-    "unloaded worksite resolves only on admission and active station loss releases without retargeting" {
-        f.close(); f = OddJobsFixture(deferStations = true)
+    "lease loss and reload remove working items and never pay unfinished work" {
         failOnUnsupportedMockBukkitOperation {
-            f.open(440); f.resolveAttempts shouldBe 1
-            f.game.tick(f.now); f.resolveAttempts shouldBe 1
-            verify(exactly = 0) { f.rewards.status(any()) }
-            f.resolvedStations = f.stations
-            f.begin(440, OriginOddJobVariant.YARD_RATIONS)
-            f.resolveAttempts shouldBe 2
-            f.stations.getValue(OriginOddJobStationId.HAY).block.type = Material.AIR
-            f.game.tick(f.now)
-            f.released shouldBe f.leases
-            f.resolveAttempts shouldBe 2
+            f.startForge(); f.pickupBlank(); f.leaseValid = false
+            f.game.tick(++f.now)
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+            f.payments shouldBe emptyList()
+            f.game.close(); f.game.isWorking(f.player.uniqueId) shouldBe false
         }
     }
-    "late admission checks other jobs and dismissal before starting a shift" {
+    "a disappeared carried token is cancelled and cannot be synthesized by rendering or clicking the next station" {
         failOnUnsupportedMockBukkitOperation {
-            f.open(440)
-            val delayed = CompletableFuture<SideJobRewardStatus>(); f.nextStatus = delayed
-            f.press("odd_job_start"); f.otherWork = "waiter-active"
-            delayed.complete(f.ready); f.scheduler.executeImmediate()
-            f.game.isWorking(f.player.uniqueId) shouldBe false
-            f.otherWork = null; f.nextStatus = CompletableFuture()
-            f.open(365, flush = false); f.dismiss()
-            f.nextStatus.complete(f.ready); f.scheduler.executeImmediate()
-            f.game.isWorking(f.player.uniqueId) shouldBe false
+            f.player.inventory.setItem(0, org.bukkit.inventory.ItemStack(Material.DIAMOND, 5))
+            f.startForge(); f.pickupBlank()
+            val old = f.game.currentJob(f.player.uniqueId)!!.id
+            f.player.inventory.setItem(1, null)
+            f.game.tick(++f.now)
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+            f.aim(OriginOddJobStationId.FIRE)
+            f.game.work(f.player, false, f.stations.getValue(OriginOddJobStationId.FIRE).block) shouldBe false
+            f.payments.none { it.id == old } shouldBe true
+            f.player.inventory.getItem(0)!!.amount shouldBe 5
+        }
+    }
+    "visible chain and its authored guard rail are reachable but a wall is not a work proxy" {
+        failOnUnsupportedMockBukkitOperation {
+            val chain = f.stations.getValue(OriginOddJobStationId.FIRE)
+            val rail = f.world.getBlockAt(chain.block.x, 70, 2).also { it.type = Material.IRON_BARS }
+            val target = chain.copy(accessBlocks = listOf(rail))
+            f.aim(OriginOddJobStationId.FIRE)
+            f.world.obstruction = RayTraceResult(rail.location.toVector(), rail, BlockFace.NORTH)
+            originOddJobAimed(f.player, target, 4.5, rail) shouldBe true
+            rail.type = Material.STONE
+            originOddJobAimed(f.player, target, 4.5, rail) shouldBe false
         }
     }
 })
 
 private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     val paper = MockBukkitTestRuntime.open()
+    private val itemFactory = paper.server.itemFactory
     val world = OddJobWorld().also { it.name = "rc_origin_spawn"; paper.server.addWorld(it); it.getChunkAt(0, 0) }
     val player = paper.addPlayer("OddJobTest")
     val config = oddJobTestConfig()
@@ -311,6 +272,7 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     val released = mutableListOf<OriginSceneLease>()
     var leaseValid = true
     var otherWork: String? = null
+    var desiredVariant: OriginOddJobVariant? = null
     var now = 1_000L
     val registry = mockk<NPCRegistry>()
     val actors = mutableMapOf<Int, NPC>()
@@ -322,6 +284,10 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     init {
         mockkStatic(CitizensAPI::class)
         mockkObject(OriginMenus, OriginServices)
+        // MockBukkit 4.116.3's ItemMetaMock copy constructor omits itemModel.
+        // Keep Paper's copy contract for this service material, including inventory round trips.
+        mockkObject(itemFactory)
+        every { itemFactory.asMetaFor(any(), Material.STRUCTURE_VOID) } answers { ModelPreservingItemMeta(firstArg()) }
         every { CitizensAPI.getNPCRegistry() } returns registry
         every { registry.getById(any()) } answers { actors[firstArg()] }
         every { registry.getNPC(any<Entity>()) } answers { actors.values.firstOrNull { it.entity === firstArg<Entity>() } }
@@ -366,7 +332,10 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
         game = OriginOddJobsGame(config, world.name, if (deferStations) emptyMap() else stations, rewards, visuals, LifecycleTaskScope(scheduler),
             acquire = { venue -> OriginSceneLease(UUID.randomUUID(), venue.scene!!, "work", venue.actorIds).also { leases += it } },
             owns = { leaseValid && it !in released }, release = { released += it }, otherWork = { otherWork }, clock = { now },
-            resolveStations = { resolveAttempts++; resolvedStations })
+            resolveStations = { resolveAttempts++; resolvedStations }, dispatch = { kind ->
+                (0..100).asSequence().map { OriginOddJobDispatch(kind, kotlin.random.Random(it)) }
+                    .first { desiredVariant == null || it.offers(OriginWorkShiftPhase.OPENING).first().variant == desiredVariant }
+            })
     }
 
     fun npc(id: Int) = actors.getValue(id)
@@ -374,30 +343,30 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     fun moveNpc(id: Int) { now += 300; player.teleport(entity(id).location) }
     fun clickNpc(id: Int, sneaking: Boolean = true) { moveNpc(id); player.isSneaking = sneaking; game.interact(player, id) shouldBe true }
     fun open(id: Int, flush: Boolean = true, sneaking: Boolean = true) { clickNpc(id, sneaking); if (flush) scheduler.executeImmediate() }
-    fun currentStation() = stations.entries.single { it.value.point == target }.key
-    fun startForge() {
-        moveNpc(349); player.isSneaking = false
-        val event = NPCRightClickEvent(npc(349), player)
-        game.onNpcClick(event); event.isCancelled shouldBe true
-        scheduler.executeImmediate(); scheduler.executeImmediate()
-        game.isWorking(player.uniqueId) shouldBe true
+    fun currentStation() = stations.entries.single { it.value.block.location.add(0.5, 0.5, 0.5) == target }.key
+    fun startForge() { startShift(349) }
+    fun stockClick() {
+        val click = mockk<org.bukkit.event.inventory.InventoryClickEvent>(relaxed = true) {
+            every { whoClicked } returns player
+            every { view } returns player.openInventory
+            every { rawSlot } returns 4
+            every { currentItem } returns player.openInventory.topInventory.getItem(4)
+        }
+        game.onInventoryClick(click)
+        verify { click.isCancelled = true }
     }
-    fun leftClickForge() {
-        moveNpc(349); player.isSneaking = false
-        val event = NPCLeftClickEvent(npc(349), player)
-        game.onNpcLeftClick(event); event.isCancelled shouldBe true
+    fun pickupBlank() {
+        stroke(OriginOddJobStationId.BLANK); stockClick(); scheduler.tick(); player.closeInventory()
     }
     fun finishForge() {
-        stroke(currentStation())
+        pickupBlank()
         stroke(OriginOddJobStationId.FIRE)
         stroke(OriginOddJobStationId.FIRE, elapsed = ODD_JOB_HEAT_READY_MILLIS + 1_500)
         stroke(OriginOddJobStationId.ANVIL)
-        repeat(requireNotNull(forgeWork).remainingStrikes) {
+        repeat(game.currentJob(player.uniqueId)!!.forge!!.remainingStrikes) {
             stroke(OriginOddJobStationId.ANVIL, left = true, elapsed = ODD_JOB_HAMMER_READY_MILLIS)
         }
-        currentStation() shouldBe OriginOddJobStationId.QUENCH
-        stroke(OriginOddJobStationId.QUENCH)
-        clickNpc(349, sneaking = false)
+        stroke(OriginOddJobStationId.QUENCH); clickNpc(349, sneaking = false)
     }
     fun press(id: String) {
         val context = mockk<PaperDialogClickContext> { every { player } returns this@OddJobsFixture.player }
@@ -405,100 +374,42 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     }
     fun startShift(id: Int) {
         nextStatus = CompletableFuture.completedFuture(ready)
-        open(id); press("odd_job_start"); scheduler.executeImmediate()
+        open(id, sneaking = false); press("odd_job_start"); scheduler.executeImmediate(); scheduler.executeImmediate()
         game.isWorking(player.uniqueId) shouldBe true
     }
-    fun begin(id: Int, variant: OriginOddJobVariant) {
-        startShift(id)
-        repeat(3) {
-            val options = screens.last().buttons.filter { it.id.value.startsWith("odd_job_offer_") }
-            val desired = options.firstOrNull { plain(it.label) == config.line("variants.${variant.key()}.action") }
-            press((desired ?: options.first()).id.value); scheduler.executeImmediate()
-            if (desired != null) return
-            open(id); press("odd_job_cancel"); open(id)
-        }
-        error("dispatch bag did not expose $variant")
-    }
-    fun aim(id: OriginOddJobStationId) {
+    fun begin(id: Int, variant: OriginOddJobVariant) { desiredVariant = variant; startShift(id) }
+    fun aim(id: OriginOddJobStationId, zone: Int = 1) {
         val point = stations.getValue(id).point
         val at = Location(world, point.x, 70.0, point.z - 2.2)
-        at.setDirection(point.clone().add(0.0, 0.2, 0.0).toVector().subtract(at.clone().add(0.0, player.eyeHeight, 0.0).toVector()))
+        at.setDirection(point.clone().add((zone - 1) * 0.3, 0.2, 0.0).toVector().subtract(at.clone().add(0.0, player.eyeHeight, 0.0).toVector()))
         player.teleport(at)
     }
     fun blockEvent(id: OriginOddJobStationId, hand: EquipmentSlot = EquipmentSlot.HAND, left: Boolean = false) =
         PlayerInteractEvent(player, if (left) Action.LEFT_CLICK_BLOCK else Action.RIGHT_CLICK_BLOCK, null,
             stations.getValue(id).block, BlockFace.UP, hand)
-    fun stroke(id: OriginOddJobStationId, left: Boolean = false, elapsed: Long = 700) {
+    fun stroke(id: OriginOddJobStationId, left: Boolean = false, elapsed: Long = 700, zone: Int = 1) {
         now += elapsed
-        aim(id)
+        aim(id, zone)
         val event = blockEvent(id, left = left)
         game.onBlock(event)
         event.useInteractedBlock() shouldBe Event.Result.DENY
         event.useItemInHand() shouldBe Event.Result.DENY
-    }
-    fun finishCaravan() {
-        for (side in listOf(0, 0, 1, 1)) {
-            stroke(OriginOddJobStationId.HAY)
-            val fresh = screens.last().buttons.single { plain(it.label) == config.line("mountyard.bundle-0") }
-            press(fresh.id.value)
-            stroke(OriginOddJobStationId.FEED)
-            press("odd_job_choice_$side")
-        }
-        clickNpc(440)
-    }
-    fun finishAuction() {
-        repeat(30) {
-            val body = screens.last().body.map { plain(it.text) }
-            when {
-                config.line("guide.auction-item") in body -> {
-                    val manifest = body.first { it.startsWith("Заявка:") }
-                    val amended = config.line("variants.auction-amend.title") in body
-                    val serial = Regex("№([0-9]+)").find(manifest)!!.groupValues[1].toInt() + if (amended) 1 else 0
-                    val condition = if (config.line("auction.restored") in manifest) config.line("auction.restored") else config.line("auction.intact")
-                    press(screens.last().buttons.single { plain(it.label).startsWith("№$serial ·") && condition in plain(it.label) }.id.value)
-                }
-                config.line("guide.auction-inspect") in body -> {
-                    val manifest = body.first { it.startsWith("Заявка:") }
-                    val record = body.first { it.startsWith("На самом") }
-                    val expected = Regex("№([0-9]+)").find(manifest)!!.groupValues[1]
-                    val actual = Regex("№([0-9]+)").find(record)!!.groupValues[1]
-                    press("odd_job_choice_${if (expected == actual) 0 else 1}")
-                }
-                config.line("guide.auction-verify") in body -> { clickNpc(382); clickNpc(365) }
-                config.line("guide.auction-pack") in body -> {
-                    val manifest = body.first { it.startsWith("Заявка:") }
-                    val item = OriginAuctionParcel.entries.single { config.line("auction.${it.name.lowercase()}") in manifest }
-                    press("odd_job_choice_${item.packing.ordinal}")
-                }
-                config.line("guide.auction-load") in body -> {
-                    val choices = screens.last().buttons.filter { it.id.value.startsWith("odd_job_choice_") }
-                    press(choices.maxBy { plain(it.label).substringAfterLast(" ").toInt() }.id.value)
-                }
-                config.line("guide.auction-deliver") in body -> clickNpc(382)
-                config.line("guide.auction-receipt") in body -> {
-                    val serial = body.first { it.startsWith("Контрольная сумма") }.substringAfter(": ").substringBefore(".")
-                    val receipt = screens.last().buttons.single { plain(it.label).endsWith(" $serial") }
-                    receipt.closeDialogBeforeAction shouldBe true
-                    press(receipt.id.value)
-                    actionBars().last() shouldContain config.line("guide.return", "name" to config.venue(OriginOddJobKind.AUCTION).name)
-                    clickNpc(365)
-                    return
-                }
-                body.any { it.startsWith("Сдай готовую работу") } -> { clickNpc(365); return }
-                else -> error("unknown auction stage: $body")
-            }
-        }
-        error("auction did not complete")
     }
     fun plain(component: net.kyori.adventure.text.Component): String = PlainTextComponentSerializer.plainText().serialize(component)
     fun actionBars(): List<String> = generateSequence { player.nextActionBar() }.map(::plain).toList()
     override fun close() {
         game.close()
         unmockkObject(OriginMenus, OriginServices)
+        unmockkObject(itemFactory)
         unmockkStatic(CitizensAPI::class)
         paper.close()
     }
     data class Payment(val kind: OriginSideJobKind, val id: UUID, val valid: () -> Boolean, val callback: (SideJobRewardOutcome) -> Unit)
+}
+
+private class ModelPreservingItemMeta(source: ItemMeta) : ItemMetaMock(source) {
+    init { itemModel = source.itemModel }
+    override fun clone(): ItemMetaMock = ModelPreservingItemMeta(this)
 }
 
 /** MockBukkit has no block ray tracer; the fixture supplies the observed occlusion result. */

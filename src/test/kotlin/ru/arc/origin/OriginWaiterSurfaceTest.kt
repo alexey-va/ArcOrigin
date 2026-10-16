@@ -18,7 +18,7 @@ internal fun waiterTestConfig(): OriginWaiterConfig {
 }
 
 class OriginWaiterSurfaceTest : StringSpec({
-    "both ordinary bartender entrances keep a compact optional shift journal" {
+    "both entrances explain the shift and require explicit acceptance with consistent native controls" {
         val config = waiterTestConfig()
         config.venues shouldBe listOf(OriginWaiterVenue("brewery", 405, false), OriginWaiterVenue("restaurant", 439, false))
         config.lifetimeMillis shouldBe 180_000
@@ -26,75 +26,55 @@ class OriginWaiterSurfaceTest : StringSpec({
         config.shiftMillis shouldBe 600_000
         config.graceMillis shouldBe 120_000
         val screen = waiterScreen(config, config.venues.last(), null, emptyList(), 20, SideJobRewardStatus(true, 20, 0, false), 0)
+        plain(screen.title) shouldBe "Смена · Ресторан"
         screen.title.color() shouldBe TextColor.color(0xFFB277)
         screen.title.decoration(TextDecoration.ITALIC) shouldBe TextDecoration.State.FALSE
-        screen.buttons.map { it.id.value } shouldBe listOf("waiter_start")
-        screen.buttons.single().closeDialogBeforeAction shouldBe true
+        screen.buttons.map { plain(it.label) } shouldBe listOf("Выйти на смену", "Не сейчас")
+        screen.buttons.all { it.closeDialogBeforeAction } shouldBe true
         val text = screen.body.joinToString("\n") { plain(it.text) }
         text shouldContain "10 минут"
         text shouldContain "20 💰"
-        text shouldContain "до двух заказов"
-        val coins = screen.body.flatMap { components(it.text) }.filter { plain(it) == "💰" }
-        coins.size shouldBe 2
-        coins.forEach { it.color() shouldBe NamedTextColor.WHITE }
+        text shouldContain "Принимай заказы"
+        screen.body.flatMap { components(it.text) }.filter { plain(it) == "💰" }
+            .forEach { it.color() shouldBe NamedTextColor.WHITE }
     }
 
-    "two-ticket board exposes readiness course sequence and exact independent actions" {
+    "an active shift has only continue and end with no order selection or dialog gameplay actions" {
         val config = waiterTestConfig()
-        val shift = OriginWorkShift.begin(0)
-        val first = OriginWaiterJob(waiterTarget(), 0, 180_000, OriginWaiterStage.PICKUP, 10_000)
-        val second = OriginWaiterJob(waiterTarget(guest = 434), 0, 180_000, OriginWaiterStage.PICKUP, 30_000,
-            family = OriginWaiterFamily.DRINK_FIRST)
-        val screen = waiterScreen(config, config.venues.last(), shift, listOf(first, second), 20, null, 20_000)
-        screen.id shouldBe "dining.waiter.restaurant"
-        val text = screen.body.joinToString("\n") { plain(it.text) }
-        text shouldContain "Гость 433"
-        text shouldContain "Гость 434"
-        text shouldContain "Готово"
-        text shouldContain "После напитка"
-        text shouldContain "Ещё 10 с"
-        screen.buttons.map { it.id.value } shouldBe listOf("waiter_focus_0", "waiter_pickup_0_0", "waiter_focus_1", "waiter_refresh", "waiter_finish")
-        screen.buttons.single { it.id.value == "waiter_refresh" }.closeDialogBeforeAction shouldBe false
-        screen.buttons.filter { it.id.value != "waiter_refresh" }.all { it.closeDialogBeforeAction } shouldBe true
+        for (stage in OriginWaiterStage.entries) {
+            val job = OriginWaiterJob(waiterTarget(), 0, 180_000, stage, 10_000)
+            val screen = waiterScreen(config, config.venues.last(), OriginWorkShift.begin(0), listOf(job), 20, null, 20_000)
+            screen.id shouldBe "dining.waiter.restaurant"
+            screen.buttons.map { plain(it.label) } shouldBe listOf("Продолжить смену", "Завершить смену")
+            screen.buttons.map { it.id.value } shouldBe listOf("waiter_continue", "waiter_finish")
+            screen.buttons.last().label.color() shouldBe TextColor.color(0xFF6B61)
+            screen.body.joinToString("\n") { plain(it.text) } shouldContain "Незаконченные заказы отменятся"
+        }
     }
 
-    "carrying hides unavailable pickups and revision presents original and replacement choices" {
-        val config = waiterTestConfig()
-        val shift = OriginWorkShift.begin(0)
-        val revised = OriginWaiterJob(waiterTarget(), 0, 180_000, OriginWaiterStage.PICKUP, 10_000,
-            family = OriginWaiterFamily.REVISED, clarified = true)
-        val screen = waiterScreen(config, config.venues.last(), shift, listOf(revised), 20, null, 20_000)
-        screen.buttons.map { it.id.value } shouldBe listOf("waiter_focus_0", "waiter_pickup_0_0", "waiter_pickup_0_1", "waiter_refresh", "waiter_finish")
-        screen.body.joinToString("\n") { plain(it.text) } shouldContain "Уточнение гостя: вместо прежнего блюда подай «Запечённая рыба»"
-        val carrying = revised.copy(target = waiterTarget(guest = 434), stage = OriginWaiterStage.DELIVER)
-        val handsFull = waiterScreen(config, config.venues.last(), shift, listOf(revised, carrying), 20, null, 20_000)
-        handsFull.buttons.any { it.id.value.startsWith("waiter_pickup") } shouldBe false
-        val rework = waiterScreen(config, config.venues.last(), shift, listOf(revised.copy(stage = OriginWaiterStage.REWORK)), 20, null, 60_000)
-        rework.buttons.any { it.id.value == "waiter_remake_0" } shouldBe true
-    }
-
-    "receipt names confirmed orders coins quality duration and separately unpaid work" {
+    "a receipt has two short colored rows and a white currency glyph" {
         val config = waiterTestConfig()
         val shift = OriginWorkShift.begin(0).record(java.util.UUID.randomUUID(), 20, 85)
-        val receipt = OriginWaiterReceipt(shift, 600_000, 1)
-        val lines = waiterReceiptLines(config, receipt).joinToString("\n")
-        lines shouldContain "10:00"
-        lines shouldContain "заказов: 1"
-        lines shouldContain "20 💰"
-        lines shouldContain "85%"
-        lines shouldContain "не подтверждена"
+        val receipt = OriginWaiterReceipt(shift, 600_000, 0)
+        waiterReceiptLines(config, receipt) shouldBe listOf("Смена завершена · 10:00", "Заказов: 1 · Получено 20 💰")
+        val message = waiterReceipt(config, receipt)
+        plain(message) shouldBe "\n  Смена завершена · 10:00\n  Заказов: 1 · Получено 20 💰\n"
+        components(message).filter { plain(it) == "💰" }.single().color() shouldBe NamedTextColor.WHITE
+        components(message).any { it.color() == TextColor.color(0xFFB277) } shouldBe true
+        components(message).any { it.color() == TextColor.color(0x9BD48D) } shouldBe true
+        waiterReceiptLines(config, receipt.copy(unpaidOrders = 1)).last() shouldContain "Оплата ожидается"
     }
 
-    "quota cooldown and unresolved payment explain different states and hide start" {
+    "quota cooldown and unresolved payment explain why acceptance is unavailable" {
         val config = waiterTestConfig()
         for ((status, text) in listOf(
-            SideJobRewardStatus(true, 0, 0, false) to "Дневной лимит в 100 поручений",
+            SideJobRewardStatus(true, 0, 0, false) to "100 поручений",
             SideJobRewardStatus(true, 5, 20_000, false) to "через 20 с",
-            SideJobRewardStatus(false, 5, 0, true) to "Оплату проверяет касса",
+            SideJobRewardStatus(false, 5, 0, true) to "Касса ещё проверяет",
             SideJobRewardStatus(false, 20, 0, false) to "Касса временно недоступна",
         )) {
             val screen = waiterScreen(config, config.venues.last(), null, emptyList(), 20, status, 0)
-            screen.buttons shouldBe emptyList()
+            screen.buttons.map { it.id.value } shouldBe listOf("waiter_cancel")
             screen.body.joinToString("\n") { plain(it.text) } shouldContain text
         }
     }

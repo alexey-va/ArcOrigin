@@ -61,14 +61,43 @@ class OriginWaiterProgressTest : StringSpec({
         val drink = (progress.pickup(player, 439, "restaurant", 10_100, job.id, "herbal_tea") as OriginWaiterStep.Changed).job
         drink.servingTarget().dishId shouldBe "herbal_tea"
         progress.guest(player, 434, "restaurant", 10_101) shouldBe OriginWaiterStep.Rejected(OriginWaiterRejection.WRONG_GUEST)
-        val main = (progress.guest(player, 433, "restaurant", 10_102) as OriginWaiterStep.Changed).job
+        (progress.guest(player, 433, "restaurant", 10_102) as OriginWaiterStep.Changed).job.stage shouldBe OriginWaiterStage.EATING
+        progress.pickup(player, 439, "restaurant", 20_102, job.id, "egg") shouldBe OriginWaiterStep.Rejected(OriginWaiterRejection.EATING)
+        cleanWaiterMeal(progress, player, job.id)
+        val main = checkNotNull(progress.current(player, job.id))
         main.stage shouldBe OriginWaiterStage.PICKUP
         main.course shouldBe OriginWaiterCourse.MAIN
         main.dish.id shouldBe "egg"
         progress.finish(player, job.id) shouldBe null
-        progress.pickup(player, 439, "restaurant", 20_101, job.id, "egg") shouldBe OriginWaiterStep.Rejected(OriginWaiterRejection.PREPARING)
-        progress.pickup(player, 439, "restaurant", 20_102, job.id, "egg")
-        (progress.guest(player, 433, "restaurant", 20_103) as OriginWaiterStep.Changed).job.stage shouldBe OriginWaiterStage.EATING
+        progress.pickup(player, 439, "restaurant", main.readyAt - 1, job.id, "egg") shouldBe OriginWaiterStep.Rejected(OriginWaiterRejection.PREPARING)
+        progress.pickup(player, 439, "restaurant", main.readyAt, job.id, "egg")
+        (progress.guest(player, 433, "restaurant", main.readyAt + 1) as OriginWaiterStep.Changed).job.stage shouldBe OriginWaiterStage.EATING
+        cleanWaiterMeal(progress, player, job.id)
+        progress.finish(player, job.id)?.id shouldBe job.id
+        progress.finish(player, job.id) shouldBe null
+    }
+
+    "previous ambient plate must be collected and washed before the new order with no extra payment" {
+        val progress = OriginWaiterProgress(180_000, 10_000)
+        val player = UUID.randomUUID()
+        val target = waiterTarget().copy(previousPlate = OriginWaiterDish("fish", "Запечённая рыба"))
+        val job = checkNotNull(progress.begin(player, target, 0))
+        job.stage shouldBe OriginWaiterStage.COLLECT
+        job.dish.id shouldBe "fish"
+        progress.pickup(player, 439, "restaurant", 1, job.id, "egg") shouldBe
+            OriginWaiterStep.Rejected(OriginWaiterRejection.COLLECT_FIRST)
+        progress.guest(player, 433, "restaurant", 1)
+        job.washing.forEachIndexed { index, action -> progress.wash(player, job.id, "restaurant", action, index, 2L + index * 700) }
+        progress.finish(player, job.id) shouldBe null
+        val cleared = checkNotNull(progress.current(player, job.id))
+        cleared.id shouldBe job.id
+        cleared.stage shouldBe OriginWaiterStage.TAKE_ORDER
+        cleared.clearingPreviousMeal shouldBe false
+        cleared.dish.id shouldBe "egg"
+        cleared.washed shouldBe 0
+        progress.guest(player, 433, "restaurant", 3_000)
+        progress.pickup(player, 439, "restaurant", 13_000, job.id, "egg")
+        progress.guest(player, 433, "restaurant", 13_001)
         cleanWaiterMeal(progress, player, job.id)
         progress.finish(player, job.id)?.id shouldBe job.id
         progress.finish(player, job.id) shouldBe null

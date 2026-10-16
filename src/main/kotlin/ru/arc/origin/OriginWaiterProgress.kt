@@ -16,6 +16,7 @@ internal data class OriginWaiterTarget(
     val dishName: String,
     val drink: OriginWaiterDish? = null,
     val replacement: OriginWaiterDish? = null,
+    val previousPlate: OriginWaiterDish? = null,
 )
 
 internal enum class OriginWaiterFamily { MEAL, DRINK_FIRST, REVISED, ASSEMBLED }
@@ -33,7 +34,7 @@ internal data class OriginWaiterJob(
     val target: OriginWaiterTarget,
     val startedAt: Long,
     val expiresAt: Long,
-    val stage: OriginWaiterStage = OriginWaiterStage.TAKE_ORDER,
+    val stage: OriginWaiterStage = if (target.previousPlate == null) OriginWaiterStage.TAKE_ORDER else OriginWaiterStage.COLLECT,
     val readyAt: Long = 0,
     val family: OriginWaiterFamily = OriginWaiterFamily.MEAL,
     val course: OriginWaiterCourse = if (family == OriginWaiterFamily.DRINK_FIRST) OriginWaiterCourse.DRINK else OriginWaiterCourse.MAIN,
@@ -46,11 +47,13 @@ internal data class OriginWaiterJob(
     val washing: List<OriginWaiterWash> = listOf(OriginWaiterWash.SCRAPE, OriginWaiterWash.SOAP, OriginWaiterWash.RINSE, OriginWaiterWash.DRY),
     val washed: Int = 0,
     val hardStopAt: Long = Long.MAX_VALUE,
+    val clearingPreviousMeal: Boolean = target.previousPlate != null,
 ) {
     val id: UUID get() = target.lease.token
     val freshUntil: Long get() = readyAt + freshnessMillis
     val carries: Boolean get() = stage == OriginWaiterStage.DELIVER || stage == OriginWaiterStage.RETURN_DISHES
     val dish: OriginWaiterDish get() = when {
+        clearingPreviousMeal -> requireNotNull(target.previousPlate)
         course == OriginWaiterCourse.DRINK -> requireNotNull(target.drink)
         clarified -> requireNotNull(target.replacement)
         else -> OriginWaiterDish(target.dishId, target.dishName)
@@ -94,13 +97,13 @@ internal class OriginWaiterProgress(
         .minWithOrNull(compareBy<OriginWaiterJob> {
             when (it.stage) {
                 OriginWaiterStage.DELIVER, OriginWaiterStage.RETURN_DISHES -> 0
-                OriginWaiterStage.CLARIFY -> 1
-                OriginWaiterStage.PICKUP -> if (now >= it.readyAt) 2 else 8
-                OriginWaiterStage.TAKE_ORDER -> 3
-                OriginWaiterStage.COLLECT -> 4
-                OriginWaiterStage.ASSEMBLE -> 5
-                OriginWaiterStage.WASH -> 6
-                OriginWaiterStage.REWORK -> 7
+                OriginWaiterStage.WASH -> 1
+                OriginWaiterStage.ASSEMBLE -> if (it.assembled > 0) 1 else if (now >= it.readyAt) 6 else 8
+                OriginWaiterStage.CLARIFY -> 2
+                OriginWaiterStage.PICKUP -> if (now >= it.readyAt) 3 else 8
+                OriginWaiterStage.REWORK -> 3
+                OriginWaiterStage.TAKE_ORDER -> 4
+                OriginWaiterStage.COLLECT -> 5
                 OriginWaiterStage.EATING -> 9
                 OriginWaiterStage.PAYOUT -> 10
             }
@@ -152,9 +155,7 @@ internal class OriginWaiterProgress(
                 OriginWaiterStage.CLARIFY -> changed(it.copy(stage = OriginWaiterStage.PICKUP, clarified = true, readyAt = now + preparationMillis))
                 OriginWaiterStage.DELIVER -> {
                     val quality = (it.quality - ((now - it.readyAt).coerceAtLeast(0) * 25 / it.freshnessMillis).toInt()).coerceIn(0, 100)
-                    if (it.course == OriginWaiterCourse.DRINK) changed(it.copy(stage = OriginWaiterStage.PICKUP,
-                        course = OriginWaiterCourse.MAIN, readyAt = now + preparationMillis, quality = quality))
-                    else changed(it.copy(stage = OriginWaiterStage.EATING, readyAt = now + eatingMillis, quality = quality))
+                    changed(it.copy(stage = OriginWaiterStage.EATING, readyAt = now + eatingMillis, quality = quality))
                 }
                 OriginWaiterStage.COLLECT -> if (carried(playerId) != null) reject(OriginWaiterRejection.ALREADY_CARRYING)
                     else changed(it.copy(stage = OriginWaiterStage.RETURN_DISHES))
@@ -208,9 +209,18 @@ internal class OriginWaiterProgress(
                 carried(playerId)?.id?.let { it != job.id } == true -> reject(OriginWaiterRejection.ALREADY_CARRYING)
                 job.stage == OriginWaiterStage.WASH && now < job.readyAt -> reject(OriginWaiterRejection.PREPARING)
                 job.washing.getOrNull(job.washed) != action -> reject(OriginWaiterRejection.WRONG_WASH_STEP)
-                else -> changed(job.copy(washed = job.washed + 1,
-                    stage = if (job.washed + 1 == job.washing.size) OriginWaiterStage.PAYOUT else OriginWaiterStage.WASH,
-                    readyAt = now + if (action == OriginWaiterWash.SOAK) soakMillis else actionMillis))
+                else -> {
+                    val complete = job.washed + 1 == job.washing.size
+                    changed(when {
+                        complete && job.clearingPreviousMeal -> job.copy(stage = OriginWaiterStage.TAKE_ORDER,
+                            clearingPreviousMeal = false, washed = 0, readyAt = 0)
+                        complete && job.course == OriginWaiterCourse.DRINK -> job.copy(stage = OriginWaiterStage.PICKUP,
+                            course = OriginWaiterCourse.MAIN, washed = 0, readyAt = now + preparationMillis)
+                        else -> job.copy(washed = job.washed + 1,
+                            stage = if (complete) OriginWaiterStage.PAYOUT else OriginWaiterStage.WASH,
+                            readyAt = now + if (action == OriginWaiterWash.SOAK) soakMillis else actionMillis)
+                    })
+                }
             }
         }
 

@@ -127,7 +127,26 @@ internal fun originOddJobCleaningPieces(mask: Int): List<OriginWorkshopWorkpiece
 private fun oddJobPiece(material: Material, x: Double, y: Double, z: Double, w: Float, h: Float, d: Float) =
     OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(x, y, z), OriginWorkshopGamePartSize(w, h, d), material)
 
-/** Low, in front of the right hand; even the back edge clears the player's torso by 0.12 blocks. */
+/** Twelve continuous edges surround the real target block, instead of four tiny dots on its top. */
+internal fun originOddJobTargetPieces(): List<OriginWorkshopWorkpiecePiece> = buildList {
+    val edge = 0.53; val thickness = 0.035f
+    for (a in listOf(-edge, edge)) for (b in listOf(-edge, edge)) {
+        add(oddJobPiece(Material.YELLOW_CONCRETE, 0.0, a, b, 1.095f, thickness, thickness))
+        add(oddJobPiece(Material.YELLOW_CONCRETE, a, 0.0, b, thickness, 1.025f, thickness))
+        add(oddJobPiece(Material.YELLOW_CONCRETE, a, b, 0.0, thickness, thickness, 1.025f))
+    }
+}
+
+/** Hang vertically from the bottom of the authored chain, with the same material and silhouette. */
+internal fun originOddJobHangingPieces(pieces: List<OriginWorkshopWorkpiecePiece>): List<OriginWorkshopWorkpiecePiece> {
+    val maxX = pieces.maxOf { it.center.x + it.size.x / 2.0 }
+    val centreZ = (pieces.minOf { it.center.z - it.size.z / 2.0 } + pieces.maxOf { it.center.z + it.size.z / 2.0 }) / 2
+    return pieces.map { piece -> oddJobPiece(piece.material,
+        piece.center.y - 0.045, piece.center.x - maxX, piece.center.z - centreZ,
+        piece.size.y, piece.size.x, piece.size.z) }
+}
+
+/** At chest height in the lower forward view; the rear edge stays clear of the player's torso. */
 internal fun originOddJobCarryPose(
     bodyYaw: Double,
     sneaking: Boolean,
@@ -136,10 +155,11 @@ internal fun originOddJobCarryPose(
     val yaw = Math.toRadians(bodyYaw)
     val minZ = geometry.minOf { it.center.z - it.size.z / 2.0 }
     val side = -0.28
-    val forward = 0.42 - minZ
+    val forward = 0.62 - minZ
+    val maxY = geometry.maxOf { it.center.y + it.size.y / 2.0 }
     return OriginWorkshopCarryPose(
         OriginWorkshopPoint(cos(yaw) * side - sin(yaw) * forward,
-            if (sneaking) 0.69 else 0.94, sin(yaw) * side + cos(yaw) * forward),
+            (if (sneaking) 1.15 else 1.40) - maxY, sin(yaw) * side + cos(yaw) * forward),
         Quaternionf().rotationY(-yaw.toFloat()),
     )
 }
@@ -165,7 +185,7 @@ internal class OriginOddJobVisuals(
 
     fun carry(player: Player, requestId: UUID, prop: OriginJobProp) = change(player, requestId) { state ->
         val rendered = workpiece(player, state, prop, player.location)
-        rendered.carry(player, originOddJobCarryPose(player.bodyYaw.toDouble(), player.isSneaking, state.geometry))
+        rendered.carry(player, originOddJobCarryPose(player.eyeLocation.yaw.toDouble(), player.isSneaking, state.geometry))
         state.carried = true
     }
 
@@ -183,6 +203,12 @@ internal class OriginOddJobVisuals(
     fun forgeCarry(player: Player, requestId: UUID, work: OriginForgeWork, heated: Boolean) =
         profile(player, requestId, player.location, originOddJobForgePieces(work, heated), heated, carried = true)
 
+    fun hang(player: Player, requestId: UUID, location: Location, kind: OriginJobProp) =
+        profile(player, requestId, location, originOddJobHangingPieces(originOddJobPropPieces(kind)), kind == OriginJobProp.FORGE_HEATED)
+
+    fun hangForge(player: Player, requestId: UUID, location: Location, work: OriginForgeWork, heated: Boolean) =
+        profile(player, requestId, location, originOddJobHangingPieces(originOddJobForgePieces(work, heated)), heated)
+
     fun cleaning(player: Player, requestId: UUID, location: Location, mask: Int) =
         profile(player, requestId, location, originOddJobCleaningPieces(mask), false)
 
@@ -192,7 +218,7 @@ internal class OriginOddJobVisuals(
             onSpawn = { display -> state.handles += display; display.isVisibleByDefault = false }).also { state.prop = it }
         if (state.geometry != pieces) prop.update(pieces)
         state.geometry = pieces; state.kind = null; state.carried = carried
-        if (carried) prop.carry(player, originOddJobCarryPose(player.bodyYaw.toDouble(), player.isSneaking, pieces))
+        if (carried) prop.carry(player, originOddJobCarryPose(player.eyeLocation.yaw.toDouble(), player.isSneaking, pieces))
         else prop.place(location, Quaternionf().rotationY(-Math.toRadians(location.yaw.toDouble()).toFloat()))
         prop.pieces.forEach { it.display?.brightness = if (heated) Display.Brightness(12, 8) else null }
     }
@@ -211,15 +237,13 @@ internal class OriginOddJobVisuals(
             }
             removeTarget(state)
             val renderer = renderer()
-            val corners = listOf(-0.32, 0.32).flatMap { x -> listOf(-0.32, 0.32).map { z ->
-                oddJobPiece(Material.YELLOW_CONCRETE, x, 0.009, z, 0.055f, 0.018f, 0.055f)
-            } }
-            state.target = OriginWorkshopProp(renderer, location, corners, privateViewer = player,
+            state.target = OriginWorkshopProp(renderer, location, originOddJobTargetPieces(), privateViewer = player,
                 onSpawn = { display -> state.handles += display; display.isVisibleByDefault = false }).also {
-                it.place(location, Quaternionf().rotationY(-Math.toRadians(location.yaw.toDouble()).toFloat()))
+                it.place(location, Quaternionf())
                 it.glow(Color.fromRGB(239, 195, 113))
+                it.pieces.forEach { piece -> piece.display?.brightness = Display.Brightness(15, 15) }
             }
-            state.label = renderer.spawnText(location.clone().add(0.0, 0.65, 0.0),
+            state.label = renderer.spawnText(location.clone().add(0.0, 0.95, 0.0),
                 Component.text(caption, TextColor.color(0xe8dfd2))).also { label ->
                 state.handles += label
                 label.isVisibleByDefault = false
@@ -230,7 +254,7 @@ internal class OriginOddJobVisuals(
                 label.lineWidth = 180
                 label.backgroundColor = Color.fromARGB(150, 18, 14, 10)
                 label.isShadowed = true
-                label.transformation = Transformation(Vector3f(), Quaternionf(), Vector3f(0.35f), Quaternionf())
+                label.transformation = Transformation(Vector3f(), Quaternionf(), Vector3f(0.45f), Quaternionf())
                 label.showTo(player)
             }
             state.targetLocation = location.clone()
@@ -252,7 +276,7 @@ internal class OriginOddJobVisuals(
                 iterator.remove()
                 remove(state)
             } else if (state.carried) {
-                state.prop?.carry(player, originOddJobCarryPose(player.bodyYaw.toDouble(), player.isSneaking,
+                state.prop?.carry(player, originOddJobCarryPose(player.eyeLocation.yaw.toDouble(), player.isSneaking,
                     state.geometry))
             }
         }

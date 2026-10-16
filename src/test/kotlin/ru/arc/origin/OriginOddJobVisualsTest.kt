@@ -31,6 +31,25 @@ class OriginOddJobVisualsTest : StringSpec({
     beforeEach { paper = MockBukkitTestRuntime.open() }
     afterEach { paper.close() }
 
+    "target surrounds the full block and the heated blank touches the chain instead of floating below it" {
+        val frame = originOddJobTargetPieces()
+        frame.size shouldBe 12
+        for (axis in 0..2) {
+            val spans = frame.map { piece -> when (axis) {
+                0 -> piece.center.x - piece.size.x / 2.0 to piece.center.x + piece.size.x / 2.0
+                1 -> piece.center.y - piece.size.y / 2.0 to piece.center.y + piece.size.y / 2.0
+                else -> piece.center.z - piece.size.z / 2.0 to piece.center.z + piece.size.z / 2.0
+            } }
+            (spans.minOf { it.first } < -0.53 && spans.maxOf { it.second } > 0.53) shouldBe true
+        }
+        val hung = originOddJobHangingPieces(originOddJobPropPieces(OriginJobProp.FORGE_BLANK))
+        abs(hung.maxOf { it.center.y + it.size.y / 2.0 }) shouldBeLessThan 1e-6
+        (hung.minOf { it.center.y - it.size.y / 2.0 } < -0.5) shouldBe true
+        val carried = originOddJobPropPieces(OriginJobProp.FORGE_BLANK)
+        val pose = originOddJobCarryPose(0.0, false, carried)
+        abs(pose.center.y + carried.maxOf { it.center.y + it.size.y / 2.0 } - 1.4) shouldBeLessThan 1e-6
+    }
+
     "forge visibly bends around a stable crown and quenching preserves the complete open shoe" {
         val stages = listOf(OriginJobProp.FORGE_BLANK, OriginJobProp.FORGE_HEATED,
             OriginJobProp.FORGE_SHAPED_1, OriginJobProp.FORGE_SHAPED_2, OriginJobProp.FORGE_HORSESHOE)
@@ -86,7 +105,7 @@ class OriginOddJobVisualsTest : StringSpec({
             val pose = originOddJobCarryPose(0.0, false, geometry)
             val turned = originOddJobCarryPose(90.0, false, geometry)
             val crouched = originOddJobCarryPose(90.0, true, geometry)
-            abs(pose.center.z + geometry.minOf { it.center.z - it.size.z / 2.0 } - 0.42) shouldBeLessThan 1e-6
+            abs(pose.center.z + geometry.minOf { it.center.z - it.size.z / 2.0 } - 0.62) shouldBeLessThan 1e-6
             abs(turned.center.x + pose.center.z) shouldBeLessThan 1e-6
             abs(turned.center.z - pose.center.x) shouldBeLessThan 1e-6
             abs(crouched.center.y - turned.center.y + 0.25) shouldBeLessThan 1e-6
@@ -189,7 +208,7 @@ class OriginOddJobVisualsTest : StringSpec({
             verify { firstLabel.isVisibleByDefault = false; firstLabel.showTo(player) }
             visuals.target(player, oldRequest, Location(world, 2.0, 65.0, 3.0), "Накормите коня")
             harness.texts.size shouldBe 1
-            harness.blocks.size shouldBe 4
+            harness.blocks.size shouldBe 12
             visuals.carry(player, oldRequest, OriginJobProp.HAY)
             val hay = harness.blocks.last()
             visuals.target(player, oldRequest, null, "")

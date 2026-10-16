@@ -29,19 +29,24 @@ class OriginDiningLayoutTest : FreeSpec({
         OriginDiningLayout.seats.single { it.id == "brewery_fire" }.menu shouldBe BreweryTableDialogs.Menu.DRINKS
         OriginDiningLayout.seats.single { it.id == "brewery_west" }.menu shouldBe BreweryTableDialogs.Menu.COURTYARD
         OriginDiningLayout.seats.count { it.menu == BreweryTableDialogs.Menu.RESTAURANT } shouldBe 2
-        OriginDiningLayout.waiterIds shouldBe setOf(410, 411, 431, 432)
+        OriginDiningLayout.waiterIds shouldBe setOf(410, 431, 432)
     }
 
-    "only the four restaurant service NPCs are managed as waiters" {
-        OriginDiningLayout.waiterIds shouldBe setOf(410, 411, 431, 432)
+    "only configured service NPCs are managed as waiters and Jasper stays in the kitchen" {
+        OriginDiningLayout.waiterIds shouldBe setOf(410, 431, 432)
+        OriginDiningLayout.waitersFor(BreweryTableDialogs.Menu.COURTYARD) shouldBe setOf(410)
+        OriginDiningLayout.waitersFor(BreweryTableDialogs.Menu.DRINKS) shouldBe setOf(410)
+        OriginDiningLayout.waitersFor(BreweryTableDialogs.Menu.RESTAURANT) shouldBe setOf(431, 432)
+        OriginDiningLayout.seats.forEach { seat -> OriginDiningLayout.waiterServes(seat, 411) shouldBe false }
+        OriginDiningLayout.waiterHome(411) shouldBe null
     }
 
-    "ambient tables keep both waiters active in each scene" {
+    "ambient tables use the venue service NPCs" {
         OriginDiningLayout.ambientWaiterAssignments() shouldBe
             mapOf(
                 "brewery_north" to 410,
                 "brewery_south" to 410,
-                "brewery_east" to 411,
+                "brewery_east" to 410,
                 "restaurant_a_west" to 431,
                 "restaurant_a_north" to 431,
                 "restaurant_b_east" to 432,
@@ -152,7 +157,7 @@ class OriginDiningLayoutTest : FreeSpec({
     "authored coordinates are loaded from the reloadable module config" {
         OriginDiningLayout.seats.single { it.id == "brewery_south_west" }.clickedBlock shouldBe Triple(-8, 70, 37)
         OriginDiningLayout.seats.single { it.id == "restaurant_a" }.clickedBlock shouldBe Triple(-55, 72, 48)
-        OriginDiningLayout.waiterHome(410) shouldBe OriginDiningPoint(1.5, 70.0, 57.5, 180f)
+        OriginDiningLayout.waiterHome(410) shouldBe OriginDiningPoint(2.5, 70.0, 54.5, 90f)
     }
 
     "ambient intervals and theft cooldown are loaded from the reloadable module config" {

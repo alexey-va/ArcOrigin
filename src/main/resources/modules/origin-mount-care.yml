@@ -3,7 +3,7 @@ guide:
   npc-id: 440
   npc-uuid: f975fcc7-c044-48f8-818d-ac9939eda2aa
   name: Сеня
-  lines: ["Помощник конюха", "Помочь конюшне", "Подработка (присядь)"]
+  lines: ["Конюх", "Подработка · ПКМ"]
 interaction-range: 4.0
 required-animals: 3
 task-lifetime-seconds: 900

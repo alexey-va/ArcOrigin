@@ -9,6 +9,12 @@ private fun offer(variant: OriginOddJobVariant, seed: Int = 8, urgent: Boolean =
 private fun OriginOddJobStep.reason() = (this as OriginOddJobStep.Rejected).reason
 
 class OriginOddJobsProgressTest : StringSpec({
+    "the first forge assignment always teaches a raw blank before repair variants" {
+        repeat(20) { seed ->
+            val dispatch = OriginOddJobDispatch(OriginOddJobKind.FORGE, Random(seed))
+            dispatch.offers(OriginWorkShiftPhase.OPENING).first().variant shouldBe OriginOddJobVariant.FORGE_NEW
+        }
+    }
     "reopening the board cannot reroll offers and every three acceptances cover all families" {
         for (kind in OriginOddJobKind.entries) {
             val board = OriginOddJobDispatch(kind, Random(7))

@@ -28,93 +28,64 @@ internal fun oddJobTestConfig(): OriginOddJobsConfig {
 }
 
 class OriginOddJobsSurfaceTest : StringSpec({
-    "yard and auction dialogs explain the timed shift and shared configured quota with readable controls" {
+    "all employers share a readable shift confirmation with only the explicit accept action" {
         val config = oddJobTestConfig()
         config.venues.map { it.npcId } shouldBe listOf(440, 349, 365)
-        config.handoffNpcId shouldBe 382
         config.shiftMillis shouldBe 600_000
-        config.lifetimeMillis shouldBe 240_000
-        for (venue in config.venues.filter { it.kind != OriginOddJobKind.FORGE }) {
+        for (venue in config.venues) {
             val screen = originOddJobsScreen(config, venue, null, 20, SideJobRewardStatus(true, 12, 0, false), 0)
             screen.title.color() shouldBe TextColor.color(0xFFB277)
+            plain(screen.title).startsWith("Смена · ") shouldBe true
             val body = screen.body.joinToString("\n") { plain(it.text) }
-            body shouldContain "100 поручений"
-            body shouldContain "2000 💰"
-            body shouldContain "12 поручений"
-            screen.buttons.single().id.value shouldBe "odd_job_start"
-            screen.buttons.single().closeDialogBeforeAction shouldBe false
-            val coins = screen.body.flatMap { components(it.text) }.filter { plain(it) == "💰" }
-            coins.size shouldBe 2
-            coins.all { it.color() == NamedTextColor.WHITE } shouldBe true
+            body shouldContain "100"
+            body shouldContain "20 💰"
+            body shouldContain "12"
+            screen.buttons.map { it.id.value } shouldBe listOf("odd_job_start", "odd_job_later")
+            plain(screen.buttons.first().label) shouldBe "Выйти на смену"
+            screen.buttons.first().closeDialogBeforeAction shouldBe true
+            plain(screen.buttons.last().label) shouldBe "Не сейчас"
+            screen.body.flatMap { components(it.text) }.filter { plain(it) == "💰" }.all { it.color() == NamedTextColor.WHITE } shouldBe true
         }
     }
-
-    "native board preserves exact offer IDs while master overview hides out-of-reach craft choices" {
+    "working employers never expose task selection or per-order cancellation" {
         val config = oddJobTestConfig()
-        val venue = config.venue(OriginOddJobKind.MOUNTYARD)
-        val shift = OriginWorkShift.begin(0)
-        val offers = listOf(
-            OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_RATIONS, 8, false),
-            OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_CARAVAN, 9, true),
-        )
-        val board = originOddJobsScreen(config, venue, null, 20, null, 0, shift = shift, offers = offers)
-        board.buttons.map { it.id.value } shouldBe listOf("odd_job_offer_0", "odd_job_offer_1", "odd_job_finish")
-        board.body.joinToString { plain(it.text) } shouldContain "100 секунд"
-        val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(), offers.first(), 0)!!
-        val station = originOddJobsScreen(config, venue, job, 20, null, 0, shift = shift)
-        station.buttons.count { it.id.value.startsWith("odd_job_choice_") } shouldBe 3
-        val master = originOddJobsScreen(config, venue, job, 20, null, 0, shift = shift, actionsAvailable = false)
-        master.buttons.none { it.id.value.startsWith("odd_job_choice_") } shouldBe true
-        master.buttons.map { it.id.value } shouldBe listOf("odd_job_continue", "odd_job_cancel", "odd_job_finish")
-        val closing = originOddJobsScreen(config, venue, null, 20, null, 601_000, shift = shift.requestFinish())
-        closing.buttons shouldBe emptyList()
+        for (venue in config.venues) {
+            val offer = OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.entries.first { it.kind == venue.kind }, 8, false)
+            val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(), offer, 0)!!
+            val screen = originOddJobsScreen(config, venue, job, 20, null, 0, shift = OriginWorkShift.begin(0))
+            screen.buttons.map { it.id.value } shouldBe listOf("odd_job_continue", "odd_job_finish")
+            screen.buttons.map { plain(it.label) } shouldBe listOf("Продолжить смену", "Завершить смену")
+            screen.buttons[0].label.color() shouldBe TextColor.color(0xFFFFFF)
+            screen.buttons[1].label.color() shouldBe TextColor.color(0xFF6B61)
+        }
     }
-
-    "amendment exposes the actual warehouse number before choosing a candidate" {
+    "auction document decisions stay separate from employer shift controls" {
         val config = oddJobTestConfig()
         val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(),
             OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.AUCTION_AMEND, 100, false), 0)!!
-        val screen = originOddJobsScreen(config, config.venue(job.kind), job, 20, null, 0, shift = OriginWorkShift.begin(0))
+        val screen = originOddJobWorkScreen(config, job, 0)
         val body = screen.body.joinToString("\n") { plain(it.text) }
         body shouldContain "Заявка: №199"
         body shouldContain "На самом экземпляре и в описи: №200"
+        screen.buttons.all { it.id.value.startsWith("odd_job_choice_") } shouldBe true
     }
-
-    "all authored craft states resolve source prose and recovery without gray dialog labels" {
+    "guidance resolves every stage and the ready state persists without automatic heat damage" {
         val config = oddJobTestConfig()
         for (variant in OriginOddJobVariant.entries) {
             val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(), OriginOddJobOffer(UUID.randomUUID(), variant, 8, false), 0)!!
-            for (stage in OriginOddJobStage.entries.filter { it.name.startsWith(variant.kind.let { k -> when (k) {
+            for (stage in OriginOddJobStage.entries.filter { it.name.startsWith(when (variant.kind) {
                 OriginOddJobKind.MOUNTYARD -> "YARD"; OriginOddJobKind.FORGE -> "FORGE"; OriginOddJobKind.AUCTION -> "AUCTION"
-            } }) } + listOf(OriginOddJobStage.RETURN, OriginOddJobStage.PAYOUT)) {
-                val state = job.copy(stage = stage)
-                if (variant.kind == OriginOddJobKind.FORGE) {
-                    originOddJobGuide(config, state, 0).let { it.isNotBlank() && !it.contains("{") } shouldBe true
-                    originOddJobChoices(config, state) shouldBe emptyList()
-                    continue
-                }
-                val screen = originOddJobsScreen(config, config.venue(variant.kind), state, 20, null, 0, shift = OriginWorkShift.begin(0))
-                screen.body.all { plain(it.text).isNotBlank() && !plain(it.text).contains("{") } shouldBe true
-                screen.buttons.all { it.label.color() != NamedTextColor.GRAY } shouldBe true
+            }) } + listOf(OriginOddJobStage.RETURN, OriginOddJobStage.PAYOUT)) {
+                val guide = originOddJobGuide(config, job.copy(stage = stage), 0)
+                (guide.isNotBlank() && !guide.contains("{")) shouldBe true
+                guide.contains("присядь") shouldBe false
             }
         }
-        for (rejection in OriginOddJobRejection.entries) config.line("errors.${rejection.name.lowercase().replace('_', '-')}").isNotBlank() shouldBe true
+        val forge = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(),
+            OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.FORGE_NEW, 8, false), 0)!!.copy(stage = OriginOddJobStage.FORGE_HEATING)
+        originOddJobGuide(config, forge, 60_000) shouldBe config.line("guide.forge-heat-ready")
+        originOddJobProgress(forge, 60_000) shouldBe 0.4f
     }
-
-    "forge has no dialog and keeps the ready cue after a long pause with a white coin receipt" {
-        val config = oddJobTestConfig()
-        shouldThrow<IllegalArgumentException> {
-            originOddJobsScreen(config, config.venue(OriginOddJobKind.FORGE), null, 20, null, 0)
-        }
-        val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(),
-            OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.FORGE_NEW, 8, false), 0)!!
-            .copy(stage = OriginOddJobStage.FORGE_HEATING)
-        originOddJobGuide(config, job, 60_000) shouldBe config.line("guide.forge-heat-ready")
-        val receipt = waiterText(config.line("forge.paid", "amount" to 20))
-        plain(receipt) shouldBe "Принято · +20 💰 · Следующий заказ у Эдгара"
-        components(receipt).single { plain(it) == "💰" }.color() shouldBe NamedTextColor.WHITE
-    }
-
     "station resolution uses loaded real blocks including the trough one block away from its old anchor" {
         MockBukkitTestRuntime.open().use {
             failOnUnsupportedMockBukkitOperation {
@@ -128,8 +99,8 @@ class OriginOddJobsSurfaceTest : StringSpec({
                     Triple(63, 69, -122) to Material.PACKED_MUD,
                     Triple(57, 70, -122) to Material.WATER_CAULDRON,
                     Triple(82, 72, 71) to Material.CHEST,
-                    Triple(81, 70, 80) to Material.FURNACE,
-                    Triple(76, 70, 69) to Material.ANVIL,
+                    Triple(83, 72, 79) to Material.IRON_CHAIN,
+                    Triple(78, 70, 76) to Material.ANVIL,
                     Triple(82, 70, 76) to Material.WATER_CAULDRON,
                 )
                 every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
@@ -147,7 +118,8 @@ class OriginOddJobsSurfaceTest : StringSpec({
                 stations.getValue(OriginOddJobStationId.HAY).point.y shouldBe 72.02
                 stations.getValue(OriginOddJobStationId.WATER).point shouldBe Location(world, 57.5, 70.9, -121.5)
                 stations.getValue(OriginOddJobStationId.FEED).point shouldBe Location(world, 63.5, 70.02, -121.5)
-                stations.getValue(OriginOddJobStationId.ANVIL).point.y shouldBe 71.04
+                stations.getValue(OriginOddJobStationId.ANVIL).point shouldBe Location(world, 78.5, 71.04, 76.5)
+                stations.getValue(OriginOddJobStationId.FIRE).point shouldBe Location(world, 83.5, 72.5, 79.5)
                 stations.values.all { it.valid() } shouldBe true
                 every { world.isChunkLoaded(any<Int>(), any<Int>()) } returns false
                 originOddJobStations(plan, world) shouldBe emptyMap()

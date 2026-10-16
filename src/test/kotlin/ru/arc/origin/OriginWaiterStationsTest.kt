@@ -7,7 +7,6 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.bukkit.Location
-import ru.arc.paper.display.PacketBlockDisplay
 import ru.arc.paper.display.PacketItemDisplay
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.testing.MockBukkitTestRuntime
@@ -31,18 +30,6 @@ class OriginWaiterStationsTest : StringSpec({
             val next = waiterStationChoices(config, venue, job.copy(assembled = 1))
             next.map { it.id } shouldBe listOf("ingredient:bacon", "ingredient:herbs")
             next.single { it.next }.id shouldBe "ingredient:bacon"
-            if (venue.id == "restaurant") {
-                choices.map { it.point.z } shouldBe listOf(58.25, 58.75, 59.25)
-                waiterStationBlocks(layout) shouldBe emptyList()
-            } else {
-                val blocks = waiterStationBlocks(layout)
-                blocks.filter { it.id.endsWith(":top") }.forEach {
-                    (abs(it.y + it.height - layout.standHeight) < 1e-6) shouldBe true
-                }
-                blocks.filter { ":leg:" in it.id }.all { it.y == 0f } shouldBe true
-                // The rack is east of the sign's cell; no support at (-3.5, 70, 62.5).
-                layout.rack.x shouldBe -2.5
-            }
         }
     }
 
@@ -57,23 +44,21 @@ class OriginWaiterStationsTest : StringSpec({
         val dx = -1.5 / length
         val dy = (point.y - eyeY) / length
         val hit = waiterStationRayDistance(eyeX, eyeY, eyeZ, dx, dy, 0.0, point, 4.5)
-        (abs(checkNotNull(hit) - length) < 1e-6) shouldBe true
+        (checkNotNull(hit) < length && hit > 0.0) shouldBe true
         val floorDistance = (layout.prep.y - eyeY) / dy
         (floorDistance > checkNotNull(hit) && floorDistance < 4.5) shouldBe true
         waiterStationRayDistance(eyeX, eyeY, eyeZ, dx, -dy, 0.0, point, 4.5) shouldBe null
         waiterStationRayDistance(eyeX, eyeY, eyeZ + 0.6, dx, dy, 0.0, point, 4.5) shouldBe null
     }
 
-    "unchanged station refresh and ordered wash cues reuse supports and clean up packet handles" {
+    "unchanged station props reuse handles while permanent furniture is never owned or removed by a worker" {
         val paper = MockBukkitTestRuntime.open()
         try {
             val player = paper.addPlayer("StationWorker")
             player.teleport(Location(paper.addSimpleWorld(OriginDiningLayout.WORLD), -2.0, 70.0, 59.75))
             val renderer = mockk<PaperPacketDisplays>(relaxed = true)
             val items = mutableListOf<PacketItemDisplay>()
-            val blocks = mutableListOf<PacketBlockDisplay>()
             every { renderer.spawnItem(any(), any()) } answers { mockk<PacketItemDisplay>(relaxed = true).also(items::add) }
-            every { renderer.spawnBlock(any(), any()) } answers { mockk<PacketBlockDisplay>(relaxed = true).also(blocks::add) }
             val stations = OriginWaiterStations { renderer }
             val config = waiterTestConfig()
             val venue = config.venues.first()
@@ -84,7 +69,7 @@ class OriginWaiterStationsTest : StringSpec({
             stations.show(player, job.id, first, layout, 0) { null }
             stations.show(player, job.id, first, layout, 0) { null }
             items.size shouldBe 3
-            blocks.size shouldBe waiterStationBlocks(layout).size
+            verify(exactly = 0) { renderer.spawnBlock(any(), any()) }
             stations.show(player, job.id, waiterStationChoices(config, venue, job.copy(assembled = 1)), layout, 1) { null }
             items.size shouldBe 3
             verify(exactly = 1) { items.first().remove() }
@@ -94,12 +79,11 @@ class OriginWaiterStationsTest : StringSpec({
             stations.close()
             stations.close()
             items.forEach { display -> verify(exactly = 1) { display.remove() } }
-            blocks.forEach { display -> verify(exactly = 1) { display.remove() } }
             verify(exactly = 1) { renderer.close() }
         } finally { paper.close() }
     }
 
-    "source preview exports exact support cuboids and recipe wash targets" {
+    "source preview exports exact actionable prop positions on world furniture" {
         val config = waiterTestConfig()
         fun point(value: OriginDiningPoint) = mapOf("x" to value.x, "y" to value.y, "z" to value.z, "yaw" to value.yaw)
         val states = config.venues.flatMap { venue ->
@@ -113,7 +97,7 @@ class OriginWaiterStationsTest : StringSpec({
                 mapOf("id" to "${venue.id}-$name", "venue" to venue.id, "stage" to name,
                     "floorY" to if (venue.id == "brewery") 70.0 else 72.0,
                     "layout" to mapOf("prep" to point(layout.prep), "sink" to point(layout.sink), "rack" to point(layout.rack), "standHeight" to layout.standHeight),
-                    "blocks" to waiterStationBlocks(layout),
+                    "furnitureOwner" to "permanent-world-scene",
                     "choices" to waiterStationChoices(config, venue, state))
             }
         }

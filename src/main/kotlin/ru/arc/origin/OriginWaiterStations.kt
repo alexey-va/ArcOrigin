@@ -7,14 +7,14 @@ import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
+import org.bukkit.util.BoundingBox
+import org.bukkit.util.Vector
 import org.joml.Quaternionf
 import org.joml.Vector3f
 import ru.arc.paper.display.PacketItemDisplay
-import ru.arc.paper.display.PacketBlockDisplay
 import ru.arc.paper.display.PacketDisplay
 import ru.arc.paper.display.PaperPacketDisplays
 import java.util.UUID
-import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -29,33 +29,6 @@ internal data class OriginWaiterStationChoice(
     val dishId: String? = null, val emptyPlate: Boolean = false, val action: String? = id,
 )
 internal data class OriginWaiterStationHit(val requestId: UUID, val action: String, val stepIndex: Int)
-internal data class OriginWaiterStationBlock(
-    val id: String, val point: OriginDiningPoint, val material: Material,
-    val x: Float, val y: Float, val z: Float, val width: Float, val height: Float, val depth: Float,
-)
-
-/** Canonical cuboids are also exported by the geometry check; all y coordinates start at the verified floor. */
-internal fun waiterStationBlocks(layout: OriginWaiterStationsLayout): List<OriginWaiterStationBlock> = buildList {
-    if (layout.standHeight <= 0.0) return@buildList
-    for ((name, anchor, width) in listOf(Triple("prep", layout.prep, 1.6f), Triple("sink", layout.sink, 1.5f), Triple("rack", layout.rack, 0.7f))) {
-        val height = layout.standHeight.toFloat()
-        add(OriginWaiterStationBlock("$name:top", anchor, Material.SPRUCE_PLANKS,
-            -width / 2, height - 0.10f, -0.4f, width, 0.10f, 0.8f))
-        for (side in listOf(-1, 1)) for (front in listOf(-1, 1)) {
-            add(OriginWaiterStationBlock("$name:leg:$side:$front", anchor, Material.DARK_OAK_PLANKS,
-                side * (width / 2 - 0.12f) - 0.06f, 0f, front * 0.28f - 0.06f,
-                0.12f, height - 0.10f, 0.12f))
-        }
-        if (name == "sink") {
-            // A low wooden tub leaves both the plate and current tool visible from standing height.
-            add(OriginWaiterStationBlock("sink:back", anchor, Material.DARK_OAK_PLANKS,
-                -width / 2, height, 0.34f, width, 0.12f, 0.06f))
-            for (side in listOf(-1, 1)) add(OriginWaiterStationBlock("sink:rim:$side", anchor, Material.DARK_OAK_PLANKS,
-                side * (width / 2 - 0.03f) - 0.03f, height, -0.4f, 0.06f, 0.12f, 0.74f))
-        }
-    }
-}
-
 /** Surface-local positions are shared by the renderer, hit test and source preview. */
 internal fun waiterStationPoint(anchor: OriginDiningPoint, index: Int, count: Int): OriginDiningPoint {
     val side = (index - (count - 1) / 2.0) * 0.5
@@ -65,13 +38,14 @@ internal fun waiterStationPoint(anchor: OriginDiningPoint, index: Int, count: In
 
 internal fun waiterStationRayDistance(eyeX: Double, eyeY: Double, eyeZ: Double, dx: Double, dy: Double, dz: Double,
     point: OriginDiningPoint, range: Double): Double? {
-    if (abs(dy) < 0.0001) return null
-    val t = (point.y - eyeY) / dy
-    if (t < 0 || t > range) return null
     val yaw = Math.toRadians(point.yaw.toDouble())
-    val x = eyeX + dx * t - point.x
-    val z = eyeZ + dz * t - point.z
-    return t.takeIf { abs(x * cos(yaw) + z * sin(yaw)) <= 0.27 && abs(-x * sin(yaw) + z * cos(yaw)) <= 0.27 }
+    val x = eyeX - point.x
+    val z = eyeZ - point.z
+    val eye = Vector(x * cos(yaw) + z * sin(yaw), eyeY - point.y, -x * sin(yaw) + z * cos(yaw))
+    val direction = Vector(dx * cos(yaw) + dz * sin(yaw), dy, -dx * sin(yaw) + dz * cos(yaw))
+    // The prop's visible edge and the counter immediately below it accept the same click.
+    return BoundingBox(-0.36, -0.03, -0.36, 0.36, 0.35, 0.36).rayTrace(eye, direction, range)
+        ?.hitPosition?.distance(eye)
 }
 
 internal fun waiterStationChoices(config: OriginWaiterConfig, venue: OriginWaiterVenue, job: OriginWaiterJob): List<OriginWaiterStationChoice> {
@@ -82,8 +56,8 @@ internal fun waiterStationChoices(config: OriginWaiterConfig, venue: OriginWaite
                 waiterStationPoint(layout.surface(layout.prep), index, job.recipe.distinct().size),
                 config.ingredients[ingredient] ?: Material.BOWL, ingredient == job.recipe.getOrNull(job.assembled))
         }
-        OriginWaiterStage.PICKUP -> if (job.family == OriginWaiterFamily.ASSEMBLED && job.assembled == job.recipe.size)
-            listOf(OriginWaiterStationChoice("pickup", layout.surface(layout.prep), Material.BOWL, true, job.dish.id)) else emptyList()
+        OriginWaiterStage.PICKUP -> listOf(OriginWaiterStationChoice("pickup", layout.surface(layout.prep), Material.BOWL, true, job.dish.id))
+        OriginWaiterStage.REWORK -> listOf(OriginWaiterStationChoice("remake", layout.surface(layout.prep), Material.BOWL, true))
         OriginWaiterStage.RETURN_DISHES, OriginWaiterStage.WASH -> buildList {
             val action = job.washing.getOrNull(job.washed) ?: return@buildList
             val point = if (action == OriginWaiterWash.DRY) waiterStationPoint(layout.surface(layout.rack), 0, 1)
@@ -105,14 +79,13 @@ internal fun waiterStationChoices(config: OriginWaiterConfig, venue: OriginWaite
     }
 }
 
-/** Personal work surfaces and cues; packet handles persist across recipe/wash steps and requests. */
+/** Personal actionable props on permanent world furniture; packet handles persist across steps. */
 internal class OriginWaiterStations(
     private val createOwner: () -> PaperPacketDisplays = { PaperPacketDisplays(ArcOriginPlugin.instance, "dining-waiter-stations") },
 ) : AutoCloseable {
     private data class Prop(var choice: OriginWaiterStationChoice, val display: PacketItemDisplay)
     private data class Scene(var requestId: UUID, var stepIndex: Int,
-        val props: MutableMap<String, Prop> = linkedMapOf(),
-        val blocks: MutableMap<String, Pair<OriginWaiterStationBlock, PacketBlockDisplay>> = linkedMapOf())
+        val props: MutableMap<String, Prop> = linkedMapOf())
     private var owner: PaperPacketDisplays? = null
     private val scenes = mutableMapOf<UUID, Scene>()
 
@@ -123,18 +96,6 @@ internal class OriginWaiterStations(
         scene.stepIndex = stepIndex
         val renderer = owner ?: createOwner().also { owner = it }
         try {
-            val blocks = layout?.let(::waiterStationBlocks).orEmpty()
-            scene.blocks.keys.filter { key -> blocks.none { it.id == key } }.forEach { scene.blocks.remove(it)?.second?.remove() }
-            for (block in blocks) {
-                if (scene.blocks[block.id]?.first == block) continue
-                scene.blocks.remove(block.id)?.second?.remove()
-                val display = renderer.spawnBlock(block.point.inWorld(player.world).apply { yaw = 0f }, block.material.createBlockData())
-                scene.blocks[block.id] = block to display
-                configure(display, player)
-                val rotation = Quaternionf().rotateY(-Math.toRadians(block.point.yaw.toDouble()).toFloat())
-                display.transformation = Transformation(rotation.transform(Vector3f(block.x, block.y, block.z)), rotation,
-                    Vector3f(block.width, block.height, block.depth), Quaternionf())
-            }
             // One finished plate remains on the rack until the next handoff or shift cleanup.
             scene.props.keys.filter { key -> key != "clean-plate" && choices.none { it.id == key } }
                 .forEach { scene.props.remove(it)?.display?.remove() }
@@ -198,7 +159,6 @@ internal class OriginWaiterStations(
     fun remove(playerId: UUID) {
         scenes.remove(playerId)?.let { scene ->
             scene.props.values.forEach { it.display.remove() }
-            scene.blocks.values.forEach { it.second.remove() }
         }
     }
     override fun close() {

@@ -26,7 +26,7 @@ training-dummy:
   partial-reward: 20
   full-reward: 60
 
-scene-ids: [forge, mount-yard]
+scene-ids: [forge, mount-yard, brewery-kitchen]
 
 scenes:
   forge:
@@ -58,7 +58,7 @@ scenes:
         home: "80.7,70.0,78.4458,65.1,0"
         denied-denizen-flags: [rc_origin_forge_service_busy]
 
-    anchor-ids: [master-anvil, master-anvil-stand, master-assistant-stand, ledger-desk, stock-stand, stock-chest, apprentice-stand, apprentice-anvil, ore-cart-stand, ore-cart, ore-chest-stand, ore-chest, dummy-stage, dummy, hammer-anvil, furnace-stand, furnace-fire, quench-stand, quench-cauldron, ore-load-stand, ore-load-cart, ore-route-entry, ore-route-turn, ore-passage, ore-park-stand, ore-park-cart, ore-unload-side, ore-return-side, ore-return-grip, ore-return-load]
+    anchor-ids: [master-anvil, master-anvil-stand, master-assistant-stand, ledger-desk, stock-stand, stock-chest, apprentice-stand, apprentice-anvil, ore-cart-stand, ore-cart, ore-chest-stand, ore-chest, dummy-stage, dummy, hammer-anvil, furnace-stand, furnace-fire, heat-chain, quench-stand, quench-cauldron, ore-load-stand, ore-load-cart, ore-route-entry, ore-route-turn, ore-passage, ore-park-stand, ore-park-cart, ore-unload-side, ore-return-side, ore-return-grip, ore-return-load]
     anchors:
       master-anvil: "76.5,70.65,69.5"
       master-anvil-stand: "76.5,70.0,70.5"
@@ -88,12 +88,14 @@ scenes:
       hammer-anvil: "75.7,70.65,78.4"
       furnace-stand: "80.5,70.0,79.5"
       furnace-fire: "81.5,71.0,80.5"
+      # Player work is attached to the real horizontal chain above the lava.
+      heat-chain: "83.5,72.5,79.5,0"
       quench-stand: "81.5,70.0,75.5"
       quench-cauldron: "82.5,70.8,76.5"
 
     # Props resolve against real workstation blocks. If a build moves or loses
     # its anvil, the cycle aborts and cleans up instead of drawing on the floor.
-    prop-surface-ids: [apprentice-work-surface, master-work-surface]
+    prop-surface-ids: [apprentice-work-surface, master-work-surface, player-work-surface]
     prop-surfaces:
       apprentice-work-surface:
         near: "79.1,70.65,67.8"
@@ -105,6 +107,14 @@ scenes:
         near: "76.5,70.65,69.5"
         material-ids: [ANVIL, CHIPPED_ANVIL, DAMAGED_ANVIL]
         search-radius: 2
+        top-offset: 1.04
+        look-target-offset-y: -1.15
+
+      # Exact lower player anvil; never resolve Edgar's separate workbench.
+      player-work-surface:
+        near: "78.5,70.5,76.5,0"
+        material-ids: [ANVIL, CHIPPED_ANVIL, DAMAGED_ANVIL]
+        search-radius: 0
         top-offset: 1.04
         look-target-offset-y: -1.15
 
@@ -1375,3 +1385,41 @@ scenes:
       saddler-bench: {"near": "54.5,70,-121.5", "material-ids": ["SPRUCE_PLANKS"], "search-radius": 0, "top-offset": 1.02, "look-target-offset-y": -1.15}
       saddle-rack: {"near": "52.5,70,-122.5", "material-ids": ["SPRUCE_FENCE"], "search-radius": 0, "top-offset": 1.51, "look-target-offset-y": -1.15}
       water-trough: {"near": "57.5,70,-121.5", "material-ids": ["WATER_CAULDRON"], "search-radius": 0, "top-offset": 0.9, "look-target-offset-y": -1.15}
+
+
+  # Jasper has one ambient owner. Dining service and conversations no longer
+  # assign NPC 411; permanent room furniture belongs to origin_brewery_kitchen.
+  brewery-kitchen:
+    anchor: "-1.5,70.0,60.5"
+    audience-range: 24.0
+    retry-seconds: 8
+    max-concurrent-cycles: 1
+    actor-ids: ["411"]
+    actors:
+      411: {home: "-3.5,70.0,62.0,0,20"}
+    anchor-ids: [cooking-pot, ingredient-board]
+    anchors:
+      cooking-pot: "-3.5,71.03,63.5,0"
+      ingredient-board: "-2.5,71.03,63.5,0"
+    prop-surface-ids: [stove]
+    prop-surfaces:
+      stove: {near: "-3.5,70.5,63.5", material-ids: [SMOKER], search-radius: 0, top-offset: 1.03, look-target-offset-y: 0.0}
+    route-profile-ids: []
+    cycle-ids: [tend-pot]
+    cycles:
+      tend-pot:
+        actor-ids: ["411"]
+        initial-delay-seconds: 7
+        cooldown-min-seconds: 24
+        cooldown-max-seconds: 38
+        step-ids: [look-board, ingredient, prepare, look-pot, add, bowl, stir, simmer, empty-hand]
+        steps:
+          look-board: {type: LOOK_AT_ANCHOR, actor-id: 411, anchor: ingredient-board}
+          ingredient: {type: EQUIP, actor-id: 411, material: CARROT}
+          prepare: {type: SWING, actor-id: 411, repetitions: 3, period-ticks: 18, feedback-anchor: ingredient-board}
+          look-pot: {type: LOOK_AT_SURFACE, actor-id: 411, surface: stove}
+          add: {type: SWING, actor-id: 411, repetitions: 1, period-ticks: 10, feedback-anchor: cooking-pot}
+          bowl: {type: EQUIP, actor-id: 411, material: BOWL}
+          stir: {type: SWING, actor-id: 411, repetitions: 6, period-ticks: 22, feedback-anchor: cooking-pot, particle: CLOUD, particle-count: 1, particle-every: 2}
+          simmer: {type: WAIT, ticks: 40}
+          empty-hand: {type: EQUIP, actor-id: 411, material: AIR}

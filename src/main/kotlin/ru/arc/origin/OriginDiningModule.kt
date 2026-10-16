@@ -733,6 +733,12 @@ internal object OriginDiningLayout {
 
     val waiterIds: Set<Int> get() = seats.map(OriginDiningSeat::waiterId).toSet()
 
+    fun waitersFor(menu: BreweryTableDialogs.Menu): Set<Int> =
+        seats.asSequence()
+            .filter { (it.menu == BreweryTableDialogs.Menu.RESTAURANT) == (menu == BreweryTableDialogs.Menu.RESTAURANT) }
+            .map(OriginDiningSeat::waiterId)
+            .toSet()
+
     fun waiterHome(waiterId: Int): OriginDiningPoint? = waiterHomes[waiterId]
 
     internal fun ambientWaiterAssignments(): Map<String, Int> =
@@ -752,8 +758,7 @@ internal object OriginDiningLayout {
     internal fun ambientCycleDelayMillis(): LongRange = OriginDiningAmbientLayout.cycleDelayMillis
 
     fun waiterServes(seat: OriginDiningSeat, waiterId: Int): Boolean =
-        if (seat.id.startsWith("brewery_")) waiterId == 410 || waiterId == 411
-        else waiterId == 431 || waiterId == 432
+        waiterId in waitersFor(seat.menu)
 
     fun displayScale(dishId: String): Float = scales[dishId] ?: 0.65f
 
@@ -1189,9 +1194,13 @@ private class OriginDiningService : AutoCloseable {
         reserve = ::reservePlayerWaiterTarget,
         targetValid = ::playerWaiterTargetValid,
         serve = ::servePlayerWaiterTarget,
-        finishEating = { target -> playerWaiterTargetValid(target) && life.finishEating(target.tableId) },
+        finishEating = { target -> playerWaiterTargetValid(target) && guestMeals[target.tableId]?.dish?.id == target.dishId &&
+            life.finishEating(target.tableId) },
         collectPlate = ::collectPlayerWaiterPlate,
-        release = { target -> diningCoordinator.release(target.lease, System.currentTimeMillis(), 0) },
+        release = { target ->
+            OriginNpcHolograms.clearTemporaryBubble(target.guestId, "player-waiter:${target.lease.token}")
+            diningCoordinator.release(target.lease, System.currentTimeMillis(), 0)
+        },
         guestVenue = ::guestVenue,
         playerVenue = { player -> when (OriginDiningLayout.dynamicMenu(player.location)) {
             BreweryTableDialogs.Menu.RESTAURANT -> "restaurant"
@@ -1201,6 +1210,7 @@ private class OriginDiningService : AutoCloseable {
         debounce = ::debounce,
         carry = OriginWaiterCarry(item = { id -> (BreweryTableDialogs.food + BreweryTableDialogs.drinks)
             .firstOrNull { it.id == id }?.let(::dishItem) }, emptyPlate = life::emptyPlateItem, water = life::conversationMug),
+        mealDisplay = { target -> guestMeals[target.tableId]?.display?.takeIf { it.isValid } },
     )
     private var nextAmbientAt = 0L
     private var nextGuestSeatReconcileAt = 0L
@@ -1821,7 +1831,7 @@ private class OriginDiningService : AutoCloseable {
     }
 
     private fun chooseWaiter(menu: BreweryTableDialogs.Menu, seat: OriginDiningPoint): Int {
-        val candidates = if (menu == BreweryTableDialogs.Menu.RESTAURANT) listOf(431, 432) else listOf(410, 411)
+        val candidates = OriginDiningLayout.waitersFor(menu)
         val world = Bukkit.getWorld(OriginDiningLayout.WORLD)
         return candidates.minWithOrNull(
             compareBy<Int> { if (it in waiterAssignments || it in activeDeliveries || it in waiterApproaches || it in ambientRoutes || it in waiterReturns) 1 else 0 }
@@ -3123,7 +3133,9 @@ private class OriginDiningService : AutoCloseable {
         )
     }
 
-    private fun replaceGuestMeal(table: OriginDiningGuestTable, dish: BreweryTableDialogs.Dish, reason: String): Boolean {
+    private fun replaceGuestMeal(table: OriginDiningGuestTable, dish: BreweryTableDialogs.Dish, reason: String,
+        playerTarget: OriginWaiterTarget? = null): Boolean {
+        if (waiterGame.reserves(table.npcId) && (playerTarget == null || !playerWaiterTargetValid(playerTarget))) return false
         life.forgetMeal(table.id)
         val current = guestMeals[table.id]
         val reusable = current?.takeIf { it.display.isValid && it.hitbox.isValid }
@@ -3164,6 +3176,7 @@ private class OriginDiningService : AutoCloseable {
         val now = System.currentTimeMillis()
         val tables = OriginDiningAmbientLayout.guestTables.filter { table ->
             guestVenue(table.npcId) == venue.id && ambientRoutes.values.none { it.table.id == table.id } &&
+                (table.id !in guestMeals || life.isEmpty(table.id)) &&
                 waiter(table.npcId)?.takeIf { it.isSpawned }?.entity?.world?.name == OriginDiningLayout.WORLD
         }.associateBy { it.id }
         val ready = diningCoordinator.readyCycleIds("player-waiter", tables.mapValues { setOf(it.value.npcId) }, now)
@@ -3177,7 +3190,8 @@ private class OriginDiningService : AutoCloseable {
             val replacement = choices.filter { it.id != dish.id }.randomOrNull()
             return OriginWaiterTarget(lease, venue.id, venue.staffId, table.npcId,
                 waiterNpcName(waiterName(table.npcId) ?: table.npcId.toString()), id, dish.id, dish.label,
-                drink?.let { OriginWaiterDish(it.id, it.label) }, replacement?.let { OriginWaiterDish(it.id, it.label) })
+                drink?.let { OriginWaiterDish(it.id, it.label) }, replacement?.let { OriginWaiterDish(it.id, it.label) },
+                guestMeals[id]?.dish?.let { OriginWaiterDish(it.id, it.label) })
         }
         return null
     }
@@ -3189,15 +3203,18 @@ private class OriginDiningService : AutoCloseable {
             waiter(target.guestId)?.takeIf { it.isSpawned }?.entity?.world?.name == OriginDiningLayout.WORLD
 
     private fun servePlayerWaiterTarget(target: OriginWaiterTarget): Boolean {
-        if (!playerWaiterTargetValid(target)) return false
+        // A lease excludes ambient service, but it never makes an occupied tabletop empty.
+        if (!playerWaiterTargetValid(target) || target.tableId in guestMeals) return false
         val table = OriginDiningAmbientLayout.guestTables.first { it.id == target.tableId }
         val dish = (BreweryTableDialogs.food + BreweryTableDialogs.drinks).firstOrNull { it.id == target.dishId } ?: return false
-        return replaceGuestMeal(table, dish, "player-waiter")
+        return replaceGuestMeal(table, dish, "player-waiter", target)
     }
 
     private fun collectPlayerWaiterPlate(target: OriginWaiterTarget): Boolean {
         if (!playerWaiterTargetValid(target) || !life.isEmpty(target.tableId)) return false
-        val meal = guestMeals.remove(target.tableId) ?: return false
+        val meal = guestMeals[target.tableId]?.takeIf { it.dish.id == target.dishId && it.display.isValid && it.hitbox.isValid }
+            ?: return false
+        guestMeals.remove(target.tableId, meal)
         removeGuestMeal(meal)
         return true
     }
@@ -3320,6 +3337,7 @@ private class OriginDiningService : AutoCloseable {
 
     private fun startAmbientRoute(table: OriginDiningGuestTable, reason: String): Boolean {
         if (waiterGame.reserves(table.npcId)) return false
+        if (waiterGame.awaitsTable(guestVenue(table.npcId), System.currentTimeMillis())) return false
         val waiterId = table.waiterId
         if (isWaiterResting(waiterId)) return false
         if (waiterId in ambientRoutes || waiterId in activeDeliveries || waiterId in waiterApproaches || waiterId in waiterAssignments || waiterId in waiterReturns) return false
@@ -3491,7 +3509,10 @@ private class OriginDiningService : AutoCloseable {
             if (!started) cancelAmbientRoute(waiterId, "collection-busy")
             return
         }
-        replaceGuestMeal(route.table, route.dish, "waiter-cycle")
+        if (!replaceGuestMeal(route.table, route.dish, "waiter-cycle")) {
+            cancelAmbientRoute(waiterId, "table-reserved")
+            return
+        }
         val meal = guestMeals[route.table.id]
         if (meal == null) {
             cancelAmbientRoute(waiterId, "meal-unavailable")
