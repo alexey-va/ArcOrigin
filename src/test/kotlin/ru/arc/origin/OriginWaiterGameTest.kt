@@ -73,6 +73,46 @@ class OriginWaiterGameTest : StringSpec({
         }
     }
 
+    "assembly and washing clear the previous NPC glow without looking up a negative Citizens id" {
+        failOnUnsupportedMockBukkitOperation {
+            val previousGuest = f.entity(434)
+            val staff = f.entity(439)
+            f.begin()
+            f.now = f.shiftStarted + 120_000
+            f.clickNpc(433)
+            f.now = f.shiftStarted + 180_000
+            f.game.tick(f.now)
+            // The expired first order is replaced with an assembled order during the rush.
+            f.reservations shouldBe 3
+            f.clickNpc(433)
+            f.clickNpc(434)
+            f.stationChoices.map { it.id } shouldBe listOf("ingredient:egg", "ingredient:bacon", "ingredient:herbs")
+            verify(exactly = 1) { f.viewerGlow.setEntityGlowingFor(previousGuest, f.player, false) }
+            f.game.tick(f.now)
+
+            f.now += 10_000
+            for (ingredient in listOf("egg", "bacon", "herbs")) {
+                f.workstation("ingredient:$ingredient")
+                f.game.tick(f.now)
+            }
+            f.stationChoices.single().id shouldBe "pickup"
+            f.workstation("pickup")
+            f.clickNpc(433)
+            f.now += 18_000
+            f.game.tick(f.now)
+            f.clickNpc(433)
+            f.stationChoices.single().id shouldBe "wash:SCRAPE"
+            verify(atLeast = 1) { f.viewerGlow.setEntityGlowingFor(staff, f.player, false) }
+            for (action in OriginWaiterWash.entries.filter { it != OriginWaiterWash.SOAK }) {
+                f.workstation("wash:${action.name}")
+                f.game.tick(f.now)
+            }
+            f.payments.size shouldBe 1
+            f.screens shouldBe emptyList()
+            verify(exactly = 0) { f.registry.getById(match { it < 0 }) }
+        }
+    }
+
     "two guests are independent one carried dish cannot be duplicated and the shift refills automatically" {
         failOnUnsupportedMockBukkitOperation {
             f.begin()
@@ -438,6 +478,7 @@ private class WaiterGameFixture(private val disputeEveryOrders: Int = 0) : AutoC
     var nextStatus = CompletableFuture.completedFuture(ready)
     val rewards = mockk<OriginSideJobRewards>(relaxed = true)
     val carry = mockk<OriginWaiterCarry>(relaxed = true)
+    val viewerGlow = mockk<ArcOriginViewerGlow>(relaxed = true)
     val stations = mockk<OriginWaiterStations>(relaxed = true)
     var stationHit: OriginWaiterStationHit? = null
     var stationRequest: UUID? = null
@@ -467,11 +508,15 @@ private class WaiterGameFixture(private val disputeEveryOrders: Int = 0) : AutoC
         mockkStatic(CitizensAPI::class)
         mockkObject(OriginMenus, OriginServices)
         every { CitizensAPI.getNPCRegistry() } returns registry
-        every { registry.getById(any()) } answers { actors[firstArg()] }
+        every { registry.getById(any()) } answers {
+            val id = firstArg<Int>()
+            require(id >= 0) { "invalid id" }
+            actors[id]
+        }
         every { registry.getNPC(any<Entity>()) } answers { actors.values.firstOrNull { it.entity === firstArg<Entity>() } }
         every { OriginMenus.beginDialogFlow(any()) } returns Unit
         every { OriginMenus.openDialog(any(), any(), any(), any()) } answers { screens += secondArg<PaperDialogScreen>() }
-        every { OriginServices.viewerGlow } returns mockk<ArcOriginViewerGlow>(relaxed = true)
+        every { OriginServices.viewerGlow } returns viewerGlow
         every { rewards.amount } returns 20
         every { rewards.payoutIntervalMillis } returns 20_000L
         every { rewards.status(any()) } answers { nextStatus }
@@ -521,7 +566,7 @@ private class WaiterGameFixture(private val disputeEveryOrders: Int = 0) : AutoC
     }
 
     fun npc(id: Int) = actors.getValue(id)
-    fun entity(id: Int) = npc(id).entity
+    fun entity(id: Int) = npc(id).entity as Villager
     fun moveTo(id: Int) { now++; player.teleport(entity(id).location) }
     fun clickNpc(id: Int) { moveTo(id); game.interact(player, id) shouldBe true }
     fun openStaff() {
@@ -550,6 +595,12 @@ private class WaiterGameFixture(private val disputeEveryOrders: Int = 0) : AutoC
         now += 10_000
         openStaff()
         pressPickup(433, "Яичница")
+    }
+    fun workstation(action: String) {
+        now += 700
+        stationHit = OriginWaiterStationHit(checkNotNull(stationRequest), action, stationStep)
+        game.interactWorkstation(player) shouldBe true
+        stationHit = null
     }
     fun clean(guest: Int) {
         now += 18_000

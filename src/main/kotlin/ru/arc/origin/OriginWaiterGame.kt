@@ -682,9 +682,9 @@ internal class OriginWaiterGame(
         val npcId = if (dispute != null) progress.disputeGuest(player.uniqueId)?.target?.guestId ?: session.venue.staffId else when (job?.stage) {
             OriginWaiterStage.TAKE_ORDER, OriginWaiterStage.CLARIFY, OriginWaiterStage.DELIVER,
             OriginWaiterStage.EATING, OriginWaiterStage.COLLECT -> job.target.guestId
-            else -> if (workstation.isEmpty()) session.venue.staffId else -1
+            else -> if (workstation.isEmpty()) session.venue.staffId else null
         }
-        val entity = actor(npcId)
+        val entity = npcId?.let(::actor)
         if (glowing[player.uniqueId] !== entity) {
             clearGlow(player.uniqueId)
             if (entity != null) {
