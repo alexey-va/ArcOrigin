@@ -53,7 +53,7 @@ class OriginOddJobsGameTest : StringSpec({
 
     "every employer opens an ordinary right click confirmation and never starts before acceptance" {
         failOnUnsupportedMockBukkitOperation {
-            for (id in listOf(440, 349, 351, 354, 365)) {
+            for (id in listOf(440, 349, 351, 354)) {
                 f.open(id, sneaking = false)
                 f.game.isWorking(f.player.uniqueId) shouldBe false
                 f.screens.last().buttons.map { it.id.value } shouldBe if (id == 351)
@@ -62,7 +62,27 @@ class OriginOddJobsGameTest : StringSpec({
             }
             f.press("odd_job_start"); f.scheduler.executeImmediate(); f.scheduler.executeImmediate()
             f.game.isWorking(f.player.uniqueId) shouldBe true
-            f.game.currentJob(f.player.uniqueId)!!.kind shouldBe OriginOddJobKind.AUCTION
+            f.game.currentJob(f.player.uniqueId)!!.kind shouldBe OriginOddJobKind.FORGE_ENGRAVE
+        }
+    }
+    "auctioneer clicks fall through to the auction service without starting or interrupting work" {
+        failOnUnsupportedMockBukkitOperation {
+            f.moveNpc(365)
+            val auctioneer = f.entity(365)
+            val event = PlayerInteractEntityEvent(f.player, auctioneer, EquipmentSlot.HAND)
+            f.game.onEntity(event)
+            event.isCancelled shouldBe false
+            f.game.interact(f.player, 365) shouldBe false
+            f.screens shouldBe emptyList()
+            f.game.isWorking(f.player.uniqueId) shouldBe false
+            f.begin(440, OriginOddJobVariant.YARD_RATIONS)
+            val request = f.game.currentJob(f.player.uniqueId)!!.id
+            val screens = f.screens.size
+            f.moveNpc(365)
+            f.game.interact(f.player, 365) shouldBe false
+            f.screens.size shouldBe screens
+            f.game.currentJob(f.player.uniqueId)!!.id shouldBe request
+            f.payments shouldBe emptyList()
         }
     }
     "employer identity offhand reach and dismissed asynchronous admission remain fenced" {

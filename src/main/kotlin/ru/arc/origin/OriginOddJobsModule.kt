@@ -58,6 +58,7 @@ object OriginOddJobsModule : PluginModule {
         val path = ArcOriginPlugin.instance.legacyDataPath
         val config = OriginOddJobsConfig.load(ConfigManager.ofModule(path, "origin-odd-jobs.yml"),
             ArcOriginPlugin.instance.sideJobRewardPolicy)
+        originClearAuctionJobHologram(config.venue(OriginOddJobKind.AUCTION))
         if (!config.enabled) return
         val plan = OriginScenePlan.load(path)
         val world = Bukkit.getWorld(plan.world) ?: return
@@ -81,6 +82,12 @@ object OriginOddJobsModule : PluginModule {
         game?.let { HandlerList.unregisterAll(it); it.close() }
         game = null
     }
+}
+
+internal fun originClearAuctionJobHologram(venue: OriginOddJobVenue) {
+    val npc = CitizensAPI.getNPCRegistry().getById(venue.npcId)
+        ?.takeIf { it.uniqueId == venue.npcUuid } ?: return
+    OriginNpcHolograms.patchHologram(npc.id, emptyList(), viewRange = -1)
 }
 
 /** The same hit volume covers the small station bracket, its label and the real clicked block. */
@@ -281,6 +288,7 @@ internal class OriginOddJobsGame(
         val shift = shifts[playerId]
         if (current?.kind == OriginOddJobKind.MOUNTYARD && yard.contains(npcId)) return workAnimal(player, current, npcId)
         val venue = config.venues.firstOrNull { it.npcId == npcId }
+        if (venue?.kind == OriginOddJobKind.AUCTION) return false
         val handoff = current?.kind == OriginOddJobKind.AUCTION && npcId == config.handoffNpcId
         if (venue == null && !handoff || actor(npcId) == null) return false
         if (!near(player, npcId)) { feedback(player, "come-closer"); return true }
