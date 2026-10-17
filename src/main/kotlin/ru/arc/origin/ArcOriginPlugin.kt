@@ -45,12 +45,9 @@ open class ArcOriginPlugin : JavaPlugin() {
     internal var sideJobRewardPolicy = OriginSideJobRewardPolicy()
         private set
     private var modulesRegistered = false
-    private var shutdownDrain = CompletableFuture.completedFuture(Unit)
-    private var predecessorDrain = CompletableFuture.completedFuture(Unit)
-    private var enableScope: LifecycleTaskScope? = null
-    private var generationOpen = false
-    private var generationStarted = false
-    @Volatile private var generation = 0L
+    private var lifecycleOpen = false
+    private var pendingClose = CompletableFuture.completedFuture(Unit)
+    private var nativeDetachFailed = false
     @Volatile private var stopping = false
     private lateinit var io: BoundedAsyncExecutor
     private lateinit var workScope: LifecycleTaskScope
@@ -66,36 +63,18 @@ open class ArcOriginPlugin : JavaPlugin() {
     }
 
     override fun onEnable() {
-        check(!generationOpen) { "Plugin generation is already open" }
-        generationOpen = true
-        generationStarted = false
-        predecessorDrain = shutdownDrain
-        shutdownDrain = CompletableFuture()
-        val scope = ru.arc.core.LifecycleTaskScope(ru.arc.core.BukkitTaskScheduler(this))
-        enableScope = scope
-        val token = scope.token()
-        predecessorDrain.whenComplete { _, failure ->
-            scope.callSync(token) {
-                if (enableScope !== scope || !generationOpen) return@callSync
-                if (failure != null) {
-                    logger.log(Level.SEVERE, "Previous plugin generation failed to drain; startup remains closed", failure)
-                    server.pluginManager.disablePlugin(this)
-                } else {
-                    generationStarted = true
-                    startGeneration()
-                }
-            }.whenComplete { _, startFailure ->
-                if (startFailure != null) scope.callSync(token) {
-                    if (enableScope === scope && generationOpen) {
-                        logger.log(Level.SEVERE, "Plugin generation startup failed closed", startFailure)
-                        server.pluginManager.disablePlugin(this)
-                    }
-                }
-            }
+        check(!lifecycleOpen) { "Plugin lifecycle is already open" }
+        try {
+            check(pendingClose.isDone) { "Previous native cleanup is still pending" }
+            pendingClose.getNow(Unit)
+            lifecycleOpen = true
+            startGeneration()
+        } catch (failure: Throwable) {
+            logger.log(Level.SEVERE, "ArcOrigin startup failed closed", failure)
+            server.pluginManager.disablePlugin(this)
         }
     }
 
-    /** Cold preparation starts only after the exact predecessor's terminal writer/lease drain. */
     protected open fun startGeneration() {
         stopping = false
         val host = server.servicesManager.load(ru.arc.origin.api.ArcOriginConfiguration::class.java)
@@ -125,11 +104,10 @@ open class ArcOriginPlugin : JavaPlugin() {
     internal fun capture(isCurrent: () -> Boolean, step: () -> Boolean): CompletableFuture<Unit> =
         nativeWork.submit({ !stopping && isCurrent() }, step)
 
-    /** Called by ARC on the server thread; all cold preparation stays on the owned worker. */
+    /** Called by ARC on the server thread; manual reload is a sequential lifecycle operation. */
     fun reloadOrigin() {
         if (stopping || runtime == null) return
         val host = OriginServices.configuration
-        generation++
         moduleHealth = RuntimeHealthContribution(state = RuntimeHealthState.STARTING)
         server.servicesManager.unregisterAll(this)
         commandService = null
@@ -145,86 +123,44 @@ open class ArcOriginPlugin : JavaPlugin() {
     }
 
     private fun prepare(host: ru.arc.origin.api.ArcOriginConfiguration, reload: Boolean) {
-        val token = ++generation
-        val scopeToken = workScope.token()
-        host.ready().whenComplete { _, failure ->
-            workScope.runSync(scopeToken) {
-                if (token != generation || stopping) return@runSync
-                if (failure != null) {
-                    logger.log(Level.SEVERE, "ArcOrigin host preparation failed", failure)
-                    if (!reload) server.pluginManager.disablePlugin(this)
-                } else prepareReady(host, reload, token, scopeToken)
-            }
-        }
-    }
-
-    private fun prepareReady(
-        host: ru.arc.origin.api.ArcOriginConfiguration,
-        reload: Boolean,
-        token: Long,
-        scopeToken: LifecycleTaskScope.Token,
-    ) {
+        val ready = host.ready()
+        check(ready.isDone) { "ARC host must be ready before ArcOrigin starts" }
+        ready.getNow(null)
         val redisService = if (host.sharedRedisAvailable()) server.servicesManager.load(ArcRedisService::class.java) else null
-        val ownerName = name
-        io.submit {
-            if (reload) ConfigManager.reloadAll()
-            mergeDefaults()
-            ConfigManager.of(legacyDataPath, "modules/logging.yml")
-            val policy = OriginSideJobRewardPolicy.load(ConfigManager.ofModule(legacyDataPath, "origin-side-job-rewards.yml"))
-            // This packaged JSON is pure model data. Its lazy initializer must never run on a player callback.
-            OriginWorkshopRewardPool.entries
-            val redis = redisService?.let { PaperRedisClient.openPrimary(it, ownerName).also { client -> redisLeases += client; client.retainDuringShutdown(); client.init() } }
-            policy to redis
-        }.whenComplete { prepared, failure ->
-            if (stopping || token != generation) {
-                prepared?.second?.let(::retireRedis)
-            } else if (failure != null) {
-                workScope.runSync(scopeToken) {
-                    logger.log(Level.SEVERE, "ArcOrigin preparation failed closed", failure)
-                    moduleHealth = RuntimeHealthContribution(state = RuntimeHealthState.DOWN)
-                    if (!reload) server.pluginManager.disablePlugin(this)
-                }
-            } else {
-                workScope.callSync(scopeToken) {
-                    check(token == generation && !stopping) { "Origin preparation superseded" }
-                    sideJobRewardPolicy = prepared.first
-                    redisClient = prepared.second
-                    ArcLogging.install(
-                        PaperLoggingPlatform("ArcOrigin", "ArcOrigin"),
-                        LoggingConfigSource { ConfigManager.of(legacyDataPath, "modules/logging.yml") },
-                    )
-                    logger.info("ORIGIN_SIDE_JOB_POLICY orders=${prepared.first.dailyOrderLimit} amount=${prepared.first.rewardPerOrder} settlement=shift-end")
-                    OriginMenus.initialize(this)
-                    if (!modulesRegistered) {
-                        ModuleRegistry.registerAll(
-                            OriginSpawnModule, OriginPortalsModule, OriginWorkshopTablesModule, OriginDiningModule,
-                            OriginAmbientScenesModule, OriginFurnitureWorkshopModule, OriginWorkshopGame,
-                            OriginTrainingDummyModule, OriginMountYardModule, OriginOddJobsModule,
-                        )
-                        modulesRegistered = true
-                    }
-                    ModuleRegistry.initAll()
-                    commandService = OriginCommandService().also {
-                        server.servicesManager.register(ArcOriginCommands::class.java, it, this, ServicePriority.Normal)
-                    }
-                    publishModuleHealth()
-                    runtime?.ready("modules" to ModuleRegistry.getRuntimeStatuses().count { it.ready })
-                    runtime?.reportHealthEvery(1_200L)
-                    ArcLogging.info("ArcOrigin modules ready")
-                }.whenComplete { _, activationFailure ->
-                    if (activationFailure != null) {
-                        prepared.second?.let(::retireRedis)
-                        workScope.callSync(scopeToken) {
-                            if (token == generation && !stopping) {
-                                moduleHealth = RuntimeHealthContribution(state = RuntimeHealthState.DOWN)
-                                logger.log(Level.SEVERE, "ArcOrigin activation failed closed", activationFailure)
-                                server.pluginManager.disablePlugin(this)
-                            }
-                        }
-                    }
-                }
+        if (reload) ConfigManager.reloadAll()
+        mergeDefaults()
+        ConfigManager.of(legacyDataPath, "modules/logging.yml")
+        sideJobRewardPolicy = OriginSideJobRewardPolicy.load(ConfigManager.ofModule(legacyDataPath, "origin-side-job-rewards.yml"))
+        OriginWorkshopRewardPool.entries
+        redisClient = redisService?.let {
+            PaperRedisClient.openPrimary(it, name).also { client ->
+                redisLeases += client
+                client.retainDuringShutdown()
+                client.init()
             }
         }
+        ArcLogging.install(
+            PaperLoggingPlatform("ArcOrigin", "ArcOrigin"),
+            LoggingConfigSource { ConfigManager.of(legacyDataPath, "modules/logging.yml") },
+        )
+        logger.info("ORIGIN_SIDE_JOB_POLICY orders=${sideJobRewardPolicy.dailyOrderLimit} amount=${sideJobRewardPolicy.rewardPerOrder} settlement=shift-end")
+        OriginMenus.initialize(this)
+        if (!modulesRegistered) {
+            ModuleRegistry.registerAll(
+                OriginSpawnModule, OriginPortalsModule, OriginWorkshopTablesModule, OriginDiningModule,
+                OriginAmbientScenesModule, OriginFurnitureWorkshopModule, OriginWorkshopGame,
+                OriginTrainingDummyModule, OriginMountYardModule, OriginOddJobsModule,
+            )
+            modulesRegistered = true
+        }
+        ModuleRegistry.initAll()
+        commandService = OriginCommandService().also {
+            server.servicesManager.register(ArcOriginCommands::class.java, it, this, ServicePriority.Normal)
+        }
+        publishModuleHealth()
+        runtime?.ready("modules" to ModuleRegistry.getRuntimeStatuses().count { it.ready })
+        runtime?.reportHealthEvery(1_200L)
+        ArcLogging.info("ArcOrigin modules ready")
     }
 
     private fun publishModuleHealth() {
@@ -271,24 +207,25 @@ open class ArcOriginPlugin : JavaPlugin() {
     }
 
     override fun onDisable() {
-        if (!generationOpen) return
-        generationOpen = false
-        enableScope?.close()
-        enableScope = null
-        val completion = shutdownDrain
-        val previous = predecessorDrain
-        val retiring = if (generationStarted) runCatching { closeGeneration() }.getOrElse { CompletableFuture.failedFuture(it) }
-            else CompletableFuture.completedFuture(Unit)
-        generationStarted = false
-        CompletableFuture.allOf(previous, retiring).whenComplete { _, failure ->
-            if (failure == null) completion.complete(Unit) else completion.completeExceptionally(failure)
+        if (!lifecycleOpen) return
+        lifecycleOpen = false
+        val closing = runCatching { closeGeneration() }.getOrElse { CompletableFuture.failedFuture(it) }
+        pendingClose = closing
+        if (!nativeDetachFailed) {
+            // Closed reward owners complete their remaining Redis receipts without a Paper callback.
+            runCatching { closing.join() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcOrigin storage", it) }
+        } else {
+            // A failed native detach may leave a callback on main; never join that tail here.
+            closing.whenComplete { _, failure ->
+                if (failure != null) logger.log(Level.SEVERE, "ArcOrigin cleanup failed", failure)
+            }
         }
     }
 
     /** Native detach is synchronous; the returned completion owns every accepted terminal IO action. */
     protected open fun closeGeneration(): CompletableFuture<Unit> {
         stopping = true
-        generation++
+        nativeDetachFailed = false
         var nativeFailure: Throwable? = null
         fun detach(action: () -> Unit) {
             try { action() } catch (problem: Throwable) {
@@ -302,7 +239,7 @@ open class ArcOriginPlugin : JavaPlugin() {
         detach { OriginMenus.close() }
         commandService = null
         detach { server.servicesManager.unregisterAll(this) }
-        // Retained clients belong to the finalizer, including a preparation that finishes during detach.
+        // Retained clients close only after every accepted reward write has finished.
         redisClient = null
         val retiringMetrics = metrics
         metrics = null
@@ -310,6 +247,7 @@ open class ArcOriginPlugin : JavaPlugin() {
         val retiringRuntime = runtime
         runtime = null
         detach { retiringRuntime?.close() }
+        nativeDetachFailed = nativeFailure != null
         val durable = OriginSideJobRewards.shutdownDrain()
         val terminal = closeStorage(durable)
         return terminal.handle { _, storageFailure ->

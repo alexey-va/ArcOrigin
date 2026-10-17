@@ -5,39 +5,29 @@ import io.kotest.matchers.shouldBe
 import ru.arc.paper.testing.MockBukkitTestRuntime
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import ru.arc.core.BoundedAsyncExecutor
 
 class ArcOriginPluginGenerationTest : FunSpec({
-    test("re-enable waits for the exact previous durable drain and creates a fresh drain") {
-        failOnUnsupportedMockBukkitOperation {
-            MockBukkitTestRuntime.open().use { paper ->
-                val plugin = paper.loadSimplePlugin(ControlledArcOriginPlugin::class.java)
-                paper.performTicks(2)
-                plugin.starts shouldBe 1
-                val first = CompletableFuture<Unit>()
-                plugin.nextDrain = first
-                paper.server.pluginManager.disablePlugin(plugin)
-                // Idempotent duplicate disable must not replace the pending predecessor.
-                plugin.onDisable()
-                paper.server.pluginManager.enablePlugin(plugin)
-                paper.performTicks(2)
-                plugin.starts shouldBe 1
-                first.complete(Unit)
-                paper.performTicks(2)
-                plugin.starts shouldBe 2
-                val second = CompletableFuture<Unit>()
-                plugin.nextDrain = second
-                paper.server.pluginManager.disablePlugin(plugin)
-                paper.server.pluginManager.enablePlugin(plugin)
-                paper.performTicks(2)
-                plugin.starts shouldBe 2
-                second.complete(Unit)
-                paper.performTicks(2)
-                plugin.starts shouldBe 3
-                plugin.nextDrain = CompletableFuture.completedFuture(Unit)
+    test("startup is direct and disable finishes IO before the next startup") {
+        MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.loadSimplePlugin(ControlledArcOriginPlugin::class.java)
+            plugin.starts shouldBe 1
+            val write = CompletableFuture<Unit>()
+            plugin.nextDrain = write
+            val writer = CompletableFuture.runAsync {
+                try { plugin.closeEntered.await(5, TimeUnit.SECONDS) shouldBe true }
+                finally { write.complete(Unit) }
             }
+            paper.server.pluginManager.disablePlugin(plugin)
+            writer.get(5, TimeUnit.SECONDS)
+            plugin.onDisable()
+            plugin.closes shouldBe 1
+            paper.server.pluginManager.enablePlugin(plugin)
+            plugin.starts shouldBe 2
+            plugin.nextDrain = CompletableFuture.completedFuture(Unit)
         }
     }
 
@@ -50,6 +40,9 @@ class ArcOriginPluginGenerationTest : FunSpec({
                 plugin.terminalStarted shouldBe true
                 plugin.stopped.isDone shouldBe false
                 plugin.lastLeaseClosed.get() shouldBe false
+                paper.server.pluginManager.enablePlugin(plugin)
+                plugin.starts shouldBe 1
+                plugin.terminalCalls shouldBe 1
                 plugin.earnedWrite.complete(null)
                 runCatching { plugin.stopped.get(5, TimeUnit.SECONDS) }.isFailure shouldBe true
                 plugin.lastLeaseClosed.get() shouldBe true
@@ -60,26 +53,6 @@ class ArcOriginPluginGenerationTest : FunSpec({
             }
         }
     }
-
-    test("a superseded waiting generation cannot activate after its predecessor drains") {
-        failOnUnsupportedMockBukkitOperation {
-            MockBukkitTestRuntime.open().use { paper ->
-                val plugin = paper.loadSimplePlugin(ControlledArcOriginPlugin::class.java)
-                paper.performTicks(2)
-                val old = CompletableFuture<Unit>()
-                plugin.nextDrain = old
-                paper.server.pluginManager.disablePlugin(plugin)
-                paper.server.pluginManager.enablePlugin(plugin)
-                paper.server.pluginManager.disablePlugin(plugin)
-                paper.server.pluginManager.enablePlugin(plugin)
-                old.complete(Unit)
-                paper.performTicks(3)
-                plugin.starts shouldBe 2
-                plugin.closes shouldBe 1
-                plugin.nextDrain = CompletableFuture.completedFuture(Unit)
-            }
-        }
-    }
 })
 
 open class ControlledArcOriginPlugin : ArcOriginPlugin() {
@@ -87,7 +60,12 @@ open class ControlledArcOriginPlugin : ArcOriginPlugin() {
     var closes = 0
     var nextDrain = CompletableFuture.completedFuture(Unit)
     override fun startGeneration() { starts++ }
-    override fun closeGeneration(): CompletableFuture<Unit> { closes++; return nextDrain }
+    val closeEntered = CountDownLatch(1)
+    override fun closeGeneration(): CompletableFuture<Unit> {
+        closes++
+        closeEntered.countDown()
+        return nextDrain
+    }
 }
 
 open class FailingDetachArcOriginPlugin : ArcOriginPlugin() {
@@ -100,11 +78,14 @@ open class FailingDetachArcOriginPlugin : ArcOriginPlugin() {
     private val storage = BoundedAsyncExecutor("origin-generation-test")
     var terminalStarted = false
     lateinit var stopped: CompletableFuture<Unit>
-    override fun startGeneration() {}
+    var starts = 0
+    var terminalCalls = 0
+    override fun startGeneration() { starts++ }
     override fun detachModules() { error("native detach failed") }
     override fun closeGeneration(): CompletableFuture<Unit> = super.closeGeneration().also { stopped = it }
     override fun closeStorage(durable: CompletableFuture<Void>): CompletableFuture<Unit> {
         terminalStarted = true
+        terminalCalls++
         return storage.closeAsync { closeOriginStorage(earnedWrite, retainedLeases) }
     }
 }
