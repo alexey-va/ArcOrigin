@@ -51,8 +51,8 @@ class OriginWorkshopPropTest : FreeSpec({
         verify { secondDisplay.isVisibleByDefault = true }
         verify { display.viewRange = 0.5f }
         verify { secondDisplay.viewRange = 0.5f }
-        verify(exactly = 0) { display.showTo(any()) }
-        verify(exactly = 0) { secondDisplay.showTo(any()) }
+        verify(exactly = 0) { display.showTo(any<Player>()) }
+        verify(exactly = 0) { secondDisplay.showTo(any<Player>()) }
 
         val rotation = Quaternionf().rotationY((Math.PI / 2).toFloat())
         val movedCenter = Location(null, 4.0, 70.0, -8.0)
@@ -165,7 +165,7 @@ class OriginWorkshopPropTest : FreeSpec({
         }
         verify { marker.isVisibleByDefault = false }
         verify { marker.showTo(viewer) }
-        verify(exactly = 0) { marker.showTo(match { it !== viewer }) }
+        verify(exactly = 0) { marker.showTo(match<Player> { it !== viewer }) }
         prop.remove()
     }
 

@@ -304,12 +304,15 @@ internal class OriginPortalsConfig private constructor(
     val itemIds: Map<OriginPortalStyle, String>,
     val anchors: List<OriginPortalAnchor>,
 ) {
-    fun persistFeet(id: OriginPortalId, location: Location) {
+    fun persistFeet(id: OriginPortalId, location: Location) =
+        persistFeet(id, location.x, location.y, location.z, location.yaw)
+
+    fun persistFeet(id: OriginPortalId, x: Double, y: Double, z: Double, yaw: Float) {
         val path = "origin-portals.anchors.${id.key}"
-        source.setDouble("$path.x", location.x)
-        source.setDouble("$path.y", location.y)
-        source.setDouble("$path.z", location.z)
-        source.setDouble("$path.yaw", originPortalMoveYaw(id, location.yaw).toDouble())
+        source.setDouble("$path.x", x)
+        source.setDouble("$path.y", y)
+        source.setDouble("$path.z", z)
+        source.setDouble("$path.yaw", originPortalMoveYaw(id, yaw).toDouble())
         source.saveStrict()
     }
 
@@ -322,9 +325,9 @@ internal class OriginPortalsConfig private constructor(
                 OriginPortalStyle.VOID to "origin_gate_portals:void_portal",
             )
 
-        fun load(dataPath: Path): OriginPortalsConfig {
+        fun load(dataPath: Path, mergeDefaults: Boolean = true): OriginPortalsConfig {
             val source = ConfigManager.ofModule(dataPath, RESOURCE)
-            source.mergeMissingFromBundled("modules/$RESOURCE")
+            if (mergeDefaults) source.mergeMissingFromBundled("modules/$RESOURCE")
             val root = "origin-portals"
             val itemIds =
                 OriginPortalStyle.entries
@@ -683,15 +686,21 @@ object OriginPortalsModule : PluginModule, Listener {
         return beginTransfer(player, anchor)
     }
 
-    internal fun move(id: OriginPortalId, player: Player): Boolean = move(id, player.location)
+    internal fun move(id: OriginPortalId, player: Player): java.util.concurrent.CompletableFuture<Boolean> = move(id, player.location)
 
-    internal fun move(id: OriginPortalId, location: Location): Boolean {
-        val current = config ?: OriginPortalsConfig.load(ArcOriginPlugin.instance.legacyDataPath).also { config = it }
-        return runCatching {
-            current.persistFeet(id, location)
-            apply()
-        }.onFailure { warn("Could not persist Origin portal {} location: {}", id.key, it.message ?: it.javaClass.simpleName) }
-            .isSuccess
+    internal fun move(id: OriginPortalId, location: Location): java.util.concurrent.CompletableFuture<Boolean> {
+        val current = config ?: return java.util.concurrent.CompletableFuture.completedFuture(false)
+        val x = location.x; val y = location.y; val z = location.z; val yaw = location.yaw
+        val token = transferTasks.token()
+        return ArcOriginPlugin.instance.compute { current.persistFeet(id, x, y, z, yaw) }
+            .handle { _, failure -> failure }
+            .thenCompose { failure -> transferTasks.callSync(token) {
+                if (failure != null) {
+                    warn("Could not persist Origin portal {} location: {}", id.key, failure.message ?: failure.javaClass.simpleName)
+                    false
+                } else if (config !== current) false
+                else { apply(); true }
+            } }
     }
 
     internal fun anchors(): List<OriginPortalAnchor> = config?.anchors.orEmpty()
@@ -703,7 +712,7 @@ object OriginPortalsModule : PluginModule, Listener {
         visuals = emptyList()
         inside.clear()
         tick = 0
-        val next = OriginPortalsConfig.load(ArcOriginPlugin.instance.legacyDataPath)
+        val next = OriginPortalsConfig.load(ArcOriginPlugin.instance.legacyDataPath, mergeDefaults = false)
         config = next
         if (!next.enabled) return
         visuals = next.anchors.filter { it.enabled }.map { OriginPortalVisual(it, next) }

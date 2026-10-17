@@ -110,6 +110,7 @@ internal class OriginSideJobRewards(
     private val clock: () -> Long = System::currentTimeMillis,
     private val logger: Logger = ArcOriginPlugin.instance.logger,
     private val policy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy(),
+    private val captureRecovery: ((() -> Boolean) -> CompletableFuture<Unit>)? = null,
 ) : AutoCloseable {
     val amount: Int get() = policy.rewardPerOrder
     private val codec = sideJobRewardCodec()
@@ -117,6 +118,14 @@ internal class OriginSideJobRewards(
     private val tasks = LifecycleTaskScope(scheduler, true)
     private val busy = ConcurrentHashMap.newKeySet<UUID>()
     private val inFlight = ConcurrentHashMap<UUID, Payment>()
+    private val ownedTerminalWrites = ConcurrentHashMap.newKeySet<CompletableFuture<Unit>>()
+
+    internal fun durableDrain(): CompletableFuture<Void> = CompletableFuture.allOf(*ownedTerminalWrites.toTypedArray())
+
+    private fun trackTerminal(write: CompletableFuture<Unit>) {
+        ownedTerminalWrites += write
+        write.whenComplete { _, _ -> ownedTerminalWrites.remove(write) }
+    }
     @Volatile private var closed = false
     @Volatile private var recovering = false
 
@@ -127,6 +136,11 @@ internal class OriginSideJobRewards(
         private val creditWrites = ConcurrentHashMap<UUID, CreditWrite>()
         private val failedCredits = ConcurrentHashMap<UUID, Map<UUID, CreditWrite>>()
         private val settlements = ConcurrentHashMap<UUID, Payment>()
+
+        /** Snapshot after module admission has closed; includes chained earned writes and terminal receipts. */
+        fun shutdownDrain(): CompletableFuture<Void> = CompletableFuture.allOf(
+            *(creditWrites.values.map { it.done } + settlements.values.map { it.done }).toTypedArray(),
+        )
     }
 
     private data class Reservation(val before: SideJobRewardRecord, val claim: SideJobRewardRecord)
@@ -174,6 +188,7 @@ internal class OriginSideJobRewards(
         val write = failed?.copy(done = CompletableFuture()) ?: CreditWrite(shiftId, kind, requestId, amount, quality,
             clock() / DAY_MILLIS, clock().coerceAtLeast(1), CompletableFuture())
         require(write.shiftId == shiftId && write.kind == kind)
+        trackTerminal(write.done)
         val previous = creditWrites.put(playerId, write)
         val token = tasks.token(); val day = write.day; val now = write.at
         (previous?.done ?: CompletableFuture.completedFuture(Unit)).thenCompose { storageFuture {
@@ -239,6 +254,7 @@ internal class OriginSideJobRewards(
             previous.done.whenComplete { _, _ -> dispatch(payment.token) { settle(playerId, shiftId, callback) } }
             return
         }
+        trackTerminal(payment.done)
         busy.add(playerId)
         inFlight[playerId] = payment
         storageFuture {
@@ -286,17 +302,36 @@ internal class OriginSideJobRewards(
             entries.values.firstOrNull { it.kind in kinds }?.let { write -> dispatch(token) { settle(id, write.shiftId) {} } }
         }
         storageFuture { storage.loadMap(SIDE_JOB_REWARD_KEY) }.whenComplete { entries, failure ->
-            recovering = false
-            if (failure != null) logger.log(Level.WARNING, "ORIGIN_SIDE_JOB phase=recovery-read", failure)
-            else entries.forEach { (id, raw) ->
-                try {
-                    val playerId = UUID.fromString(id); val record = codec.decode(raw)
-                    if (record.earnings?.kind in kinds && (!record.pending ||
-                            settlements[playerId]?.shiftId?.toString() == record.earnings?.id)) {
-                        val shiftId = UUID.fromString(requireNotNull(record.earnings).id)
-                        dispatch(token) { settle(playerId, shiftId) {} }
+            if (failure != null) {
+                recovering = false
+                logger.log(Level.WARNING, "ORIGIN_SIDE_JOB phase=recovery-read", failure)
+            } else tasks.runAsync(token) {
+                val recoverable = entries.mapNotNull { (id, raw) ->
+                    try {
+                        val playerId = UUID.fromString(id)
+                        val record = codec.decode(raw)
+                        if (record.earnings?.kind in kinds && (!record.pending ||
+                                settlements[playerId]?.shiftId?.toString() == record.earnings?.id)) {
+                            playerId to UUID.fromString(requireNotNull(record.earnings).id)
+                        } else null
+                    } catch (error: Exception) {
+                        logger.log(Level.WARNING, "ORIGIN_SIDE_JOB phase=recovery-decode player=$id", error)
+                        null
                     }
-                } catch (error: Exception) { logger.log(Level.WARNING, "ORIGIN_SIDE_JOB phase=recovery-decode player=$id", error) }
+                }
+                dispatch(token) {
+                    val remaining = recoverable.iterator()
+                    val step = {
+                        if (!closed && remaining.hasNext()) {
+                            val (playerId, shiftId) = remaining.next()
+                            settle(playerId, shiftId) {}
+                        }
+                        closed || !remaining.hasNext()
+                    }
+                    recovering = false
+                    if (captureRecovery != null) captureRecovery.invoke(step)
+                    else while (!step()) { /* Isolated legacy/test hosts have no native bulk source. */ }
+                }
             }
         }
     }

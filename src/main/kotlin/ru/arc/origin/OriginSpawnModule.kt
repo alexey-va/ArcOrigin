@@ -39,11 +39,11 @@ object OriginSpawnModule : PluginModule, Listener {
         }
         chunks = OriginSpawnChunkManager(OriginServices.chunkLeases)
         showcase = AuctionShowcaseManager()
-        apply(OriginSpawnConfig.load(ArcOriginPlugin.instance.legacyDataPath))
+        apply(OriginSpawnConfig.load(ArcOriginPlugin.instance.legacyDataPath, mergeDefaults = false))
     }
 
     override fun reload() {
-        apply(OriginSpawnConfig.load(ArcOriginPlugin.instance.legacyDataPath))
+        apply(OriginSpawnConfig.load(ArcOriginPlugin.instance.legacyDataPath, mergeDefaults = false))
     }
 
     override fun shutdown() {

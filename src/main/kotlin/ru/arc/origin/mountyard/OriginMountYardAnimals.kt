@@ -202,9 +202,9 @@ data class OriginMountYardAnimalsConfig(
     companion object {
         const val RESOURCE = "origin-mount-yard.yml"
 
-        fun load(dataPath: Path, uuidFences: Map<Int, UUID> = emptyMap()): OriginMountYardAnimalsConfig {
+        fun load(dataPath: Path, uuidFences: Map<Int, UUID> = emptyMap(), mergeDefaults: Boolean = true): OriginMountYardAnimalsConfig {
             val source = ConfigManager.ofModule(dataPath, RESOURCE)
-            source.mergeMissingFromBundled("modules/$RESOURCE")
+            if (mergeDefaults) source.mergeMissingFromBundled("modules/$RESOURCE")
             return parse(source, uuidFences)
         }
 

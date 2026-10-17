@@ -219,9 +219,9 @@ private data class GameSettings(
     val workpieceRenderer: OriginWorkshopWorkpieceRenderer,
 ) {
     companion object {
-        fun load(): GameSettings {
+        fun load(mergeDefaults: Boolean = true): GameSettings {
             val config = ConfigManager.ofModule(ArcOriginPlugin.instance.legacyDataPath, "origin-workshop-game.yml")
-            config.mergeMissingFromBundled("modules/origin-workshop-game.yml")
+            if (mergeDefaults) config.mergeMissingFromBundled("modules/origin-workshop-game.yml")
             val timeout = config.integer("origin-workshop-game.session-timeout-seconds", 180).toLong() * 20
             return GameSettings(
                 config.bool("origin-workshop-game.enabled", false),
@@ -341,7 +341,7 @@ internal object OriginWorkshopGame : PluginModule, Listener {
 
     override fun reload() {
         val loaded = try {
-            GameSettings.load()
+            GameSettings.load(mergeDefaults = false)
         } catch (failure: Exception) {
             ArcOriginPlugin.instance.logger.log(Level.WARNING, "Origin workshop game config rejected; keeping current runtime", failure)
             return

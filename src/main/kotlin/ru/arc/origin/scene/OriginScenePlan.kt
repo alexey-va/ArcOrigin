@@ -482,9 +482,9 @@ internal data class OriginScenePlan(
     fun scene(id: String): OriginSceneDefinition = requireNotNull(scenesById[id]) { "Unknown Origin scene: $id" }
 
     companion object {
-        fun load(dataPath: Path): OriginScenePlan {
+        fun load(dataPath: Path, mergeDefaults: Boolean = true): OriginScenePlan {
             val source = ConfigManager.ofModule(dataPath, "origin-scenes.yml")
-            source.mergeMissingFromBundled("modules/origin-scenes.yml")
+            if (mergeDefaults) source.mergeMissingFromBundled("modules/origin-scenes.yml")
             val sceneIds = distinctIds(source.stringList("scene-ids"), "scene-ids")
             val plan = OriginScenePlan(
                 world = source.string("world", "rc_origin_spawn"),

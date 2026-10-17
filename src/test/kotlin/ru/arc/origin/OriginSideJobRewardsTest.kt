@@ -17,6 +17,23 @@ import java.util.logging.Level
 import java.util.logging.Logger
 
 class OriginSideJobRewardsTest : StringSpec({
+    "terminal drain waits for every already earned chained write after close" {
+        SideJobRewardFixture().use { f ->
+            f.credit()
+            f.credit()
+            f.rewards.close()
+            val drain = f.rewards.durableDrain()
+            drain.isDone shouldBe false
+            f.redis.completeWrite()
+            drain.isDone shouldBe false
+            f.redis.completeWrite()
+            drain.isDone shouldBe true
+            drain.join()
+            f.record()!!.earnings!!.orders.size shouldBe 2
+            f.amounts shouldBe emptyList()
+        }
+    }
+
     "legacy receipts decode without optional fields and unsafe coercions still fail closed" {
         val codec = sideJobRewardCodec()
         val raw = """{"day":20000,"count":1,"nextAt":1728000020000,"requests":["00000000-0000-4000-8000-000000000001"],"pending":true}"""

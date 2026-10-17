@@ -65,10 +65,11 @@ object OriginPortalsSubCommand : OriginCommandHandler {
             return true
         }
         val location = player.location
-        if (!OriginPortalsModule.move(id, location)) {
-            sender.sendMessage(TextUtils.mm("<red>Не удалось сохранить координаты портала.", true))
-            return true
-        }
+        OriginPortalsModule.move(id, location).thenAccept { moved ->
+            if (!moved) {
+                sender.sendMessage(TextUtils.mm("<red>Не удалось сохранить координаты портала.", true))
+                return@thenAccept
+            }
         val yaw = originPortalMoveYaw(id, location.yaw)
         sender.sendMessage(
             TextUtils.mm(
@@ -81,6 +82,7 @@ object OriginPortalsSubCommand : OriginCommandHandler {
                 true,
             ),
         )
+        }
         return true
     }
 

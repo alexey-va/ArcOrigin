@@ -41,6 +41,7 @@ import ru.arc.logging.ArcLogging.info
 import ru.arc.logging.ArcLogging.warn
 import ru.arc.origin.util.SoundUtils
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import kotlin.math.roundToInt
 
 /**
@@ -61,7 +62,7 @@ object OriginAmbientScenesModule : PluginModule, Listener {
             warn("ORIGIN_SCENE phase=DISABLED reason=citizens-unavailable")
             return
         }
-        val current = OriginSceneService(OriginScenePlan.load(ArcOriginPlugin.instance.legacyDataPath))
+        val current = OriginSceneService(OriginScenePlan.load(ArcOriginPlugin.instance.legacyDataPath, mergeDefaults = false))
         service = current
         Bukkit.getPluginManager().registerEvents(this, ArcOriginPlugin.instance)
         current.start()
@@ -71,7 +72,7 @@ object OriginAmbientScenesModule : PluginModule, Listener {
         // Validate before replacing the running generation: a bad edit must not
         // tear down the last usable scene plan.
         val replacement = try {
-            OriginScenePlan.load(ArcOriginPlugin.instance.legacyDataPath)
+            OriginScenePlan.load(ArcOriginPlugin.instance.legacyDataPath, mergeDefaults = false)
         } catch (failure: Exception) {
             warn("ORIGIN_SCENE phase=RELOAD_REJECTED previous_runtime=retained", failure)
             return
@@ -227,7 +228,16 @@ private class OriginSceneService(
     }
 
     fun start() {
-        removeAbandonedDisplays()
+        val token = tasks.token()
+        removeAbandonedDisplays().whenComplete { _, failure ->
+            tasks.runSync(token) {
+                if (failure != null) warn("ORIGIN_SCENE phase=FAILED stage=orphan-cleanup", failure)
+                else startCycles()
+            }
+        }
+    }
+
+    private fun startCycles() {
         val now = System.currentTimeMillis()
         plan.scenes.forEach { scene ->
             scene.cycles.forEach { cycle ->
@@ -876,14 +886,20 @@ private class OriginSceneService(
         }
     }
 
-    private fun removeAbandonedDisplays() {
-        Bukkit.getWorld(plan.world)?.let { world ->
-            world.getEntitiesByClass(BlockDisplay::class.java)
-                .filter { PROP_TAG in it.scoreboardTags }
-                .forEach(BlockDisplay::remove)
-            world.getEntitiesByClass(ItemDisplay::class.java)
-                .filter { PROP_TAG in it.scoreboardTags }
-                .forEach(ItemDisplay::remove)
+    private fun removeAbandonedDisplays(): CompletableFuture<Unit> {
+        val world = Bukkit.getWorld(plan.world) ?: return CompletableFuture.completedFuture(Unit)
+        val token = tasks.token()
+        val chunks = world.loadedChunks.iterator()
+        var entities = emptyList<org.bukkit.entity.Entity>().iterator()
+        return ArcOriginPlugin.instance.capture({ !closed && tasks.isCurrent(token) && Bukkit.getWorld(world.uid) === world }) {
+            if (entities.hasNext()) {
+                val entity = entities.next()
+                if ((entity is BlockDisplay || entity is ItemDisplay) && entity.isValid && PROP_TAG in entity.scoreboardTags) entity.remove()
+            } else if (chunks.hasNext()) {
+                val chunk = chunks.next()
+                if (world.isChunkLoaded(chunk.x, chunk.z)) entities = chunk.entities.iterator()
+            }
+            !entities.hasNext() && !chunks.hasNext()
         }
     }
 

@@ -20,12 +20,12 @@ object OriginMountYardModule : PluginModule {
 
     override fun init() {
         if (!Bukkit.getPluginManager().isPluginEnabled("Citizens")) return
-        start(MountYardCareConfig.load(ArcOriginPlugin.instance.legacyDataPath), OriginMountYardAnimalsConfig.load(ArcOriginPlugin.instance.legacyDataPath))
+        start(MountYardCareConfig.load(ArcOriginPlugin.instance.legacyDataPath), OriginMountYardAnimalsConfig.load(ArcOriginPlugin.instance.legacyDataPath, mergeDefaults = false))
     }
 
     override fun reload() {
         val care = MountYardCareConfig.load(ArcOriginPlugin.instance.legacyDataPath)
-        val animals = OriginMountYardAnimalsConfig.load(ArcOriginPlugin.instance.legacyDataPath)
+        val animals = OriginMountYardAnimalsConfig.load(ArcOriginPlugin.instance.legacyDataPath, mergeDefaults = false)
         shutdown()
         start(care, animals)
     }

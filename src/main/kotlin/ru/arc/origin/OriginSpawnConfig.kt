@@ -82,9 +82,9 @@ internal class OriginSpawnConfig private constructor(
         private const val RESOURCE = "origin-spawn.yml"
         const val DEFAULT_BREAK_BYPASS_PERMISSION = "arc.origin.spawn.build"
 
-        fun load(dataPath: Path): OriginSpawnConfig {
+        fun load(dataPath: Path, mergeDefaults: Boolean = true): OriginSpawnConfig {
             val source = ConfigManager.ofModule(dataPath, RESOURCE)
-            source.mergeMissingFromBundled("modules/$RESOURCE")
+            if (mergeDefaults) source.mergeMissingFromBundled("modules/$RESOURCE")
 
             val minX = source.integer("chunks.min-x", -16)
             val maxX = source.integer("chunks.max-x", 16)

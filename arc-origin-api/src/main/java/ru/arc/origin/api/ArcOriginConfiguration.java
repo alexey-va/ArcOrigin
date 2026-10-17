@@ -1,9 +1,15 @@
 package ru.arc.origin.api;
 
 import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
 
 /** Host configuration required by the Origin plugin. Implemented by the ARC host. */
 public interface ArcOriginConfiguration {
+    /** Completes after this host generation has prepared configuration and attached native services. */
+    default CompletableFuture<Void> ready() {
+        return CompletableFuture.completedFuture(null);
+    }
+
     /** Path of the historical ARC data directory, preserving existing Origin config locations. */
     Path legacyDataPath();
 

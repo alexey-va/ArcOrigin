@@ -60,12 +60,12 @@ object OriginOddJobsModule : PluginModule {
             ArcOriginPlugin.instance.sideJobRewardPolicy)
         originClearAuctionJobHologram(config.venue(OriginOddJobKind.AUCTION))
         if (!config.enabled) return
-        val plan = OriginScenePlan.load(path)
+        val plan = OriginScenePlan.load(path, mergeDefaults = false)
         val world = Bukkit.getWorld(plan.world) ?: return
         val stations = originOddJobStations(plan, world)
         game = OriginOddJobsGame(config, plan.world, stations,
             resolveStations = { originOddJobStations(plan, world) },
-            yardCatalog = OriginMountYardAnimalsConfig.load(path).catalog).also {
+            yardCatalog = OriginMountYardAnimalsConfig.load(path, mergeDefaults = false).catalog).also {
             Bukkit.getPluginManager().registerEvents(it, ArcOriginPlugin.instance)
         }
         info("ORIGIN_ODD_JOBS phase=READY world={} stations={}", plan.world,
@@ -114,7 +114,8 @@ internal class OriginOddJobsGame(
     private val config: OriginOddJobsConfig,
     private val worldName: String,
     stations: Map<OriginOddJobStationId, OriginOddJobStation>,
-    private val rewards: OriginSideJobRewards = OriginSideJobRewards(policy = config.rewardPolicy),
+    private val rewards: OriginSideJobRewards = OriginSideJobRewards(policy = config.rewardPolicy,
+        captureRecovery = { step -> ArcOriginPlugin.instance.capture({ true }, step) }),
     private val visuals: OriginOddJobVisuals = OriginOddJobVisuals(),
     private val tasks: LifecycleTaskScope = LifecycleTaskScope(),
     private val acquire: (OriginOddJobVenue) -> OriginSceneLease? = { venue ->

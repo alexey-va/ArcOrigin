@@ -57,9 +57,9 @@ internal data class OriginTrainingDummyConfig(
     val fullReward: Int,
 ) {
     companion object {
-        fun load(): OriginTrainingDummyConfig {
+        fun load(mergeDefaults: Boolean = true): OriginTrainingDummyConfig {
             val source = ConfigManager.ofModule(ArcOriginPlugin.instance.legacyDataPath, "origin-scenes.yml")
-            source.mergeMissingFromBundled("modules/origin-scenes.yml")
+            if (mergeDefaults) source.mergeMissingFromBundled("modules/origin-scenes.yml")
             val root = "training-dummy"
             return OriginTrainingDummyConfig(
                 world = source.string("world", "rc_origin_spawn"),
@@ -177,7 +177,7 @@ object OriginTrainingDummyModule : PluginModule, Listener {
             warn("ORIGIN_TRAINING_DUMMY phase=DISABLED reason=citizens-unavailable")
             return
         }
-        config = OriginTrainingDummyConfig.load()
+        config = OriginTrainingDummyConfig.load(mergeDefaults = false)
         tasks = LifecycleTaskScope()
         Bukkit.getPluginManager().registerEvents(this, ArcOriginPlugin.instance)
         tasks.runLater(5L) { anchorDummy() }

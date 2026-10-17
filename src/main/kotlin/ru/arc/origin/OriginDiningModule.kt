@@ -52,6 +52,7 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
 import org.bukkit.util.Transformation
 import org.bukkit.util.BoundingBox
+import java.util.concurrent.CompletableFuture
 import org.joml.AxisAngle4f
 import org.joml.Vector3f
 import ru.arc.config.ConfigManager
@@ -94,7 +95,7 @@ object OriginDiningModule : PluginModule, Listener {
     private var packetListener: OriginDiningPacketListener? = null
 
     override fun init() {
-        OriginDiningLayout.load(ArcOriginPlugin.instance.legacyDataPath, ArcOriginPlugin.instance.sideJobRewardPolicy)
+        OriginDiningLayout.load(ArcOriginPlugin.instance.legacyDataPath, ArcOriginPlugin.instance.sideJobRewardPolicy, mergeDefaults = false)
         val current = OriginDiningService()
         service = current
         Bukkit.getPluginManager().registerEvents(this, ArcOriginPlugin.instance)
@@ -489,9 +490,9 @@ internal object OriginDiningLayout {
     private var furnitureSeatProfiles: List<OriginDiningFurnitureSeatProfile> = emptyList()
     private var npcRouteProfiles: List<NpcRouteProfile> = emptyList()
 
-    fun load(dataPath: java.nio.file.Path, rewardPolicy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy()) {
+    fun load(dataPath: java.nio.file.Path, rewardPolicy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy(), mergeDefaults: Boolean = true) {
         val source = ConfigManager.ofModule(dataPath, "origin-dining.yml")
-        source.mergeMissingFromBundled("modules/origin-dining.yml")
+        if (mergeDefaults) source.mergeMissingFromBundled("modules/origin-dining.yml")
         lifeConfig = OriginDiningLifeConfig.load(source)
         conversationConfig = OriginDiningConversations.Config.load(source)
         waiterGameConfig = OriginWaiterConfig.load(source, rewardPolicy)
@@ -1266,9 +1267,18 @@ private class OriginDiningService : AutoCloseable {
             OriginDiningLayout.sessionTtlMillis,
         )
         reconcileAuthoredSeatBlocks()
-        resolveAutoGuestSeats()
-        cleanupWorldSeats()
-        cleanupAmbientLegacy()
+        val token = tasks.token()
+        resolveAutoGuestSeats().thenCompose { cleanupWorldSeats() }.thenCompose { cleanupAmbientLegacy() }
+            .whenComplete { _, failure ->
+            tasks.runSync(token) {
+                if (failure != null) {
+                    warn("ORIGIN_DINING phase=FAILED stage=auto-guest-seats", failure)
+                } else finishStart()
+            }
+        }
+    }
+
+    private fun finishStart() {
         val now = System.currentTimeMillis()
         nextAmbientAt = now + OriginDiningAmbientLayout.cycleDelayMillis.random()
         tasks.runLater(20L) {
@@ -1351,109 +1361,166 @@ private class OriginDiningService : AutoCloseable {
         )
     }
 
-    private fun resolveAutoGuestSeats() {
-        if (OriginDiningAmbientLayout.autoSeatingZones.isEmpty()) return
-        val world = Bukkit.getWorld(OriginDiningLayout.WORLD) ?: return
+    private fun resolveAutoGuestSeats(): CompletableFuture<Unit> {
+        val zones = OriginDiningAmbientLayout.autoSeatingZones
+        if (zones.isEmpty()) return CompletableFuture.completedFuture(Unit)
+        val world = Bukkit.getWorld(OriginDiningLayout.WORLD) ?: return CompletableFuture.completedFuture(Unit)
+        val token = tasks.token()
+        val current = { tasks.isCurrent(token) && Bukkit.getWorld(world.uid) === world }
         val configured = OriginDiningAmbientLayout.guestSeats.associateBy(OriginDiningGuestSeat::npcId)
+        val configuredTables = OriginDiningAmbientLayout.guestTables.associateBy(OriginDiningGuestTable::npcId)
         val assignments = linkedMapOf<Int, OriginDiningPoint>()
         val tables = linkedMapOf<Int, OriginDiningGuestTable>()
-        OriginDiningAmbientLayout.autoSeatingZones.forEach { zone ->
-            val bounds = zone.bounds
-            var loadedChunks = 0
-            for (chunkX in (bounds.minX shr 4)..(bounds.maxX shr 4)) {
-                for (chunkZ in (bounds.minZ shr 4)..(bounds.maxZ shr 4)) {
-                    if (!world.isChunkLoaded(chunkX, chunkZ) && zone.loadChunks && world.isChunkGenerated(chunkX, chunkZ)) {
-                        world.getChunkAt(chunkX, chunkZ)
-                        loadedChunks++
-                    }
-                }
+        val result = CompletableFuture<Unit>()
+        val remainingZones = zones.iterator()
+
+        fun nextZone() {
+            if (!current()) { result.cancel(false); return }
+            if (!remainingZones.hasNext()) {
+                OriginDiningAmbientLayout.applyAutoSeating(assignments, tables)
+                result.complete(Unit)
+                return
             }
-            val candidates = buildList {
-                for (x in bounds.minX..bounds.maxX) {
-                    for (z in bounds.minZ..bounds.maxZ) {
-                        if (!world.isChunkLoaded(x shr 4, z shr 4)) continue
-                        for (y in bounds.minY..bounds.maxY) {
-                            val block = world.getBlockAt(x, y, z)
-                            if (Triple(x, y, z) in zone.excludedBlocks) continue
-                            val stairs = block.blockData as? Stairs ?: continue
-                            if (stairs.half != Bisected.Half.BOTTOM) continue
-                            val yaw = OriginDiningLayout.stairYaw(stairs.facing) ?: continue
-                            val front = block.getRelative(stairs.facing.oppositeFace)
-                            if (front.type.isAir && !hasFurnitureAt(front)) continue
-                            add(OriginDiningPoint(x + 0.5, y.toDouble(), z + 0.5, yaw))
+            val zone = remainingZones.next()
+            val bounds = zone.bounds
+            val candidates = mutableListOf<OriginDiningPoint>()
+            val validators = mutableMapOf<OriginDiningPoint, () -> Boolean>()
+            var loadedChunks = 0
+            var chunkX = bounds.minX shr 4
+            var chunkZ = bounds.minZ shr 4
+            val loaded = CompletableFuture<Unit>()
+
+            fun nextChunk() {
+                if (!current()) { loaded.cancel(false); return }
+                if (chunkX > (bounds.maxX shr 4)) { loaded.complete(Unit); return }
+                val x = chunkX
+                val z = chunkZ
+                if (++chunkZ > (bounds.maxZ shr 4)) { chunkZ = bounds.minZ shr 4; chunkX++ }
+                var loading: CompletableFuture<org.bukkit.Chunk>? = null
+                ArcOriginPlugin.instance.capture(current) {
+                    if (zone.loadChunks && !world.isChunkLoaded(x, z)) loading = world.getChunkAtAsync(x, z, false)
+                    true
+                }.whenComplete { _, captureFailure ->
+                    if (captureFailure != null) loaded.completeExceptionally(captureFailure)
+                    else {
+                        val pending = loading
+                        if (pending == null) nextChunk()
+                        else pending.whenComplete { chunk, loadFailure ->
+                            if (tasks.runSync(token) {
+                                    if (loadFailure != null) loaded.completeExceptionally(loadFailure)
+                                    else { if (chunk != null) loadedChunks++; nextChunk() }
+                                } == null) loaded.cancel(false)
                         }
                     }
                 }
-            }.toMutableList()
-            val furnitureRoots = linkedMapOf<UUID, Pair<Entity, OriginDiningFurnitureSeatProfile>>()
-            world.getNearbyEntities(
-                BoundingBox(
-                    bounds.minX.toDouble(),
-                    bounds.minY.toDouble(),
-                    bounds.minZ.toDouble(),
-                    bounds.maxX + 1.0,
-                    bounds.maxY + 2.0,
-                    bounds.maxZ + 1.0,
-                ),
-            ).forEach { entity ->
-                val handle = SharedOriginFurnitureAccess.inspect(entity) ?: return@forEach
-                val profile = OriginDiningLayout.furnitureSeatProfile(handle.namespacedId) ?: return@forEach
-                furnitureRoots.putIfAbsent(handle.root.uniqueId, handle.root to profile)
             }
-            furnitureRoots.values.forEach { (root, profile) ->
-                val seat = furnitureSeatPoint(root, profile) ?: return@forEach
-                val block = Triple(floor(seat.x).toInt(), floor(seat.y).toInt(), floor(seat.z).toInt())
-                if (block in zone.excludedBlocks) return@forEach
-                candidates += seat
-            }
-            val guests = zone.guestIds.mapNotNull { npcId -> configured[npcId]?.let { npcId to it.seat } }
-            val zoneAssignments =
-                if (candidates.isEmpty()) {
-                    warn(
-                        "ORIGIN_DINING phase=AUTO_GUEST_SEATING zone={} status=empty reason=no-candidates loaded_chunks={} bounds={},{},{}:{},{},{}",
-                        zone.id,
-                        loadedChunks,
-                        bounds.minX,
-                        bounds.minY,
-                        bounds.minZ,
-                        bounds.maxX,
-                        bounds.maxY,
-                        bounds.maxZ,
-                    )
-                    emptyMap()
-                } else {
-                    OriginDiningLayout.selectGuestSeats(guests, candidates, zone.minimumFreeSeats)
+            nextChunk()
+            loaded.whenComplete { _, loadFailure ->
+                if (loadFailure != null) { result.completeExceptionally(loadFailure); return@whenComplete }
+                var x = bounds.minX
+                var z = bounds.minZ
+                var y = bounds.minY
+                fun stairSeat(bx: Int, by: Int, bz: Int): OriginDiningPoint? {
+                    if (!world.isChunkLoaded(bx shr 4, bz shr 4)) return null
+                    val block = world.getBlockAt(bx, by, bz)
+                    val stairs = block.blockData as? Stairs ?: return null
+                    if (stairs.half != Bisected.Half.BOTTOM) return null
+                    val yaw = OriginDiningLayout.stairYaw(stairs.facing) ?: return null
+                    val front = block.getRelative(stairs.facing.oppositeFace)
+                    if (!world.isChunkLoaded(front.x shr 4, front.z shr 4)) return null
+                    if (front.type.isAir && !hasFurnitureAt(front)) return null
+                    return OriginDiningPoint(bx + 0.5, by.toDouble(), bz + 0.5, yaw)
                 }
-            assignments.putAll(zoneAssignments)
-            val unseated = zone.guestIds.filterNot(zoneAssignments::containsKey)
-            if (unseated.isNotEmpty()) warn(
-                "ORIGIN_DINING phase=AUTO_GUEST_SEATING_FAILED zone={} reason=insufficient-seats guests={} candidates={} reserved_for_players={}",
-                zone.id, unseated, candidates.size, zone.minimumFreeSeats,
-            )
-            zoneAssignments.forEach { (npcId, seat) ->
-                val original = OriginDiningAmbientLayout.guestTables.firstOrNull { it.npcId == npcId }
-                if (original != null && candidates.isNotEmpty()) {
-                    val block = world.getBlockAt(floor(seat.x).toInt(), seat.y.toInt(), floor(seat.z).toInt())
-                    tables[npcId] = original.copy(
-                        meal = OriginDiningLayout.centeredDishPoint(seat, 1.0, OriginDiningLayout.dynamicTableHeight),
-                        waiterStop = dynamicWaiterStop(block, seat),
-                    )
-                } else if (original != null) {
-                    tables[npcId] = original
+                ArcOriginPlugin.instance.capture(current) {
+                    if (x > bounds.maxX) true else {
+                        val bx = x; val by = y; val bz = z
+                        if (++y > bounds.maxY) { y = bounds.minY; if (++z > bounds.maxZ) { z = bounds.minZ; x++ } }
+                        if (Triple(bx, by, bz) !in zone.excludedBlocks) stairSeat(bx, by, bz)?.let { seat ->
+                            candidates += seat
+                            validators[seat] = { stairSeat(bx, by, bz) == seat }
+                        }
+                        x > bounds.maxX
+                    }
+                }.whenComplete blockCapture@{ _, blockFailure ->
+                    if (blockFailure != null) { result.completeExceptionally(blockFailure); return@blockCapture }
+                    var cx = (bounds.minX shr 4) - 1
+                    var cz = (bounds.minZ shr 4) - 1
+                    var entities = emptyList<Entity>().iterator()
+                    val roots = hashSetOf<UUID>()
+                    val box = BoundingBox(bounds.minX.toDouble(), bounds.minY.toDouble(), bounds.minZ.toDouble(),
+                        bounds.maxX + 1.0, bounds.maxY + 2.0, bounds.maxZ + 1.0)
+                    ArcOriginPlugin.instance.capture(current) {
+                        if (entities.hasNext()) {
+                            val entity = entities.next()
+                            if (entity.isValid && entity.boundingBox.overlaps(box)) {
+                                val handle = SharedOriginFurnitureAccess.inspect(entity)
+                                val profile = handle?.let { OriginDiningLayout.furnitureSeatProfile(it.namespacedId) }
+                                if (handle != null && profile != null && roots.add(handle.root.uniqueId)) {
+                                    val root = handle.root
+                                    furnitureSeatPoint(root, profile)?.let { seat ->
+                                        val block = Triple(floor(seat.x).toInt(), floor(seat.y).toInt(), floor(seat.z).toInt())
+                                        if (block !in zone.excludedBlocks) {
+                                            candidates += seat
+                                            validators[seat] = { root.isValid && furnitureSeatPoint(root, profile) == seat }
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (cx <= (bounds.maxX shr 4) + 1) {
+                            if (world.isChunkLoaded(cx, cz)) entities = world.getChunkAt(cx, cz).entities.iterator()
+                            if (++cz > (bounds.maxZ shr 4) + 1) { cz = (bounds.minZ shr 4) - 1; cx++ }
+                        }
+                        !entities.hasNext() && cx > (bounds.maxX shr 4) + 1
+                    }.whenComplete entityCapture@{ _, entityFailure ->
+                        if (entityFailure != null) { result.completeExceptionally(entityFailure); return@entityCapture }
+                        val guests = zone.guestIds.mapNotNull { npcId -> configured[npcId]?.let { npcId to it.seat } }
+                        ArcOriginPlugin.instance.compute {
+                            OriginDiningLayout.selectGuestSeats(guests, candidates, zone.minimumFreeSeats)
+                        }.whenComplete { zoneAssignments, planningFailure ->
+                            val scheduled = tasks.runSync(token) {
+                                if (planningFailure != null) { result.completeExceptionally(planningFailure); return@runSync }
+                                val chosen = zoneAssignments.entries.iterator()
+                                ArcOriginPlugin.instance.capture(current) {
+                                    if (chosen.hasNext()) {
+                                        val (npcId, seat) = chosen.next()
+                                        check(validators[seat]?.invoke() == true) { "Dining seat changed during preparation" }
+                                        val original = configuredTables[npcId]
+                                        if (original != null) {
+                                            val block = world.getBlockAt(floor(seat.x).toInt(), seat.y.toInt(), floor(seat.z).toInt())
+                                            tables[npcId] = original.copy(
+                                                meal = OriginDiningLayout.centeredDishPoint(seat, 1.0, OriginDiningLayout.dynamicTableHeight),
+                                                waiterStop = dynamicWaiterStop(block, seat),
+                                            )
+                                        }
+                                    }
+                                    !chosen.hasNext()
+                                }.whenComplete { _, validationFailure ->
+                                    if (validationFailure != null) result.completeExceptionally(validationFailure)
+                                    else {
+                                        assignments.putAll(zoneAssignments)
+                                        val unseated = zone.guestIds.filterNot(zoneAssignments::containsKey)
+                                        if (unseated.isNotEmpty()) warn(
+                                            "ORIGIN_DINING phase=AUTO_GUEST_SEATING_FAILED zone={} reason=insufficient-seats guests={} candidates={} reserved_for_players={}",
+                                            zone.id, unseated, candidates.size, zone.minimumFreeSeats,
+                                        )
+                                        info(
+                                            "ORIGIN_DINING phase=AUTO_GUEST_SEATING zone={} status=ready loaded_chunks={} candidates={} assigned={} free={} minimum_free={} assignments={}",
+                                            zone.id, loadedChunks, candidates.size, zoneAssignments.size,
+                                            (candidates.size - zoneAssignments.size).coerceAtLeast(0), zone.minimumFreeSeats,
+                                            zoneAssignments.entries.joinToString(",") { (npcId, seat) -> "$npcId@${point(seat)}" },
+                                        )
+                                        nextZone()
+                                    }
+                                }
+                            }
+                            if (scheduled == null) result.cancel(false)
+                        }
+                    }
                 }
             }
-            info(
-                "ORIGIN_DINING phase=AUTO_GUEST_SEATING zone={} status=ready loaded_chunks={} candidates={} assigned={} free={} minimum_free={} assignments={}",
-                zone.id,
-                loadedChunks,
-                candidates.size,
-                zoneAssignments.size,
-                (candidates.size - zoneAssignments.size).coerceAtLeast(0),
-                zone.minimumFreeSeats,
-                zoneAssignments.entries.joinToString(",") { (npcId, seat) -> "$npcId@${point(seat)}" },
-            )
         }
-        OriginDiningAmbientLayout.applyAutoSeating(assignments, tables)
+        nextZone()
+        return result
     }
 
     fun canOpen(player: Player, menu: BreweryTableDialogs.Menu): Boolean {
@@ -1818,6 +1885,7 @@ private class OriginDiningService : AutoCloseable {
     }
 
     private fun hasTableAt(block: Block, ignoredRoot: UUID): Boolean {
+        if (!block.world.isChunkLoaded(block.x shr 4, block.z shr 4)) return false
         if (!block.type.isAir) return true
         val center = block.location.add(0.5, 0.8, 0.5)
         return block.world.getNearbyEntities(center, 0.7, 1.2, 0.7).any { entity ->
@@ -1949,29 +2017,52 @@ private class OriginDiningService : AutoCloseable {
 
     fun interactWorkstation(player: Player): Boolean = waiterGame.interactWorkstation(player)
 
-    private fun cleanupWorldSeats() {
+    private data class CleanupScan(
+        val center: Location,
+        val x: Double,
+        val y: Double,
+        val z: Double,
+        val remove: (Entity) -> Boolean,
+    )
+
+    /** Queries are native indivisible calls; each returned entity is handled in its own shared budget step. */
+    private fun cleanupScans(world: org.bukkit.World, scans: List<CleanupScan>): CompletableFuture<Int> {
+        val token = tasks.token()
+        val pending = scans.iterator()
+        var scan: CleanupScan? = null
+        var entities = emptyList<Entity>().iterator()
+        var removed = 0
+        return ArcOriginPlugin.instance.capture({ tasks.isCurrent(token) && Bukkit.getWorld(world.uid) === world }) {
+            if (entities.hasNext()) {
+                val entity = entities.next()
+                if (entity.isValid && requireNotNull(scan).remove(entity)) removed++
+            } else if (pending.hasNext()) {
+                scan = pending.next()
+                val current = requireNotNull(scan)
+                entities = world.getNearbyEntities(current.center, current.x, current.y, current.z).iterator()
+            }
+            !entities.hasNext() && !pending.hasNext()
+        }.thenApply { removed }
+    }
+
+    private fun cleanupWorldSeats(): CompletableFuture<Unit> {
         val world = Bukkit.getWorld(OriginDiningLayout.WORLD)
         if (world == null) {
             warn("ORIGIN_DINING phase=START_FAILED world={} reason=world-unavailable", OriginDiningLayout.WORLD)
-            return
+            return CompletableFuture.completedFuture(Unit)
         }
-        cleanupLegacy(world, "world-stairs-only")
-        val centers =
-            listOf(
+        return cleanupLegacy(world, "world-stairs-only").thenCompose {
+            val centers = listOf(
                 Location(world, BreweryTableDialogs.BREWERY_X, BreweryTableDialogs.BREWERY_Y, BreweryTableDialogs.BREWERY_Z),
                 Location(world, BreweryTableDialogs.RESTAURANT_X, BreweryTableDialogs.RESTAURANT_Y, BreweryTableDialogs.RESTAURANT_Z),
             )
-        var removed = 0
-        centers.forEach { center ->
-            world.getNearbyEntities(center, 24.0, 8.0, 24.0)
-                .filterIsInstance<Interaction>()
-                .filter { it.scoreboardTags.contains(SEAT_TAG) }
-                .forEach {
-                    it.remove()
-                    removed++
-                }
+            cleanupScans(world, centers.map { center -> CleanupScan(center, 24.0, 8.0, 24.0) { entity ->
+                if (entity is Interaction && SEAT_TAG in entity.scoreboardTags) { entity.remove(); true } else false
+            } }).thenApply { removed ->
+                info("ORIGIN_DINING phase=LEGACY_SEAT_HITBOX_CLEANUP removed={}", removed)
+                Unit
+            }
         }
-        info("ORIGIN_DINING phase=LEGACY_SEAT_HITBOX_CLEANUP removed={}", removed)
     }
 
     private fun cleanupOrphanCmiChair(block: Block): Int {
@@ -3013,61 +3104,54 @@ private class OriginDiningService : AutoCloseable {
         if (!Bukkit.getPluginManager().isPluginEnabled("Citizens")) null
         else runCatching { CitizensAPI.getNPCRegistry().getById(id)?.name }.getOrNull()
 
-    private fun cleanupAmbientLegacy() {
-        val world = Bukkit.getWorld(OriginDiningLayout.WORLD) ?: return
-        var removed = 0
+    private fun cleanupAmbientLegacy(): CompletableFuture<Unit> {
+        val world = Bukkit.getWorld(OriginDiningLayout.WORLD) ?: return CompletableFuture.completedFuture(Unit)
+        val scans = mutableListOf<CleanupScan>()
         OriginDiningAmbientLayout.guestSeats.forEach { guest ->
             val seat = guest.seat.inWorld(world)
-            world.getNearbyEntities(seat.clone().add(0.0, 0.6, 0.0), 0.8, 0.8, 0.8)
-                .filterIsInstance<ArmorStand>()
-                .filter { it.isMarker && !it.isVisible && it.passengers.isEmpty() }
-                .forEach { it.remove(); removed++ }
-            world.getNearbyEntities(seat.clone().add(0.0, 2.4, 0.0), 0.9, 0.8, 0.9)
-                .filterIsInstance<TextDisplay>()
-                .filter { SPEECH_TAG in it.scoreboardTags }
-                .forEach { it.remove(); removed++ }
+            scans += CleanupScan(seat.clone().add(0.0, 0.6, 0.0), 0.8, 0.8, 0.8) { entity ->
+                if (entity is ArmorStand && entity.isMarker && !entity.isVisible && entity.passengers.isEmpty()) {
+                    entity.remove(); true
+                } else false
+            }
+            scans += CleanupScan(seat.clone().add(0.0, 2.4, 0.0), 0.9, 0.8, 0.9) { entity ->
+                if (entity is TextDisplay && SPEECH_TAG in entity.scoreboardTags) { entity.remove(); true } else false
+            }
         }
         OriginDiningAmbientLayout.guestTables.forEach { table ->
             val meal = table.meal.inWorld(world)
-            world.getNearbyEntities(meal, 0.18, 0.18, 0.18)
-                .filterIsInstance<ItemDisplay>()
-                .filter(::isLegacyDishDisplay)
-                .forEach { it.remove(); removed++ }
-            world.getNearbyEntities(meal.clone().add(0.0, OriginDiningLayout.mealHitboxYOffset, 0.0), 0.18, 0.18, 0.18)
-                .filterIsInstance<Interaction>()
-                .forEach { it.remove(); removed++ }
-        }
-        OriginDiningAmbientLayout.cleanupPoints.forEach { point ->
-            world.getNearbyEntities(point.inWorld(world), 1.0, 1.0, 1.0)
-                .filterIsInstance<TextDisplay>()
-                .filter { SPEECH_TAG in it.scoreboardTags }
-                .forEach { it.remove(); removed++ }
-        }
-        OriginDiningAmbientLayout.legacyFurnitureCleanupPoints.forEach { cleanupPoint ->
-            val handles = world.getNearbyEntities(cleanupPoint.inWorld(world), 0.45, 0.45, 0.45)
-                .mapNotNull(SharedOriginFurnitureAccess::inspect)
-                .distinctBy { it.root.uniqueId }
-                .filter { it.namespacedId in OriginDiningAmbientLayout.legacyFurnitureCleanupIds }
-            handles.forEach { handle ->
-                if (SharedOriginFurnitureAccess.remove(handle.root, handle.family)) {
-                    removed++
-                    info(
-                        "ORIGIN_DINING phase=LEGACY_FURNITURE_CLEANUP status=removed id={} entity={} target={}",
-                        handle.namespacedId,
-                        short(handle.root.uniqueId),
-                        point(cleanupPoint),
-                    )
-                } else {
-                    warn(
-                        "ORIGIN_DINING phase=LEGACY_FURNITURE_CLEANUP status=failed id={} entity={} target={}",
-                        handle.namespacedId,
-                        short(handle.root.uniqueId),
-                        point(cleanupPoint),
-                    )
-                }
+            scans += CleanupScan(meal, 0.18, 0.18, 0.18) { entity ->
+                if (entity is ItemDisplay && isLegacyDishDisplay(entity)) { entity.remove(); true } else false
+            }
+            scans += CleanupScan(meal.clone().add(0.0, OriginDiningLayout.mealHitboxYOffset, 0.0), 0.18, 0.18, 0.18) { entity ->
+                if (entity is Interaction) { entity.remove(); true } else false
             }
         }
-        info("ORIGIN_DINING phase=AMBIENT_LEGACY_CLEANUP removed={}", removed)
+        OriginDiningAmbientLayout.cleanupPoints.forEach { point ->
+            scans += CleanupScan(point.inWorld(world), 1.0, 1.0, 1.0) { entity ->
+                if (entity is TextDisplay && SPEECH_TAG in entity.scoreboardTags) { entity.remove(); true } else false
+            }
+        }
+        OriginDiningAmbientLayout.legacyFurnitureCleanupPoints.forEach { cleanupPoint ->
+            val roots = hashSetOf<UUID>()
+            scans += CleanupScan(cleanupPoint.inWorld(world), 0.45, 0.45, 0.45) scan@{ entity ->
+                val handle = SharedOriginFurnitureAccess.inspect(entity) ?: return@scan false
+                if (!roots.add(handle.root.uniqueId) || handle.namespacedId !in OriginDiningAmbientLayout.legacyFurnitureCleanupIds) return@scan false
+                val removed = SharedOriginFurnitureAccess.remove(handle.root, handle.family)
+                if (removed) info(
+                    "ORIGIN_DINING phase=LEGACY_FURNITURE_CLEANUP status=removed id={} entity={} target={}",
+                    handle.namespacedId, short(handle.root.uniqueId), point(cleanupPoint),
+                ) else warn(
+                    "ORIGIN_DINING phase=LEGACY_FURNITURE_CLEANUP status=failed id={} entity={} target={}",
+                    handle.namespacedId, short(handle.root.uniqueId), point(cleanupPoint),
+                )
+                removed
+            }
+        }
+        return cleanupScans(world, scans).thenApply { removed ->
+            info("ORIGIN_DINING phase=AMBIENT_LEGACY_CLEANUP removed={}", removed)
+            Unit
+        }
     }
 
     private fun reconcileGuestSeats() {
@@ -3929,44 +4013,29 @@ private class OriginDiningService : AutoCloseable {
         }
     }
 
-    private fun cleanupLegacy(world: org.bukkit.World, pass: String) {
-        // The two-seat legacy controller is fully retired and cannot clean up
-        // its own persisted entities. Every retired service anchor is exact so
-        // unrelated scene entities outside these points remain untouched.
-        val seatAnchors = OriginDiningLayout.seats.map { it.seat }
-        var removed = 0
-        for (anchor in seatAnchors) {
-            val point = anchor.inWorld(world)
-            for (entity in world.getNearbyEntities(point, 0.35, 0.8, 0.35)) {
-                if (entity.scoreboardTags.contains(SEAT_TAG) || entity.scoreboardTags.contains(MEAL_TAG)) continue
-                if (entity is Interaction || entity is ArmorStand && entity.isMarker && !entity.isVisible && entity.passengers.isEmpty()) {
-                    entity.remove()
-                    removed++
-                }
+    private fun cleanupLegacy(world: org.bukkit.World, pass: String): CompletableFuture<Unit> {
+        // Retired service anchors stay exact so unrelated scene entities remain untouched.
+        val scans = OriginDiningLayout.seats.map { seat ->
+            CleanupScan(seat.seat.inWorld(world), 0.35, 0.8, 0.35) { entity ->
+                if (SEAT_TAG !in entity.scoreboardTags && MEAL_TAG !in entity.scoreboardTags &&
+                    (entity is Interaction || entity is ArmorStand && entity.isMarker && !entity.isVisible && entity.passengers.isEmpty())) {
+                    entity.remove(); true
+                } else false
             }
+        }.toMutableList()
+        scans += CleanupScan(OriginDiningAmbientLayout.legacyMealHitbox.inWorld(world), 0.18, 0.18, 0.18) { entity ->
+            if (MEAL_TAG !in entity.scoreboardTags && entity is Interaction) { entity.remove(); true } else false
         }
-        val oldMealHitbox = OriginDiningAmbientLayout.legacyMealHitbox.inWorld(world)
-        for (entity in world.getNearbyEntities(oldMealHitbox, 0.18, 0.18, 0.18)) {
-            if (entity.scoreboardTags.contains(MEAL_TAG)) continue
-            if (entity is Interaction) {
-                entity.remove()
-                removed++
-            }
+        scans += CleanupScan(OriginDiningAmbientLayout.legacyMealDisplay.inWorld(world), 0.18, 0.18, 0.18) { entity ->
+            if (MEAL_TAG !in entity.scoreboardTags && entity is ItemDisplay && isLegacyDishDisplay(entity)) { entity.remove(); true } else false
         }
-        val oldMealDisplay = OriginDiningAmbientLayout.legacyMealDisplay.inWorld(world)
-        for (entity in world.getNearbyEntities(oldMealDisplay, 0.18, 0.18, 0.18)) {
-            if (entity.scoreboardTags.contains(MEAL_TAG)) continue
-            if (entity is ItemDisplay && isLegacyDishDisplay(entity)) {
-                entity.remove()
-                removed++
-            }
+        scans += CleanupScan(OriginDiningAmbientLayout.legacyOrderLabel.inWorld(world), 0.6, 0.6, 0.6) { entity ->
+            if (entity is TextDisplay) { entity.remove(); true } else false
         }
-        val oldLabel = OriginDiningAmbientLayout.legacyOrderLabel.inWorld(world)
-        world.getNearbyEntities(oldLabel, 0.6, 0.6, 0.6).filterIsInstance<TextDisplay>().forEach {
-            it.remove()
-            removed++
+        return cleanupScans(world, scans).thenApply { removed ->
+            info("ORIGIN_DINING phase=LEGACY_CLEANUP pass={} removed={}", pass, removed)
+            Unit
         }
-        info("ORIGIN_DINING phase=LEGACY_CLEANUP pass={} removed={}", pass, removed)
     }
 
     @Suppress("DEPRECATION")

@@ -101,9 +101,9 @@ internal data class OriginWorkshopTablesSettings(
         private const val RESOURCE = "origin-workshop-tables.yml"
         private const val ROOT = "origin-workshop-tables"
 
-        fun load(dataPath: Path): OriginWorkshopTablesSettings {
+        fun load(dataPath: Path, mergeDefaults: Boolean = true): OriginWorkshopTablesSettings {
             val source = ConfigManager.ofModule(dataPath, RESOURCE)
-            source.mergeMissingFromBundled("modules/$RESOURCE")
+            if (mergeDefaults) source.mergeMissingFromBundled("modules/$RESOURCE")
             val ids = source.stringList("$ROOT.table-ids").map(String::trim)
             require(ids.size <= MAX_TABLES) { "$ROOT.table-ids supports at most $MAX_TABLES tables" }
             require(ids.distinct().size == ids.size) { "$ROOT.table-ids contains duplicate ids" }
@@ -695,7 +695,7 @@ internal object OriginWorkshopTablesModule : PluginModule {
 
     override fun reload() {
         val settings = try {
-            OriginWorkshopTablesSettings.load(ArcOriginPlugin.instance.legacyDataPath)
+            OriginWorkshopTablesSettings.load(ArcOriginPlugin.instance.legacyDataPath, mergeDefaults = false)
         } catch (failure: Exception) {
             ArcOriginPlugin.instance.logger.log(Level.WARNING, "Origin workshop tables config rejected; keeping current scene", failure)
             return

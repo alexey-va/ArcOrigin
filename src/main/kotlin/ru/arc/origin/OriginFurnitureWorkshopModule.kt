@@ -293,9 +293,9 @@ internal data class OriginFurnitureWorkshopSettings(
         private const val RESOURCE = "origin-furniture-workshop.yml"
         private const val ROOT = "origin-furniture-workshop"
 
-        fun load(dataPath: Path): OriginFurnitureWorkshopSettings {
+        fun load(dataPath: Path, mergeDefaults: Boolean = true): OriginFurnitureWorkshopSettings {
             val source = ConfigManager.ofModule(dataPath, RESOURCE)
-            source.mergeMissingFromBundled("modules/$RESOURCE")
+            if (mergeDefaults) source.mergeMissingFromBundled("modules/$RESOURCE")
             val root = ROOT
             val routeRoot = "$root.route"
             val routeProfile = NpcRouteProfile(
@@ -591,7 +591,7 @@ internal object OriginFurnitureWorkshopModule : PluginModule, Listener {
     override fun reload() {
         cancelPendingStartup()
         val settings = try {
-            OriginFurnitureWorkshopSettings.load(ArcOriginPlugin.instance.legacyDataPath)
+            OriginFurnitureWorkshopSettings.load(ArcOriginPlugin.instance.legacyDataPath, mergeDefaults = false)
         } catch (failure: Exception) {
             ArcOriginPlugin.instance.logger.log(Level.WARNING, "Origin furniture workshop config rejected; keeping current runtime", failure)
             return
