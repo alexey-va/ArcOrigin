@@ -69,6 +69,31 @@ internal class OriginSceneResources(
         val horseEatingGrass: Boolean?,
     )
 
+    private data class HoldSnapshot(val entity: LivingEntity, val ai: Boolean, val collidable: Boolean, val gravity: Boolean)
+    private val holds = linkedMapOf<Int, HoldSnapshot>()
+
+    /** Keeps a leased animal still at a care point without moving or teleporting it. */
+    fun hold(actor: NPC) {
+        val entity = actor.entity as LivingEntity
+        holds.putIfAbsent(actor.id, HoldSnapshot(entity, entity.hasAI(), entity.isCollidable, entity.hasGravity()))
+        entity.setAI(false)
+        entity.isCollidable = false
+        entity.setGravity(false)
+        entity.velocity = org.bukkit.util.Vector()
+    }
+
+    fun releaseHold(actor: NPC) = releaseHold(actor.id)
+
+    private fun releaseHold(id: Int) {
+        val snapshot = holds[id] ?: return
+        if (snapshot.entity.isValid) {
+            snapshot.entity.setAI(snapshot.ai)
+            snapshot.entity.isCollidable = snapshot.collidable
+            snapshot.entity.setGravity(snapshot.gravity)
+        }
+        holds.remove(id)
+    }
+
     private val hands = linkedMapOf<Int, HandSnapshot>()
     private val poses = linkedMapOf<Int, PoseSnapshot>()
     private val containers = linkedSetOf<Location>()
@@ -422,6 +447,12 @@ internal class OriginSceneResources(
      */
     fun cleanup(): List<OriginSceneCleanupFailure> {
         val failures = mutableListOf<OriginSceneCleanupFailure>()
+
+        holds.keys.toList().forEach { id ->
+            try { releaseHold(id) } catch (failure: Exception) {
+                failures += OriginSceneCleanupFailure("hold", id.toString(), failure)
+            }
+        }
 
         usingItems.toMap().forEach { (id, entity) ->
             try {

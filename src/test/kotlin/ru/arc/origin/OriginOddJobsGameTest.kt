@@ -299,15 +299,14 @@ class OriginOddJobsGameTest : StringSpec({
                         f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_EATING
                         f.payments.none { it.id == job.id } shouldBe true; f.game.tick(f.now)
                     }
-                    OriginOddJobVariant.YARD_GROOM -> {
-                        f.stroke(OriginOddJobStationId.BRUSH)
+                    OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE -> {
+                        f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
                         repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(job.yard!!.animalId, sneaking = false) }
-                    }
-                    OriginOddJobVariant.YARD_SADDLE -> {
-                        f.stroke(OriginOddJobStationId.SADDLE_RACK); f.clickNpc(job.yard!!.animalId, sneaking = false)
-                        f.game.tick(f.now); f.stroke(OriginOddJobStationId.BRUSH)
-                        repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(job.yard.animalId, sneaking = false) }
-                        f.stroke(OriginOddJobStationId.SADDLE_RACK); f.clickNpc(job.yard.animalId, sneaking = false)
+                        if (variant == OriginOddJobVariant.YARD_SADDLE) {
+                            f.stroke(OriginOddJobStationId.SADDLE_RACK); f.clickNpc(job.yard!!.animalId, sneaking = false)
+                        }
+                        f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_UNTIE_FIRST
+                        f.strokeTie(); f.strokeTie()
                         f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_DELIVER
                         f.game.tick(f.now); f.clickNpc(440, sneaking = false)
                         f.payments.none { it.id == job.id } shouldBe true; f.game.tick(f.now)
@@ -316,7 +315,7 @@ class OriginOddJobsGameTest : StringSpec({
                 }
                 f.plain(f.player.bossBars.single().name()) shouldContain "Готово"
                 val employer = f.entity(440)
-                if (variant != OriginOddJobVariant.YARD_SADDLE) verify(exactly = 0) { f.glow.setEntityGlowingFor(employer, f.player, true) }
+                if (variant in setOf(OriginOddJobVariant.YARD_WATER, OriginOddJobVariant.YARD_RATIONS)) verify(exactly = 0) { f.glow.setEntityGlowingFor(employer, f.player, true) }
                 val screens = f.screens.size
                 f.game.tick(f.now); f.game.tick(f.now)
                 val payment = f.payments.single { it.id == job.id }
@@ -375,19 +374,19 @@ class OriginOddJobsGameTest : StringSpec({
             f.begin(440, OriginOddJobVariant.YARD_GROOM)
             val target = f.game.currentJob(f.player.uniqueId)!!.yard!!
             f.leases.single().actorIds.contains(target.animalId) shouldBe true
-            f.stroke(OriginOddJobStationId.BRUSH)
+            f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
             f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("brush")
             f.clickNpc(f.config.yardAnimalIds.first { it != target.animalId }, sneaking = false)
             f.game.currentJob(f.player.uniqueId)!!.yard!!.brushStrokes shouldBe 0
             repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(target.animalId, sneaking = false) }
-            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.RETURN
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_UNTIE_FIRST
             f.payments shouldBe emptyList()
         }
     }
     "the same animal target reasserts viewer glow after an entity tracking reset" {
         failOnUnsupportedMockBukkitOperation {
             f.begin(440, OriginOddJobVariant.YARD_GROOM)
-            f.stroke(OriginOddJobStationId.BRUSH)
+            f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
             val animal = f.entity(f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId)
             io.mockk.clearMocks(f.glow, answers = false)
             f.game.tick(++f.now)
@@ -434,6 +433,36 @@ class OriginOddJobsGameTest : StringSpec({
             f.target shouldBe Location(f.world, 4.5, 70.2, 4.5)
             val animal = f.entity(job.yard.animalId)
             verify { f.glow.setEntityGlowingFor(animal, f.player, true) }
+        }
+    }
+    "cross-tie prompts accept only their current wall fitting and care requires the physical pair" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(440, OriginOddJobVariant.YARD_GROOM)
+            f.leadToTies()
+            val wrong = f.aimTie(1)
+            f.game.work(f.player, false, wrong.block) shouldBe false
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_TIE_FIRST
+            f.clickNpc(371, sneaking = false)
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_TIE_FIRST
+            f.strokeTie()
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_TIE_SECOND
+            f.target shouldBe f.tieStations[1].point
+            f.strokeTie(); f.stroke(OriginOddJobStationId.BRUSH)
+            every { f.yard.readyForCare(any(), any()) } returns false
+            f.clickNpc(371, sneaking = false)
+            f.game.currentJob(f.player.uniqueId)!!.yard!!.brushStrokes shouldBe 0
+            f.payments shouldBe emptyList()
+        }
+    }
+    "missing leading item cannot regenerate by clicking a tie point" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(440, OriginOddJobVariant.YARD_SADDLE); f.leadToTies()
+            f.player.inventory.clear()
+            val station = f.aimTie(0)
+            f.game.work(f.player, false, station.block) shouldBe true
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+            f.payments shouldBe emptyList()
         }
     }
     "death removes the stable service item and releases its actor without paying" {
@@ -552,6 +581,10 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     val registry = mockk<NPCRegistry>()
     val actors = mutableMapOf<Int, NPC>()
     val yard = mockk<OriginOddJobMountyard>(relaxed = true)
+    val tieStations = listOf(0 to -90f, 10 to 90f).map { (x, yaw) ->
+        val block = world.getBlockAt(x, 71, 7).also { it.type = Material.STONE_BRICKS }
+        OriginOddJobStation(Location(world, if (x == 0) 1.06 else 9.94, 71.4, 7.5, yaw, 0f), block, setOf(Material.STONE_BRICKS))
+    }
     val stations: Map<OriginOddJobStationId, OriginOddJobStation>
     var resolvedStations: Map<OriginOddJobStationId, OriginOddJobStation> = emptyMap()
     var resolveAttempts = 0
@@ -637,13 +670,15 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
         every { yard.available() } returns true
         every { yard.begin(any(), any(), any()) } returns true
         every { yard.sync(any(), any(), any(), any()) } returns true
+        every { yard.readyForCare(any(), any()) } returns true
+        every { yard.station(any(), any()) } answers { originYardTieTarget(secondArg<OriginOddJobSession>().stage)?.let(tieStations::get) }
         every { yard.contains(any()) } answers { firstArg<Int>() in config.yardAnimalIds }
         every { yard.resolve(any()) } answers { actors[firstArg<Int>()]?.entity as? LivingEntity }
         every { yard.target(any()) } answers {
             val offer = firstArg<OriginOddJobOffer>()
             val animalId = when (offer.variant) {
                 OriginOddJobVariant.YARD_RATIONS -> config.yardFeedingAnimalId
-                OriginOddJobVariant.YARD_SADDLE -> config.yardEscortAnimalId
+                OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE -> config.yardEscortAnimalId
                 else -> config.yardAnimalIds[Math.floorMod(offer.seed, config.yardAnimalIds.size)]
             }
             OriginYardWork(animalId, yardCatalog.animals.first { it.npcId == animalId }.name)
@@ -704,6 +739,29 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     fun pickupBlank() {
         stroke(OriginOddJobStationId.BLANK); stockClick(); scheduler.tick(); player.closeInventory()
     }
+    fun leadToTies() {
+        stroke(OriginOddJobStationId.SADDLE_RACK)
+        clickNpc(game.currentJob(player.uniqueId)!!.yard!!.animalId, sneaking = false)
+        game.tick(now)
+        game.currentJob(player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_TIE_FIRST
+    }
+    fun aimTie(side: Int): OriginOddJobStation {
+        now += 700
+        val station = tieStations[side]
+        val at = station.point.clone().add(station.point.direction.multiply(1.8)).apply { y = 70.0 }
+        at.setDirection(station.point.toVector().subtract(at.clone().add(0.0, player.eyeHeight, 0.0).toVector()))
+        player.teleport(at)
+        return station
+    }
+    fun strokeTie() {
+        val side = originYardTieTarget(game.currentJob(player.uniqueId)!!.stage)!!
+        val station = aimTie(side)
+        val event = PlayerInteractEvent(player, Action.RIGHT_CLICK_BLOCK, null, station.block,
+            if (side == 0) BlockFace.EAST else BlockFace.WEST, EquipmentSlot.HAND)
+        game.onBlock(event)
+        event.useInteractedBlock() shouldBe Event.Result.DENY
+    }
+    fun tieBoth() { leadToTies(); strokeTie(); strokeTie() }
     fun strokeCart(elapsed: Long = 700) {
         val job = game.currentJob(player.uniqueId)!!
         val station = forge.station(player.uniqueId, job)!!

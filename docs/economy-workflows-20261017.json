@@ -2,6 +2,7 @@
   "version": 1,
   "title": "ArcOrigin forge and stable workflow diversity 2026-10-17",
   "assumptions": [
+    "2026-10-18 cross-tie revision: both grooming and saddling require leading to the care station, attaching two ropes and removing both before escort. Live reward policy reread 2026-10-18 MSK remains 20 vault/order and shared 100 orders/UUID/UTC-day. These added physical stages have no separate reward, permanent lead item or faster repeat route; before/after comparable-order amounts and caps below remain unchanged. Actual orders/hour after the longer chain remains unmeasured.",
     "Unchanged live policy read on spawn 2026-10-17: 20 vault/completed order, shared cap 100 orders per UUID per UTC date, 600-second shift; full accrued shift paid exactly once.",
     "Low/base/high: 5/20/50 participants, 0.25/1/2 active hours per day. 40/40/50 completed orders per hour are capacity assumptions, not observed timings; before/after amounts hold the same completed-order counts for a comparable-work comparison.",
     "Before/after completed orders are 10/40/100 per player-day, capped across all side jobs. New multi-step chains have no per-step reward, item redemption, coins bonus or token reward. Actual completion cadence remains unmeasured; longer chains may lower realized hourly earnings.",

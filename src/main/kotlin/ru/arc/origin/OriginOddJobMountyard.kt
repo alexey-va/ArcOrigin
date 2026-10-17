@@ -60,6 +60,8 @@ internal class OriginOddJobMountyard(
         var careStartedAt: Long? = null
         var lastSoundAt = 0L
         var prop: OriginWorkshopProp? = null
+        var crossTies: OriginYardCrossTies? = null
+        var tiePosition: Location? = null
         var saddle: ItemStack? = null
         var saddleChanged = false
         var leashed = false
@@ -75,7 +77,7 @@ internal class OriginOddJobMountyard(
     fun target(offer: OriginOddJobOffer): OriginYardWork? {
         val id = when (offer.variant) {
             OriginOddJobVariant.YARD_RATIONS -> feedingAnimalId
-            OriginOddJobVariant.YARD_SADDLE -> escortAnimalId
+            OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE -> escortAnimalId
             else -> animalIds.getOrNull(Math.floorMod(offer.seed, animalIds.size.coerceAtLeast(1))) ?: return null
         }
         val animal = catalog.animals.firstOrNull { it.npcId == id } ?: return null
@@ -114,6 +116,29 @@ internal class OriginOddJobMountyard(
 
     private fun owns(care: Care): Boolean = care.ownsLease() && npc(care.actor.id)?.entity === care.entity
 
+    fun station(playerId: UUID, job: OriginOddJobSession): OriginOddJobStation? {
+        val side = originYardTieTarget(job.stage) ?: return null
+        val care = active[playerId]?.takeIf { it.requestId == job.id && owns(it) && held(it) } ?: return null
+        return care.crossTies?.station(side)
+    }
+
+    fun readyForCare(playerId: UUID, job: OriginOddJobSession): Boolean {
+        val care = active[playerId]?.takeIf { it.requestId == job.id && owns(it) } ?: return false
+        return care.crossTies?.mask == 3 && held(care)
+    }
+
+    private fun held(care: Care): Boolean {
+        val at = care.tiePosition ?: return false
+        return care.crossTies?.valid() == true && care.crossTies?.ropesClear(care.entity.location, care.entity.height) == true && care.entity.world.uid == at.world?.uid &&
+            care.entity.location.distanceSquared(at) <= 0.04 && care.entity.passengers.isEmpty()
+    }
+
+    private fun releaseTies(care: Care) {
+        care.crossTies?.close(); care.crossTies = null
+        care.resources.releaseHold(care.actor)
+        care.tiePosition = null
+    }
+
     fun sync(player: Player, job: OriginOddJobSession, stations: Map<OriginOddJobStationId, OriginOddJobStation>, now: Long): Boolean {
         val care = active[player.uniqueId]?.takeIf { it.requestId == job.id } ?: return false
         if (!owns(care)) return false
@@ -122,7 +147,32 @@ internal class OriginOddJobMountyard(
         routes.consumeOutcome(care.actor)
         care.resources.clearMovementPose(care.actor)
         leash(care, null)
+        val previousStage = care.stage
         care.stage = job.stage; care.destination = null; care.routeStarted = false; care.paused = false; care.careStartedAt = null
+        if (originYardTieMask(job.stage) != null) {
+            if (job.stage == OriginOddJobStage.YARD_TIE_FIRST) {
+                care.tiePosition = care.entity.location.clone()
+                care.resources.hold(care.actor)
+                val pad = point("job-care-pad", ORIGIN_YARD_CARE_PAD, care)
+                care.resources.faceHorizontal(care.actor, pad.clone().add(pad.direction))
+                care.crossTies = OriginYardCrossTies(renderer(), player, care.entity.location, listOf(
+                    point("job-tie-first", ORIGIN_YARD_TIE_FIRST, care), point("job-tie-second", ORIGIN_YARD_TIE_SECOND, care)))
+            }
+            val ties = care.crossTies ?: return false
+            if (!held(care)) return false
+            if (job.stage == OriginOddJobStage.YARD_UNTIE_FIRST && job.variant == OriginOddJobVariant.YARD_SADDLE) {
+                if (previousStage != OriginOddJobStage.YARD_SADDLE || ties.mask != 3) return false
+                care.saddle = care.entity.equipment.getItem(EquipmentSlot.SADDLE).clone()
+                care.saddleChanged = true
+                care.entity.equipment.setItem(EquipmentSlot.SADDLE, ItemStack(Material.SADDLE))
+                care.entity.world.playSound(care.entity.location, Sound.ENTITY_HORSE_SADDLE, 0.6f, 1f)
+            }
+            ties.setStage(job.stage, care.entity.location, care.entity.height)
+            if (previousStage in setOf(OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND,
+                    OriginOddJobStage.YARD_UNTIE_FIRST))
+                player.playSound(care.entity.location, Sound.BLOCK_WOOL_PLACE, 0.6f, 0.85f)
+            return true
+        }
         when (job.stage) {
             OriginOddJobStage.YARD_EATING -> {
                 val feed = stations.getValue(OriginOddJobStationId.FEED).point
@@ -141,12 +191,11 @@ internal class OriginOddJobMountyard(
                 care.careStartedAt = now
                 player.playSound(at, Sound.ITEM_BUCKET_EMPTY, 0.65f, 1f)
             }
-            OriginOddJobStage.YARD_LEAD_OUT -> care.destination = point("job-care-pad", OriginScenePoint(60.5, 70.0, -124.5), care)
+            OriginOddJobStage.YARD_LEAD_OUT -> care.destination = point("job-care-pad", ORIGIN_YARD_CARE_PAD, care)
             OriginOddJobStage.YARD_DELIVER -> {
-                care.saddle = care.entity.equipment.getItem(EquipmentSlot.SADDLE).clone()
-                care.saddleChanged = true
-                care.entity.equipment.setItem(EquipmentSlot.SADDLE, ItemStack(Material.SADDLE))
-                care.entity.world.playSound(care.entity.location, Sound.ENTITY_HORSE_SADDLE, 0.6f, 1f)
+                if (previousStage != OriginOddJobStage.YARD_UNTIE_SECOND || care.crossTies?.mask != 2) return false
+                releaseTies(care)
+                player.playSound(care.entity.location, Sound.BLOCK_WOOL_PLACE, 0.6f, 0.85f)
                 care.destination = point("job-handoff", OriginScenePoint(59.5, 70.0, -133.5), care)
             }
             OriginOddJobStage.YARD_HANDED -> {
@@ -169,6 +218,12 @@ internal class OriginOddJobMountyard(
     fun tick(player: Player, job: OriginOddJobSession, now: Long): OriginYardTick {
         val care = active[player.uniqueId]?.takeIf { it.requestId == job.id } ?: return OriginYardTick.FAILED
         if (!owns(care) || care.entity.passengers.isNotEmpty()) return OriginYardTick.FAILED
+        if (originYardTieMask(job.stage) != null) {
+            if (!held(care)) return OriginYardTick.FAILED
+            care.resources.hold(care.actor)
+            care.crossTies?.render(care.entity.location, care.entity.height)
+            return OriginYardTick.WAITING
+        }
         val leading = job.stage in setOf(OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_DELIVER)
         if (leading) {
             val destination = requireNotNull(care.destination)
@@ -241,6 +296,7 @@ internal class OriginOddJobMountyard(
             care.prop?.remove(); care.prop = null
             leash(care, null)
             restoreSaddle(care)
+            releaseTies(care)
             if (closed) { finishRecovery(care); return }
             care.resources.clearMovementPose(care.actor)
             if (care.entity.location.distanceSquared(care.home) <= 0.25) { finishRecovery(care); return }
@@ -292,6 +348,7 @@ internal class OriginOddJobMountyard(
             }
         }
         attempt("prop") { care.prop?.remove(); care.prop = null }
+        attempt("cross-tie-displays") { care.crossTies?.close(); care.crossTies = null }
         if (owns(care)) {
             attempt("route") { routes.stop(care.actor) }
             attempt("leash") { leash(care, null) }

@@ -70,7 +70,7 @@ internal class OriginOddJobSupplies(private val text: (String) -> String = { it 
         OriginOddJobStage.YARD_HAY, OriginOddJobStage.YARD_BUCKET, OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_LEAD_RACK -> hasSpace(player)
         OriginOddJobStage.YARD_TACK -> has(player, job) || hasSpace(player)
         OriginOddJobStage.YARD_FEED, OriginOddJobStage.YARD_WELL, OriginOddJobStage.YARD_WATER, OriginOddJobStage.YARD_GROOM,
-        OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_DELIVER -> has(player, job)
+        OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_DELIVER -> has(player, job)
         OriginOddJobStage.FORGE_INSPECT, OriginOddJobStage.FORGE_HEATING -> has(player, job) || hasSpace(player)
         OriginOddJobStage.FORGE_HAMMER -> job.forge?.remainingStrikes != 1 || hasSpace(player)
         OriginOddJobStage.FORGE_HEAT, OriginOddJobStage.FORGE_PLACE, OriginOddJobStage.FORGE_QUENCH -> has(player, job)
@@ -116,11 +116,12 @@ internal class OriginOddJobSupplies(private val text: (String) -> String = { it 
         OriginOddJobStage.YARD_FEED -> "hay_block"
         OriginOddJobStage.YARD_WELL -> "bucket"
         OriginOddJobStage.YARD_WATER -> "water_bucket"
-        OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_DELIVER -> "lead"
+        OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_DELIVER -> "lead"
         OriginOddJobStage.YARD_GROOM -> "brush"
         OriginOddJobStage.YARD_TACK -> if (job.variant == OriginOddJobVariant.YARD_SADDLE) "brush" else null
         OriginOddJobStage.YARD_SADDLE -> "saddle"
-        OriginOddJobStage.RETURN -> if (job.variant == OriginOddJobVariant.YARD_GROOM) "brush" else null
+        OriginOddJobStage.YARD_UNTIE_FIRST, OriginOddJobStage.YARD_UNTIE_SECOND ->
+            if (job.variant == OriginOddJobVariant.YARD_GROOM) "brush" else "lead"
         else -> null
     }
 

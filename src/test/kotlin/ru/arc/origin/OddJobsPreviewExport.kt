@@ -83,5 +83,37 @@ internal object OddJobsPreviewExport {
                 "target" to mapOf("x" to 0.0, "y" to 0.65, "z" to 0.1), "fovDegrees" to 70),
             "evidence" to "Source route, GROUND model scale, basket geometry and poses. Offline mesh preview; native lighting, world and ItemsAdder delivery are not observed.")
         Files.writeString(output.resolveSibling("cart.json"), GsonBuilder().setPrettyPrinting().create().toJson(cart))
+        writeCrossTies(output.resolveSibling("cross-ties.json"))
     }
+    private fun writeCrossTies(output: Path) {
+        val pad = ORIGIN_YARD_CARE_PAD
+        val anchors = listOf(ORIGIN_YARD_TIE_FIRST, ORIGIN_YARD_TIE_SECOND)
+        fun local(point: ru.arc.origin.scene.OriginScenePoint) = org.joml.Vector3f(
+            (point.x - pad.x).toFloat(), (point.y - pad.y).toFloat(), (point.z - pad.z).toFloat())
+        val stages = listOf(OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND,
+            OriginOddJobStage.YARD_GROOM, OriginOddJobStage.YARD_UNTIE_FIRST,
+            OriginOddJobStage.YARD_UNTIE_SECOND, OriginOddJobStage.YARD_DELIVER)
+        val states = stages.map { stage ->
+            val mask = originYardTieMask(stage) ?: 0
+            val pieces = if (stage == OriginOddJobStage.YARD_DELIVER) emptyList() else anchors.flatMapIndexed { side, anchor ->
+                val center = local(anchor)
+                val normal = org.joml.Vector3f(if (side == 0) 1f else -1f, 0f, 0f)
+                originYardRingPieces(side, center, normal) +
+                    (if (mask and (1 shl side) != 0) originYardRopePieces(side,
+                        org.joml.Vector3f(if (side == 0) -0.2f else 0.2f, 1.312f, -0.8f), center) else emptyList()) +
+                    (if (originYardTieTarget(stage) == side) originYardRingPieces(side, center, normal, cue = true) else emptyList())
+            }
+            mapOf("id" to stage.name.lowercase(), "mask" to mask, "saddled" to (stage >= OriginOddJobStage.YARD_UNTIE_FIRST),
+                "pieces" to pieces.map { piece -> mapOf("key" to piece.key, "material" to piece.material.name,
+                    "center" to listOf(piece.center.x, piece.center.y, piece.center.z),
+                    "size" to listOf(piece.size.x, piece.size.y, piece.size.z),
+                    "quaternion" to listOf(piece.rotation.x, piece.rotation.y, piece.rotation.z, piece.rotation.w)) })
+        }
+        val scene = mapOf("states" to states, "origin" to listOf(pad.x, pad.y, pad.z), "horseYaw" to pad.yaw,
+            "supports" to anchors.mapIndexed { side, anchor -> mapOf("x" to (if (side == 0) 55 else 64), "y" to 71, "z" to -128,
+                "material" to "STONE_BRICKS", "anchor" to listOf(anchor.x, anchor.y, anchor.z)) },
+            "evidence" to "Production rope/ring geometry and state masks. Wall support cells verified with read-only live probes. Horse silhouette is approximate context; native entity pose, leash endpoint, lighting and glow require player verification.")
+        Files.writeString(output, GsonBuilder().setPrettyPrinting().create().toJson(scene))
+    }
+
 }

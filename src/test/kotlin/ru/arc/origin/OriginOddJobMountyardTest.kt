@@ -16,6 +16,9 @@ import net.citizensnpcs.api.npc.NPCRegistry
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.World
+import org.bukkit.block.Block
+import org.bukkit.block.data.BlockData
+import org.bukkit.util.BoundingBox
 import org.bukkit.entity.EntityType
 import org.bukkit.entity.Horse
 import org.bukkit.entity.Player
@@ -41,6 +44,7 @@ class OriginOddJobMountyardTest : StringSpec({
             repeat(4) { seed ->
                 yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_RATIONS, seed, false)) shouldBe OriginYardWork(422, "Буран")
                 yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_SADDLE, seed, false)) shouldBe OriginYardWork(371, "Ветер")
+                yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_GROOM, seed, false)) shouldBe OriginYardWork(371, "Ветер")
             }
             (0..2).map { seed -> yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_WATER, seed, false))!!.animalId } shouldBe listOf(371, 422, 423)
             yard.close()
@@ -75,7 +79,7 @@ class OriginOddJobMountyardTest : StringSpec({
             verify(exactly = 0) { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) }
             f.playerLocation = Location(f.world, 61.5, 70.0, -122.5)
             f.yard.tick(f.player, lead, 2) shouldBe OriginYardTick.WAITING
-            verify(exactly = 1) { f.routes.navigate(f.actor, match { it.x == 60.5 && it.z == -124.5 }, match { it.snapRadius == 0 }, any(), any(), true, any()) }
+            verify(exactly = 1) { f.routes.navigate(f.actor, match { it.x == 60.5 && it.z == -126.5 }, match { it.snapRadius == 0 }, any(), any(), true, any()) }
             verify { f.horse.setLeashHolder(f.player) }
             f.arrive(success = false)
             f.yard.tick(f.player, lead, 3) shouldBe OriginYardTick.FAILED
@@ -85,8 +89,7 @@ class OriginOddJobMountyardTest : StringSpec({
     "native saddle restoration precedes bounded home recovery and the lease stays held until arrival" {
         YardFixture().use { f ->
             f.location = Location(f.world, 60.5, 70.0, -124.5)
-            val deliver = f.job.copy(stage = OriginOddJobStage.YARD_DELIVER)
-            f.yard.sync(f.player, deliver, f.stations, 0) shouldBe true
+            f.prepareDelivery()
             verify { f.equipment.setItem(EquipmentSlot.SADDLE, match { it.type == Material.SADDLE }) }
             var releases = 0
             f.yard.clear(f.player.uniqueId, UUID.randomUUID())
@@ -150,7 +153,7 @@ class OriginOddJobMountyardTest : StringSpec({
     "generation revocation restores saddle and pose synchronously before ownership is transferred" {
         YardFixture().use { f ->
             f.location = Location(f.world, 60.5, 70.0, -124.5)
-            f.yard.sync(f.player, f.job.copy(stage = OriginOddJobStage.YARD_DELIVER), f.stations, 0) shouldBe true
+            f.prepareTies()
             clearMocks(f.routes, answers = false)
             f.yard.revoke(f.player.uniqueId, f.job.id)
             verify { f.equipment.setItem(EquipmentSlot.SADDLE, match { it.type == Material.AIR }) }
@@ -160,11 +163,72 @@ class OriginOddJobMountyardTest : StringSpec({
             f.scheduler.pendingCount() shouldBe 0
         }
     }
+    "both physical ropes gate care and each untie removes only its own span before escort" {
+        YardFixture().use { f ->
+            f.location = ORIGIN_YARD_CARE_PAD.inWorld(f.world)
+            val first = f.sync(OriginOddJobStage.YARD_TIE_FIRST)
+            f.liveRopes() shouldBe 0
+            f.yard.readyForCare(f.player.uniqueId, first) shouldBe false
+            f.yard.station(f.player.uniqueId, first)!!.block.x shouldBe 55
+            val second = f.sync(OriginOddJobStage.YARD_TIE_SECOND)
+            f.liveRopes() shouldBe 20
+            f.yard.readyForCare(f.player.uniqueId, second) shouldBe false
+            f.yard.station(f.player.uniqueId, second)!!.block.x shouldBe 64
+            val brush = f.sync(OriginOddJobStage.YARD_BRUSH)
+            f.liveRopes() shouldBe 40
+            f.yard.readyForCare(f.player.uniqueId, brush) shouldBe true
+            val count = f.blocks.size
+            f.yard.tick(f.player, brush, 100) shouldBe OriginYardTick.WAITING
+            f.blocks.size shouldBe count
+            f.sync(OriginOddJobStage.YARD_GROOM); f.sync(OriginOddJobStage.YARD_TACK); f.sync(OriginOddJobStage.YARD_SADDLE)
+            f.sync(OriginOddJobStage.YARD_UNTIE_FIRST)
+            f.liveRopes() shouldBe 40
+            verify { f.equipment.setItem(EquipmentSlot.SADDLE, match { it.type == Material.SADDLE }) }
+            f.sync(OriginOddJobStage.YARD_UNTIE_SECOND)
+            f.liveRopes() shouldBe 20
+            verify(exactly = 0) { anyConstructed<OriginSceneResources>().releaseHold(f.actor) }
+            f.sync(OriginOddJobStage.YARD_DELIVER)
+            f.liveRopes() shouldBe 0
+            f.blocks.none { it.isValid } shouldBe true
+            verify(exactly = 1) { anyConstructed<OriginSceneResources>().releaseHold(f.actor) }
+        }
+    }
+    "grooming-only delivery never equips a saddle and cancellation removes every tie before home" {
+        YardFixture(OriginOddJobVariant.YARD_GROOM).use { f ->
+            f.prepareDelivery()
+            verify(exactly = 0) { f.equipment.setItem(EquipmentSlot.SADDLE, any<ItemStack>()) }
+        }
+        YardFixture().use { f ->
+            f.prepareTies()
+            var released = false
+            f.yard.clear(f.player.uniqueId, f.job.id) { released = true }
+            f.blocks.none { it.isValid } shouldBe true
+            verify { anyConstructed<OriginSceneResources>().releaseHold(f.actor) }
+            released shouldBe false
+            f.location = f.home.clone(); f.arrive(); f.scheduler.tick(4)
+            released shouldBe true
+        }
+    }
+    "displaced horse or removed wall cannot be groomed and fails without a teleport" {
+        YardFixture().use { f ->
+            val tied = f.prepareTies()
+            f.location.add(0.3, 0.0, 0.0)
+            f.yard.readyForCare(f.player.uniqueId, tied) shouldBe false
+            f.yard.tick(f.player, tied, 1) shouldBe OriginYardTick.FAILED
+            verify(exactly = 0) { f.horse.teleport(any<Location>()) }
+        }
+        YardFixture().use { f ->
+            val tied = f.prepareTies()
+            val support = f.world.getBlockAt(55, 71, -128)
+            every { support.type } returns Material.AIR
+            f.yard.readyForCare(f.player.uniqueId, tied) shouldBe false
+            f.yard.tick(f.player, tied, 1) shouldBe OriginYardTick.FAILED
+        }
+    }
     "arrival removes the worker leash before Senya accepts the prepared horse" {
         YardFixture().use { f ->
-            val deliver = f.job.copy(stage = OriginOddJobStage.YARD_DELIVER)
-            f.yard.sync(f.player, deliver, f.stations, 0) shouldBe true
-            f.playerLocation = Location(f.world, 62.0, 70.0, -123.0)
+            val deliver = f.prepareDelivery()
+            f.playerLocation = Location(f.world, 60.5, 70.0, -128.5)
             f.yard.tick(f.player, deliver, 1) shouldBe OriginYardTick.WAITING
             verify { f.horse.setLeashHolder(f.player) }
             f.location = Location(f.world, 59.5, 70.0, -133.5)
@@ -193,6 +257,7 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         every { this@mockk.equipment } returns this@YardFixture.equipment
         every { passengers } returns emptyList()
         every { isLeashed } returns false
+        every { height } returns 1.6
         every { setLeashHolder(any()) } returns true
     }
     val player = mockk<Player>(relaxed = true) {
@@ -217,9 +282,16 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         every { stop(any()) } answers { navigating = false }
     }
     val blocks = mutableListOf<PacketBlockDisplay>()
+    val materials = mutableMapOf<PacketBlockDisplay, Material>()
     val renderer = mockk<PaperPacketDisplays>(relaxed = true) {
         every { spawnBlock(any(), any()) } answers {
-            mockk<PacketBlockDisplay>(relaxed = true).also { display -> blocks += display; every { display.isValid } returns true }
+            val material = secondArg<BlockData>().material
+            mockk<PacketBlockDisplay>(relaxed = true).also { display ->
+                var valid = true
+                blocks += display; materials[display] = material
+                every { display.isValid } answers { valid }
+                every { display.remove() } answers { valid = false }
+            }
         }
     }
     val stations = mapOf(OriginOddJobStationId.FEED to OriginOddJobStation(Location(world, 48.5, 70.02, -134.5), mockk(), setOf(Material.PACKED_MUD)))
@@ -233,12 +305,42 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         every { anyConstructed<OriginSceneResources>().setPose(any(), any()) } returns Unit
         every { anyConstructed<OriginSceneResources>().faceHorizontal(any(), any(), any()) } returns Unit
         every { anyConstructed<OriginSceneResources>().cleanup() } returns emptyList()
+        every { anyConstructed<OriginSceneResources>().hold(any()) } returns Unit
+        every { anyConstructed<OriginSceneResources>().releaseHold(any()) } returns Unit
+        every { world.isChunkLoaded(any(), any()) } returns true
+        val supports = mutableMapOf<Triple<Int, Int, Int>, Block>()
+        fun blockAt(x: Int, y: Int, z: Int): Block = supports.getOrPut(Triple(x, y, z)) {
+            mockk<Block>(relaxed = true) {
+                every { type } returns if (x in setOf(55, 64) && y == 71 && z == -128) Material.STONE_BRICKS else Material.AIR
+                every { this@mockk.world } returns this@YardFixture.world
+                every { this@mockk.x } returns x; every { this@mockk.y } returns y; every { this@mockk.z } returns z
+                every { boundingBox } returns BoundingBox(x.toDouble(), y.toDouble(), z.toDouble(), x + 1.0, y + 1.0, z + 1.0)
+            }
+        }
+        every { world.getBlockAt(any<Int>(), any(), any()) } answers { blockAt(firstArg(), secondArg(), thirdArg()) }
+        every { world.getBlockAt(any<Location>()) } answers { firstArg<Location>().let { blockAt(it.blockX, it.blockY, it.blockZ) } }
+        every { world.rayTraceBlocks(any(), any(), any(), any(), any()) } returns null
         val registry = mockk<NPCRegistry> { every { getById(any()) } answers { actor.takeIf { firstArg<Int>() == id } } }
         every { CitizensAPI.getNPCRegistry() } returns registry
         yard = OriginOddJobMountyard(world.name, catalog, listOf(371, 422, 423), 422, 371, routes = routes,
             tasks = LifecycleTaskScope(scheduler), createDisplays = { renderer })
         yard.begin(player, job) { leaseValid } shouldBe true
     }
+    fun sync(stage: OriginOddJobStage): OriginOddJobSession = job.copy(stage = stage).also { yard.sync(player, it, stations, 0) shouldBe true }
+    fun prepareTies(): OriginOddJobSession {
+        location = ORIGIN_YARD_CARE_PAD.inWorld(world)
+        listOf(OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_BRUSH,
+            OriginOddJobStage.YARD_GROOM).forEach(::sync)
+        if (job.variant == OriginOddJobVariant.YARD_SADDLE) {
+            sync(OriginOddJobStage.YARD_TACK); sync(OriginOddJobStage.YARD_SADDLE)
+        }
+        return sync(OriginOddJobStage.YARD_UNTIE_FIRST)
+    }
+    fun prepareDelivery(): OriginOddJobSession {
+        prepareTies(); sync(OriginOddJobStage.YARD_UNTIE_SECOND)
+        return sync(OriginOddJobStage.YARD_DELIVER)
+    }
+    fun liveRopes(): Int = blocks.count { it.isValid && materials[it] == Material.STRIPPED_OAK_WOOD }
     fun arrive(success: Boolean = true) { navigating = false; outcome = NpcRouteOutcome(success, if (success) "FINISHED" else "STALLED", null) }
     override fun close() {
         yard.close()

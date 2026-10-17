@@ -493,8 +493,11 @@ internal class OriginOddJobsGame(
         val job = progress.current(player.uniqueId) ?: return false
         val wanted = originOddJobStation(job.stage)
         val cartStation = forge.station(player.uniqueId, job)
-        val station = cartStation ?: wanted?.let(stations::get) ?: return false
-        if (!originOddJobAimed(player, station, config.range, clicked, virtualTarget = cartStation != null)) return false
+        val tieStation = yard.station(player.uniqueId, job)
+        val station = tieStation ?: cartStation ?: wanted?.let(stations::get) ?: return false
+        val aimed = if (tieStation != null) originYardTieAimed(player, tieStation, config.range, clicked)
+            else originOddJobAimed(player, station, config.range, clicked, virtualTarget = cartStation != null)
+        if (!aimed) return false
         if (!valid(player, job)) { stop(player.uniqueId, "unavailable"); feedback(player, "unavailable"); return true }
         if (duplicate(player)) return true
         if (job.stage in setOf(OriginOddJobStage.FORGE_BLANK, OriginOddJobStage.ENGRAVE_BLANK)) {
@@ -502,12 +505,17 @@ internal class OriginOddJobsGame(
             return true
         }
         if (!supplies.canTransfer(player, job)) { feedback(player, "inventory-full"); return true }
+        if (job.stage in setOf(OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_TACK) && !yard.readyForCare(player.uniqueId, job)) {
+            stop(player.uniqueId, "unavailable"); feedback(player, "unavailable"); return true
+        }
         val action = when (job.stage) {
             OriginOddJobStage.YARD_HAY -> OriginOddJobAction.HAY
             OriginOddJobStage.YARD_FEED -> OriginOddJobAction.FEED
             OriginOddJobStage.YARD_BUCKET, OriginOddJobStage.YARD_WELL -> OriginOddJobAction.WATER
             OriginOddJobStage.YARD_BRUSH -> OriginOddJobAction.BRUSH
             OriginOddJobStage.YARD_TACK, OriginOddJobStage.YARD_LEAD_RACK -> OriginOddJobAction.TACK
+            OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND -> OriginOddJobAction.TIE
+            OriginOddJobStage.YARD_UNTIE_FIRST, OriginOddJobStage.YARD_UNTIE_SECOND -> OriginOddJobAction.UNTIE
             OriginOddJobStage.FORGE_BLANK, OriginOddJobStage.FORGE_INSPECT -> OriginOddJobAction.BLANK
             OriginOddJobStage.FORGE_HEAT, OriginOddJobStage.FORGE_HEATING -> OriginOddJobAction.HEAT
             OriginOddJobStage.FORGE_PLACE -> OriginOddJobAction.PLACE
@@ -545,6 +553,9 @@ internal class OriginOddJobsGame(
         if (duplicate(player)) return true
         if (!valid(player, job)) { stop(player.uniqueId, "unavailable"); feedback(player, "unavailable"); return true }
         if (job.yard?.animalId != npcId || job.stage !in setOf(OriginOddJobStage.YARD_GROOM, OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_WATER)) {
+            feedback(player, "mountyard.next-step", "guide" to originOddJobGuide(config, job, clock())); return true
+        }
+        if (job.stage in setOf(OriginOddJobStage.YARD_GROOM, OriginOddJobStage.YARD_SADDLE) && !yard.readyForCare(player.uniqueId, job)) {
             feedback(player, "mountyard.next-step", "guide" to originOddJobGuide(config, job, clock())); return true
         }
         if (!player.hasLineOfSight(requireNotNull(yard.resolve(npcId)))) { feedback(player, "come-closer"); return true }
@@ -785,11 +796,12 @@ internal class OriginOddJobsGame(
         // Update the label even at the same station when its current operation changes.
         val workpieceTarget = originOddJobWorkpieceTarget(job.stage)
         val cartTarget = forge.target(player.uniqueId, job)
+        val tieTarget = yard.station(player.uniqueId, job)?.point
         val yardTarget = if (job.stage in setOf(OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_DELIVER))
             yard.destination(player.uniqueId, job)?.add(0.0, 0.2, 0.0) else null
-        visuals.target(player, job.id, cartTarget ?: yardTarget ?: stationId?.let { id -> stations.getValue(id).let { station ->
+        visuals.target(player, job.id, tieTarget ?: cartTarget ?: yardTarget ?: stationId?.let { id -> stations.getValue(id).let { station ->
             if (workpieceTarget) station.point else station.block.location.add(0.5, 0.5, 0.5)
-        } }, caption, outline = !workpieceTarget && cartTarget == null && yardTarget == null)
+        } }, caption, outline = !workpieceTarget && cartTarget == null && yardTarget == null && tieTarget == null)
         visuals.glowWorkpiece(player, job.id, originOddJobWorkpieceGlows(job, now))
         if (stationId == null) targets.remove(player.uniqueId) else targets[player.uniqueId] = stationId
         val npcId = when (job.stage) {

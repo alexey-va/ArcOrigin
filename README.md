@@ -146,8 +146,11 @@ also retain their specialist shifts.
 
 Stable work takes an empty bucket from supplies, fills it at the actual water
 cauldron and lets the selected animal drink. Hay remains inside Buran's stall
-while he approaches and eats. Longer preparation orders lead Wind out to a
-care pad, brush him, fit the saddle and escort him to Senya for handoff.
+while he approaches and eats. Grooming and preparation orders first lead Wind
+to the cross-tie station. The worker attaches two visible ropes to separate
+highlighted wall fittings before brushing or saddling. Both ropes must be
+removed before Wind can be escorted to Senya for handoff; grooming-only orders
+retain their shorter care step without a saddle.
 The existing mount-care boost and Bran's training challenge remain separate
 activities with their existing rewards.
 

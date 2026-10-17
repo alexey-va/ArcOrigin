@@ -831,7 +831,7 @@ scenes:
       444: {"home": "57.5,70,-125.5,180,0", "denied-denizen-flags": []}
       445: {"home": "45.5,70,-141.5,-90,0", "denied-denizen-flags": []}
       446: {"home": "73.5,70,-141.5,90,0", "denied-denizen-flags": []}
-    anchor-ids: ["tack-table", "wind-approach", "buran-approach", "ryzhik-approach", "wind-graze", "wind-turn", "buran-graze", "buran-turn", "ryzhik-graze", "ryzhik-turn", "iney-turn", "bay-turn", "yard-center", "saddler-stand", "saddle-rack-stand", "helper-hay", "helper-barrels", "water-source", "job-feed-floor", "job-feed-approach", "job-care-pad", "job-handoff", "brush-source", "saddle-source", "helper-feed", "feed-floor", "hay-source", "cat-nap", "cat-watch", "dog-patrol", "dog-watch", "goat-hay", "goat-turn", "llama-turn", "llama-watch", "donkey-graze", "packing-crates", "packing-stand", "packing-target", "caravan-helper", "caravan-person-mid", "caravan-animal-mid", "caravan-person-front", "caravan-animal-front", "home-369", "home-440", "home-441", "home-442", "home-443", "home-444", "home-445", "home-446", "helper-water", "water-trough", "caravan-person-exit", "caravan-animal-exit", "home-371", "home-422", "home-423", "home-415", "caravan-person-corner", "caravan-animal-corner", "home-412", "home-413", "home-414", "iney-field-point-0", "iney-field-point-1", "iney-field-point-2", "iney-field-point-3", "iney-field-point-4", "iney-field-point-5", "iney-field-point-6", "iney-field-point-7", "bay-field-point-0", "bay-field-point-1", "bay-field-point-2", "bay-field-point-3", "bay-field-point-4", "bay-field-point-5", "bay-field-point-6", "bay-field-point-7", "bay-field-point-8"]
+    anchor-ids: ["tack-table", "wind-approach", "buran-approach", "ryzhik-approach", "wind-graze", "wind-turn", "buran-graze", "buran-turn", "ryzhik-graze", "ryzhik-turn", "iney-turn", "bay-turn", "yard-center", "saddler-stand", "saddle-rack-stand", "helper-hay", "helper-barrels", "water-source", "job-feed-floor", "job-feed-approach", "job-care-pad", "job-tie-first", "job-tie-second", "job-handoff", "brush-source", "saddle-source", "helper-feed", "feed-floor", "hay-source", "cat-nap", "cat-watch", "dog-patrol", "dog-watch", "goat-hay", "goat-turn", "llama-turn", "llama-watch", "donkey-graze", "packing-crates", "packing-stand", "packing-target", "caravan-helper", "caravan-person-mid", "caravan-animal-mid", "caravan-person-front", "caravan-animal-front", "home-369", "home-440", "home-441", "home-442", "home-443", "home-444", "home-445", "home-446", "helper-water", "water-trough", "caravan-person-exit", "caravan-animal-exit", "home-371", "home-422", "home-423", "home-415", "caravan-person-corner", "caravan-animal-corner", "home-412", "home-413", "home-414", "iney-field-point-0", "iney-field-point-1", "iney-field-point-2", "iney-field-point-3", "iney-field-point-4", "iney-field-point-5", "iney-field-point-6", "iney-field-point-7", "bay-field-point-0", "bay-field-point-1", "bay-field-point-2", "bay-field-point-3", "bay-field-point-4", "bay-field-point-5", "bay-field-point-6", "bay-field-point-7", "bay-field-point-8"]
     anchors:
       tack-table: "60.5,70.0,-122.5"
       wind-approach: "62.5,70.0,-121.5"
@@ -853,7 +853,9 @@ scenes:
       water-source: "55.5,70,-134.5"
       job-feed-floor: "48.5,70.05,-134.5"
       job-feed-approach: "48.5,70,-135.5,0,0"
-      job-care-pad: "60.5,70,-124.5,180,0"
+      job-care-pad: "60.5,70,-126.5,180,0"
+      job-tie-first: "56.06,71.4,-127.5,-90,0"
+      job-tie-second: "63.94,71.4,-127.5,90,0"
       job-handoff: "59.5,70,-133.5,90,0"
       brush-source: "55.5,70,-133.5"
       saddle-source: "65.5,70,-133.5"

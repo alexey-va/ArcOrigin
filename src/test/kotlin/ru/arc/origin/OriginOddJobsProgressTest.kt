@@ -60,8 +60,8 @@ class OriginOddJobsProgressTest : StringSpec({
                 OriginOddJobAction.WATER, OriginOddJobAction.CARE_DONE),
             OriginOddJobVariant.YARD_RATIONS to listOf(OriginOddJobAction.HAY, OriginOddJobAction.FEED, OriginOddJobAction.CARE_DONE),
             OriginOddJobVariant.YARD_SADDLE to listOf(OriginOddJobAction.TACK, OriginOddJobAction.LEAD, OriginOddJobAction.ARRIVE,
-                OriginOddJobAction.BRUSH, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM,
-                OriginOddJobAction.TACK, OriginOddJobAction.SADDLE, OriginOddJobAction.ARRIVE,
+                OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.BRUSH, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM,
+                OriginOddJobAction.TACK, OriginOddJobAction.SADDLE, OriginOddJobAction.UNTIE, OriginOddJobAction.UNTIE, OriginOddJobAction.ARRIVE,
                 OriginOddJobAction.HANDOFF, OriginOddJobAction.CARE_DONE),
         )
         for ((variant, actions) in chains) {
@@ -83,11 +83,25 @@ class OriginOddJobsProgressTest : StringSpec({
         val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
         jobs.begin(id, offer(OriginOddJobVariant.YARD_GROOM), 0, yardTarget = OriginYardWork(423, "Рыжик"))
         jobs.act(id, OriginOddJobAction.GROOM, 1).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-        jobs.act(id, OriginOddJobAction.BRUSH, 2)
+        listOf(OriginOddJobAction.TACK, OriginOddJobAction.LEAD, OriginOddJobAction.ARRIVE, OriginOddJobAction.TIE).forEach {
+            jobs.act(id, it, 2)
+        }
+        jobs.act(id, OriginOddJobAction.BRUSH, 3).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.GROOM, 4).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.TIE, 5)
+        jobs.act(id, OriginOddJobAction.BRUSH, 6)
         repeat(ODD_JOB_GROOM_STROKES) { index ->
             jobs.act(id, OriginOddJobAction.GROOM, 30_000L * (index + 1))
             jobs.current(id)!!.yard!!.brushStrokes shouldBe index + 1
         }
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_UNTIE_FIRST
+        jobs.act(id, OriginOddJobAction.ARRIVE, 90_001).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.UNTIE, 90_002)
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_UNTIE_SECOND
+        jobs.act(id, OriginOddJobAction.ARRIVE, 90_003).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.UNTIE, 90_004)
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_DELIVER
+        listOf(OriginOddJobAction.ARRIVE, OriginOddJobAction.HANDOFF, OriginOddJobAction.CARE_DONE).forEach { jobs.act(id, it, 90_005) }
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
         jobs.current(id)!!.yard!!.animalId shouldBe 423
         jobs.current(id)!!.quality shouldBe 100
