@@ -15,7 +15,7 @@ class OriginWorkShiftTest : StringSpec({
         shift.shouldFinish(601_000, true) shouldBe false
         shift.shouldFinish(601_000, false) shouldBe true
         shift.shouldFinish(721_000, true) shouldBe true
-        shift.earnedAmount shouldBe 0
+        shift.earnedAmount shouldBe 0L
     }
 
     "early finish preserves confirmed orders and does not cancel an active delivery" {
@@ -24,7 +24,7 @@ class OriginWorkShiftTest : StringSpec({
         shift.acceptsOrders(1) shouldBe false
         shift.shouldFinish(1, true) shouldBe false
         shift.shouldFinish(1, false) shouldBe true
-        shift.earnedAmount shouldBe 20
+        shift.earnedAmount shouldBe 20L
         shift.quality shouldBe 80
         shift.record(order, 20, 100) shouldBe shift
         shift.record(UUID.randomUUID(), 20, 100).quality shouldBe 90

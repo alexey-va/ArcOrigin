@@ -98,15 +98,22 @@ adds an inventory item. Cancellation, timeout, leaving the venue, teleport,
 quit and module reload release the reservation, remove the prop and clear
 personal glow. Pending callbacks are fenced by the lifecycle epoch and request.
 
-`OriginSideJobRewards` owns the asynchronous Redis quota at
-`arc.origin-waiter-rewards.v1`: 20 coins per completed job, at most 20 jobs (400 coins)
-per UTC day across restaurants, the mount yard, forge and auction house,
-and at least 20 seconds between reserved or
-completed payouts. Its status is checked before assigning a guest. The durable
-claim is acknowledged before the host economy call on the server thread; an
-unconfirmed outcome remains reserved and is never automatically retried. The
-host reason string is an audit label, not a provider idempotency guarantee.
-There are no item rewards, XP or earning multipliers.
+`OriginSideJobRewards` owns one asynchronous Redis ledger at
+`arc.origin-waiter-rewards.v1`. Each completed order durably consumes one slot
+of the shared UTC-day quota and adds its frozen reward to the shift balance.
+The configured defaults are 20 coins per order and 100 orders per UUID per UTC
+day across all four jobs. Finishing, leaving, death or disconnect pays all
+completed work in one transfer immediately after the durable claim is acknowledged;
+unfinished work is cancelled. There is no payout cooldown. Idle time earns nothing.
+
+The optional earnings/receipt fields preserve legacy receipts and unresolved
+claims. Reload/startup recovers unclaimed balances; late earned-order writes
+survive module closure and are also recovered at the next admission. Settlement
+does not consume quota a second time, including across midnight. Unknown provider
+outcomes retain the complete balance and block automatic replay; only a proven
+pre-call failure can release the claim. A confirmed receipt requires the final
+journal acknowledgement. The host reason is audit text, not a provider idempotency
+key. There are no item rewards, XP or earning multipliers.
 
 Focused verification covers both Villager entry routes, preserved trading,
 duplicate clicks, exact recipient and kitchen, pickup timing, failed displays,
@@ -143,12 +150,11 @@ background scene cannot reclaim the work surface. Personal packet props and
 target guidance are owned by the player and request token. Cancellation,
 expiry, departure and reload remove them and invalidate late callbacks.
 
-All four job kinds use the same durable reward owner and unchanged Redis key,
-record shape, quota and payout interval. Existing waiter receipts and pending
-claims continue to count; adding a worksite does not reset the quota. The
-activity-specific economy reason is an audit label, never an idempotency key.
-The pooled cap is 400 coins per UUID per UTC day, reset at 03:00 Moscow time;
-it is not a rolling 24-hour or network-wide limit.
+All four job kinds share the cashier described above. Existing receipts and
+pending claims continue to count; adding a worksite does not reset the quota.
+The default pooled cap is 2,000 coins per UUID per UTC day, reset at 03:00 Moscow
+time; it is not a rolling 24-hour or network-wide limit. While working, the HUD
+and employer dialog show earned money; only the final receipt says it was received.
 
 Focused verification also includes `OriginOddJobs*Test` and
 `OriginOddJobVisualsTest`. Unit tests and offline geometry previews do not

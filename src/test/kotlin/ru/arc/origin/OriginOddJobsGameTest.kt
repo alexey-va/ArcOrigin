@@ -203,53 +203,51 @@ class OriginOddJobsGameTest : StringSpec({
             f.released shouldBe f.leases
         }
     }
-    "confirmed payment schedules the next task automatically without reopening an employer" {
+    "durable credit schedules the next task immediately without a payout" {
         failOnUnsupportedMockBukkitOperation {
             f.startForge(); f.finishForge()
             val first = f.payments.single()
-            first.callback(SideJobRewardOutcome.PAID); first.callback(SideJobRewardOutcome.PAID)
+            first.callback(SideJobRewardOutcome.CREDITED); first.callback(SideJobRewardOutcome.CREDITED)
             val screens = f.screens.size
             f.game.tick(f.now); f.scheduler.executeImmediate()
             (f.game.currentJob(f.player.uniqueId)!!.variant == OriginOddJobVariant.FORGE_NEW) shouldBe false
             f.screens.size shouldBe screens
-            f.actionBars().count { "+20" in it } shouldBe 1
+            f.actionBars().count { "Поручение принято" in it } shouldBe 1
+            f.settlements shouldBe emptyList()
         }
     }
-    "accepted payment survives quit and known cooldown retries exactly the same request" {
+    "accepted earnings survive quit and storage retry keeps exactly the same request" {
         failOnUnsupportedMockBukkitOperation {
             f.startForge(); f.finishForge()
-            val first = f.payments.single(); first.callback(SideJobRewardOutcome.COOLDOWN, f.now + 5_000)
+            val first = f.payments.single(); first.callback(SideJobRewardOutcome.RETRY)
             f.game.onQuit(mockk<PlayerQuitEvent> { every { player } returns f.player })
-            first.valid() shouldBe true
-            f.now += 4_999; f.game.tick(f.now)
+            f.now += 999; f.game.tick(f.now)
             f.payments.size shouldBe 1
             f.now++; f.game.tick(f.now)
             f.payments.size shouldBe 2
             f.payments.last().id shouldBe first.id
-            f.payments.last().callback(SideJobRewardOutcome.PAID)
+            f.payments.last().callback(SideJobRewardOutcome.CREDITED)
             f.game.isWorking(f.player.uniqueId) shouldBe false
         }
     }
-    "cooldown counts down the remaining time in both HUD and dialog without extending the payout gate" {
+    "storage retry has no payout countdown and explicit finish settles saved earnings once" {
         failOnUnsupportedMockBukkitOperation {
             f.startForge(); f.finishForge()
             val request = f.payments.single()
-            val due = f.now + 5_000
-            request.callback(SideJobRewardOutcome.COOLDOWN, due)
+            request.callback(SideJobRewardOutcome.RETRY)
             f.game.tick(f.now)
-            f.plain(f.player.bossBars.single().name()) shouldContain "выплата через 5 с"
+            f.plain(f.player.bossBars.single().name()) shouldContain "Принимаем"
             f.open(349, sneaking = false)
-            f.screens.last().body.joinToString(" ") { f.plain(it.text) } shouldContain "выплата через 5 с"
-            f.now = due - 1_000; f.game.tick(f.now)
-            f.plain(f.player.bossBars.single().name()) shouldContain "выплата через 1 с"
-            f.payments.size shouldBe 1
-            f.now = due; f.game.tick(f.now)
+            f.screens.last().body.joinToString(" ") { f.plain(it.text) }.contains("выплата через") shouldBe false
+            f.now += 1_000; f.game.tick(f.now)
             f.payments.size shouldBe 2
             f.payments.last().id shouldBe request.id
-            f.plain(f.player.bossBars.single().name()) shouldContain "Подтверждаем оплату"
-            f.payments.last().callback(SideJobRewardOutcome.PAID)
-            f.game.tick(f.now); f.scheduler.executeImmediate()
-            (f.game.currentJob(f.player.uniqueId) != null) shouldBe true
+            f.payments.last().callback(SideJobRewardOutcome.CREDITED)
+            f.settlements shouldBe emptyList()
+            f.open(349, sneaking = false)
+            f.press("odd_job_finish")
+            f.settlements.size shouldBe 1
+            f.game.isWorking(f.player.uniqueId) shouldBe false
         }
     }
     "all stable chores submit once and advance to the next assignment without visiting Senya" {
@@ -277,11 +275,11 @@ class OriginOddJobsGameTest : StringSpec({
                 payment.kind shouldBe OriginSideJobKind.MOUNTYARD
                 f.game.currentJob(f.player.uniqueId) shouldBe null
                 f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
-                payment.callback(SideJobRewardOutcome.PAID); payment.callback(SideJobRewardOutcome.PAID)
+                payment.callback(SideJobRewardOutcome.CREDITED); payment.callback(SideJobRewardOutcome.CREDITED)
                 f.game.tick(f.now); f.scheduler.executeImmediate()
                 (f.game.currentJob(f.player.uniqueId)!!.id != job.id) shouldBe true
                 f.screens.size shouldBe screens
-                f.actionBars().count { "+20" in it } shouldBe 1
+                f.actionBars().count { "Поручение принято" in it } shouldBe 1
                 f.open(440, sneaking = false); f.press("odd_job_finish")
                 f.game.isWorking(f.player.uniqueId) shouldBe false
             }
@@ -402,6 +400,8 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     val screens = mutableListOf<PaperDialogScreen>()
     var dismiss: () -> Unit = {}
     val payments = mutableListOf<Payment>()
+    val settlements = mutableListOf<UUID>()
+    val earned = mutableMapOf<UUID, SideJobShiftEarnings>()
     val leases = mutableListOf<OriginSceneLease>()
     val released = mutableListOf<OriginSceneLease>()
     var leaseValid = true
@@ -432,9 +432,23 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
         }
         every { OriginServices.viewerGlow } returns glow
         every { rewards.amount } returns 20
-        every { rewards.payoutIntervalMillis } returns 20_000L
-        every { rewards.status(any()) } answers { nextStatus }
-        every { rewards.pay(any(), any(), any(), any(), any()) } answers { payments += Payment(firstArg(), thirdArg(), arg(3), arg(4)) }
+        every { rewards.status(any(), any()) } answers { nextStatus }
+        every { rewards.credit(any(), any(), any(), any(), any(), any()) } answers {
+            val kind = firstArg<OriginSideJobKind>(); val shift = thirdArg<UUID>(); val order = arg<UUID>(3)
+            val quality = arg<Int>(4); val callback = arg<(SideJobRewardResult) -> Unit>(5)
+            payments += Payment(kind, order) { result ->
+                if (result.outcome == SideJobRewardOutcome.CREDITED) {
+                    val old = earned[shift]
+                    if (order.toString() !in old?.orders.orEmpty()) earned[shift] = SideJobShiftEarnings(shift.toString(), kind,
+                        old?.orders.orEmpty() + order.toString(), (old?.amount ?: 0) + 20, (old?.totalQuality ?: 0) + quality)
+                }
+                callback(result)
+            }
+        }
+        every { rewards.settle(any(), any(), any()) } answers {
+            val shift = secondArg<UUID>(); settlements += shift
+            thirdArg<(SideJobRewardResult) -> Unit>()(SideJobRewardResult(SideJobRewardOutcome.PAID, earned[shift]))
+        }
         every { visuals.target(any(), any(), any(), any(), any()) } answers { target = arg<Location?>(2)?.clone() }
         every { visuals.forgeProfile(any(), any(), any(), any(), any()) } answers { forgeWork = arg(3) }
         every { visuals.forgeCarry(any(), any(), any(), any()) } answers { forgeWork = thirdArg() }
@@ -545,8 +559,8 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
         unmockkStatic(CitizensAPI::class)
         paper.close()
     }
-    data class Payment(val kind: OriginSideJobKind, val id: UUID, val valid: () -> Boolean, val complete: (SideJobRewardResult) -> Unit) {
-        fun callback(outcome: SideJobRewardOutcome, retryAtMillis: Long = 0) = complete(SideJobRewardResult(outcome, retryAtMillis))
+    data class Payment(val kind: OriginSideJobKind, val id: UUID, val complete: (SideJobRewardResult) -> Unit) {
+        fun callback(outcome: SideJobRewardOutcome) = complete(SideJobRewardResult(outcome))
     }
 }
 

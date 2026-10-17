@@ -4,14 +4,14 @@ import java.util.UUID
 
 internal enum class OriginWorkShiftPhase { OPENING, RUSH, CLOSING }
 
-/** Transient shift score only. Each completed order retains its own durable payment UUID. */
+/** Transient presentation of earnings; the shared cashier owns the durable balance and settlement. */
 internal data class OriginWorkShift(
     val id: UUID,
     val startedAt: Long,
     val closesAt: Long,
     val hardStopAt: Long,
     val completedOrderIds: Set<UUID> = emptySet(),
-    val earnedAmount: Int = 0,
+    val earnedAmount: Long = 0,
     val totalQuality: Int = 0,
     val finishRequested: Boolean = false,
 ) {
@@ -32,16 +32,22 @@ internal data class OriginWorkShift(
 
     fun requestFinish(): OriginWorkShift = copy(finishRequested = true)
 
-    /** Record only confirmed payment outcomes. Duplicate callbacks cannot inflate the receipt. */
+    /** Record only durably saved orders. Duplicate callbacks cannot inflate the score. */
     fun record(orderId: UUID, amount: Int, quality: Int): OriginWorkShift {
         require(amount >= 0 && quality in 0..100)
         if (orderId in completedOrderIds) return this
         return copy(
             completedOrderIds = completedOrderIds + orderId,
-            earnedAmount = Math.addExact(earnedAmount, amount),
+            earnedAmount = Math.addExact(earnedAmount, amount.toLong()),
             totalQuality = Math.addExact(totalQuality, quality),
         )
     }
+
+    fun confirmed(earnings: SideJobShiftEarnings?): OriginWorkShift = copy(
+        completedOrderIds = earnings?.orders.orEmpty().map(UUID::fromString).toSet(),
+        earnedAmount = earnings?.amount ?: 0,
+        totalQuality = earnings?.totalQuality ?: 0,
+    )
 
     companion object {
         fun begin(now: Long, durationMillis: Long = 600_000L, graceMillis: Long = 120_000L): OriginWorkShift {

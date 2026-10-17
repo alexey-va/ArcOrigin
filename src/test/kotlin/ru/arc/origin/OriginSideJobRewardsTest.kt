@@ -5,7 +5,6 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
-import ru.arc.core.ScheduledTask
 import ru.arc.core.TaskScheduler
 import ru.arc.core.TestTaskScheduler
 import ru.arc.origin.api.ArcOriginEconomy
@@ -18,519 +17,303 @@ import java.util.logging.Level
 import java.util.logging.Logger
 
 class OriginSideJobRewardsTest : StringSpec({
-    "bounded quota codec rejects malformed or coerced state" {
+    "legacy receipts decode without optional fields and unsafe coercions still fail closed" {
         val codec = sideJobRewardCodec()
-        val record = SideJobRewardRecord(20_000, 1, 1_728_000_020_000L, listOf(UUID.randomUUID().toString()), true)
-        val raw = codec.encode(record)
-        codec.decode(raw) shouldBe record
-        codec.decode(codec.encode(record.copy(pending = false))) shouldBe record.copy(pending = false)
-        for (value in listOf("null", "\"1\"", "1.5", "1e3", "-1", "0", "2147483649", "4294967297")) {
-            shouldThrowAny { codec.decode(raw.replace("\"count\":1", "\"count\":$value")) }
-        }
-        for (value in listOf("null", "\"true\"", "1", "{}")) {
-            shouldThrowAny { codec.decode(raw.replace("\"pending\":true", "\"pending\":$value")) }
-        }
-        shouldThrowAny { codec.decode(raw.replace(record.requests.single(), "invalid")) }
-        shouldThrowAny { codec.decode(raw.replace("\"day\":20000,", "")) }
+        val raw = """{"day":20000,"count":1,"nextAt":1728000020000,"requests":["00000000-0000-4000-8000-000000000001"],"pending":true}"""
+        codec.encode(codec.decode(raw)) shouldBe raw
+        for (bad in listOf("null", "\"1\"", "1.5", "1e3", "-1", "0", "4294967297"))
+            shouldThrowAny { codec.decode(raw.replace("\"count\":1", "\"count\":$bad")) }
         shouldThrowAny { codec.decode(raw.dropLast(1) + ",\"unknown\":true}") }
         shouldThrowAny { codec.decode(raw + "{}") }
-        shouldThrowAny { codec.encode(record.copy(count = 2, requests = record.requests + record.requests)) }
-        shouldThrowAny { codec.encode(record.copy(count = SIDE_JOB_MAX_RECEIPTS + 1, requests = List(SIDE_JOB_MAX_RECEIPTS + 1) { UUID.randomUUID().toString() })) }
-        shouldThrowAny { codec.encode(record.copy(nextAt = 0)) }
-    }
-
-    "journal capacity is independent of the reloadable daily quota" {
         SideJobRewardFixture().use { f ->
-            for (count in listOf(20, 100, SIDE_JOB_MAX_RECEIPTS)) {
-                val record = f.settledRecord(count)
-                sideJobRewardCodec().decode(sideJobRewardCodec().encode(record)) shouldBe record
-            }
-            val previous = f.settledRecord(60)
-            f.seed(previous)
-            f.rewards.close()
-            f.owner(policy = OriginSideJobRewardPolicy(dailyOrderLimit = 10)).use { lower ->
-                lower.status(f.playerId).join() shouldBe SideJobRewardStatus(true, 0, previous.nextAt, false)
-                lower.pay(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), { true }, f.results::add)
-                f.scheduler.executeImmediate()
-                f.outcomes.last() shouldBe SideJobRewardOutcome.DAILY_LIMIT
-                f.calls shouldBe 0
-                f.record() shouldBe previous
-            }
-            f.owner(policy = OriginSideJobRewardPolicy(dailyOrderLimit = 100)).use { higher ->
-                higher.status(f.playerId).join().remainingOrders shouldBe 40
-                f.record() shouldBe previous
-            }
+            f.credit(); f.ackCredit()
+            val record = f.record()!!
+            codec.decode(codec.encode(record)) shouldBe record
+            shouldThrowAny { codec.decode(codec.encode(record).replace("\"amount\":20", "\"amount\":\"20\"")) }
+            shouldThrowAny { codec.encode(record.copy(earnings = record.earnings!!.copy(orders = record.earnings.orders + record.earnings.orders))) }
         }
     }
 
-    "new owner applies configured reward and interval without resetting old receipts" {
+    "completed orders accrue immediately and finish deposits one total only after both durable barriers" {
         SideJobRewardFixture().use { f ->
-            val previous = f.settledRecord(20)
-            f.seed(previous)
-            f.rewards.close()
-            f.owner(policy = OriginSideJobRewardPolicy(100, 35, 7_000)).use { reloaded ->
-                reloaded.status(f.playerId).join().remainingOrders shouldBe 80
-                reloaded.pay(OriginSideJobKind.AUCTION, f.playerId, UUID.randomUUID(), { true }, f.results::add)
-                f.completePayment()
-                f.outcomes.last() shouldBe SideJobRewardOutcome.PAID
-                f.amounts shouldBe listOf(35.0)
-                f.record()!!.requests.take(20) shouldBe previous.requests
-                f.record()!!.count shouldBe 21
-                f.record()!!.nextAt shouldBe f.now + 7_000
-            }
-        }
-    }
-
-    "late settlement keeps old policy amount and interval across owner replacement" {
-        SideJobRewardFixture().use { f ->
-            f.rewards.close()
-            val expectedNextAt = f.now + 7_000
-            val old = f.owner(policy = OriginSideJobRewardPolicy(100, 35, 7_000))
-            old.pay(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), { true }, f.results::add)
+            repeat(3) { f.credit(); f.ackCredit() }
+            f.amounts shouldBe emptyList()
+            f.record()!!.earnings!!.amount shouldBe 60L
+            f.record()!!.count shouldBe 3
+            f.rewards.status(f.playerId, f.shiftId).join().unresolved shouldBe false
+            f.settle()
+            f.amounts shouldBe emptyList()
             f.redis.completeWrite()
+            f.amounts shouldBe emptyList()
             f.scheduler.executeImmediate()
-            f.amounts shouldBe listOf(35.0)
-            old.close()
-            f.owner(policy = OriginSideJobRewardPolicy(200, 70, 1_000)).use { fresh ->
-                fresh.status(f.playerId).join().unresolved shouldBe true
-                f.now += 5_000
-                f.redis.completeWrite()
-                f.scheduler.executeImmediate()
+            f.amounts shouldBe listOf(60.0)
+            f.results.last().outcome shouldBe SideJobRewardOutcome.CREDITED
+            f.record()!!.pending shouldBe true
+            f.redis.completeWrite(); f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.PAID
+            f.record()!!.pending shouldBe false
+            f.record()!!.earnings shouldBe null
+            f.settle(); f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.ALREADY_PAID
+            f.amounts shouldBe listOf(60.0)
+        }
+    }
+
+    "duplicate credits and lost credit acknowledgements never add a second order" {
+        SideJobRewardFixture().use { f ->
+            val id = UUID.randomUUID()
+            f.credit(id); f.redis.failWrite(applyFirst = true); f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.RETRY
+            f.credit(id); f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.CREDITED
+            f.record()!!.count shouldBe 1
+            f.record()!!.earnings!!.amount shouldBe 20L
+            f.amounts shouldBe emptyList()
+        }
+    }
+
+    "two completed orders submitted before close survive delayed CAS and recover as one payout" {
+        SideJobRewardFixture().use { f ->
+            f.credit(); f.ackCredit()
+            f.results.clear()
+            f.credit(); f.rewards.close()
+            f.owner().use { fresh ->
+                fresh.recover(setOf(OriginSideJobKind.FORGE)); f.scheduler.executeImmediate()
+                f.amounts shouldBe emptyList()
+                f.redis.writes.size shouldBe 1 // Only the old owner's second credit.
+                f.redis.completeWrite(); f.scheduler.executeImmediate()
+                f.record()!!.earnings!!.orders.size shouldBe 2
+                f.results shouldBe emptyList()
+                f.finishPayment()
+                f.amounts shouldBe listOf(40.0)
+            }
+        }
+    }
+
+    "failed old-lifecycle credit is retained and retried at its frozen rate before recovery pays" {
+        SideJobRewardFixture().use { f ->
+            f.credit(); f.ackCredit(); f.credit(); f.rewards.close()
+            f.owner(policy = OriginSideJobRewardPolicy(100, 35)).use { fresh ->
+                fresh.recover(setOf(OriginSideJobKind.FORGE)); f.scheduler.executeImmediate()
+                f.redis.failWrite(applyFirst = false); f.scheduler.executeImmediate()
+                f.amounts shouldBe emptyList()
+                f.redis.completeWrite(); f.scheduler.executeImmediate() // Retry the immutable 20-coin intent.
+                f.record()!!.earnings!!.amount shouldBe 40L
+                f.finishPayment()
+                f.amounts shouldBe listOf(40.0)
+            }
+        }
+    }
+
+    "fresh recovery waits for a known pre-call rollback and then pays the unclaimed balance" {
+        SideJobRewardFixture().use { f ->
+            f.credit(); f.ackCredit(); f.settle()
+            f.redis.completeWrite() // Pending durable, server dispatch still queued.
+            f.rewards.close()
+            f.owner().use { fresh ->
+                fresh.recover(setOf(OriginSideJobKind.FORGE)); f.scheduler.executeImmediate()
+                f.amounts shouldBe emptyList()
+                f.redis.completeWrite(); f.scheduler.executeImmediate() // Old lifecycle releases its unused claim.
+                f.finishPayment()
+                f.amounts shouldBe listOf(20.0)
+            }
+        }
+    }
+
+    "shared quota counts earned orders and cash-out on another UTC day does not charge them again" {
+        SideJobRewardFixture(policy = OriginSideJobRewardPolicy(dailyOrderLimit = 1)).use { f ->
+            f.credit(); f.ackCredit()
+            f.credit(); f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.DAILY_LIMIT
+            f.now += 86_400_000
+            f.credit(); f.ackCredit()
+            f.record()!!.count shouldBe 1
+            f.record()!!.earnings!!.orders.size shouldBe 2
+            val day = f.record()!!.day
+            f.now += 86_400_000
+            f.settle(); f.finishPayment()
+            f.record()!!.day shouldBe day
+            f.rewards.status(f.playerId).join().remainingOrders shouldBe 1
+            f.amounts shouldBe listOf(40.0)
+        }
+    }
+
+    "new rate does not reprice saved earnings or reset an existing daily quota" {
+        SideJobRewardFixture().use { f ->
+            f.credit(); f.ackCredit(); f.rewards.close()
+            f.owner(policy = OriginSideJobRewardPolicy(100, 35)).use { fresh ->
+                fresh.credit(OriginSideJobKind.FORGE, f.playerId, f.shiftId, UUID.randomUUID(), 90, f.results::add)
+                f.ackCredit()
+                f.record()!!.earnings!!.amount shouldBe 55L
+                fresh.settle(f.playerId, f.shiftId, f.results::add); f.finishPayment()
+                f.amounts shouldBe listOf(55.0)
+                fresh.status(f.playerId).join().remainingOrders shouldBe 98
+            }
+        }
+    }
+
+    "legacy pending claims block every job after rollover and are never recovered as unclaimed money" {
+        for (kind in OriginSideJobKind.entries) SideJobRewardFixture().use { f ->
+            val original = SideJobRewardRecord(f.now / 86_400_000, 1, f.now + 20_000,
+                listOf(UUID.randomUUID().toString()), true)
+            f.seed(original); f.now += 86_400_000
+            f.rewards.credit(kind, f.playerId, f.shiftId, UUID.randomUUID(), 100, f.results::add)
+            f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.UNCONFIRMED
+            f.rewards.recover(OriginSideJobKind.entries.toSet()); f.scheduler.executeImmediate()
+            f.record() shouldBe original
+            f.amounts shouldBe emptyList()
+        }
+    }
+
+    "provider false or exception retains exact earnings and blocks automatic replay" {
+        for (throws in listOf(false, true)) SideJobRewardFixture().use { f ->
+            f.credit(); f.ackCredit(); f.providerAccepts = false; f.providerThrows = throws
+            f.settle(); f.redis.completeWrite(); f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.UNCONFIRMED
+            val pending = f.record()!!
+            pending.pending shouldBe true
+            pending.earnings!!.amount shouldBe 20L
+            f.rewards.close(); f.now += 86_400_000
+            f.owner().use { fresh ->
+                fresh.recover(OriginSideJobKind.entries.toSet()); f.scheduler.executeImmediate()
+                fresh.settle(f.playerId, f.shiftId, f.results::add); f.scheduler.executeImmediate()
+                f.record() shouldBe pending
+                f.amounts shouldBe listOf(20.0)
+            }
+        }
+    }
+
+    "lost settlement acknowledgement never reports success or replays the provider" {
+        SideJobRewardFixture().use { f ->
+            f.credit(); f.ackCredit(); f.settle()
+            f.redis.completeWrite(); f.scheduler.executeImmediate()
+            f.redis.failWrite(applyFirst = false); f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.UNCONFIRMED
+            f.settle(); f.scheduler.executeImmediate()
+            f.amounts shouldBe listOf(20.0)
+            f.record()!!.pending shouldBe true
+        }
+    }
+
+    "pre-provider close restores unclaimed earnings and late successful confirmation survives close" {
+        for (afterProvider in listOf(false, true)) SideJobRewardFixture().use { f ->
+            f.credit(); f.ackCredit(); val earned = f.record()
+            f.settle()
+            if (afterProvider) { f.redis.completeWrite(); f.scheduler.executeImmediate() }
+            f.rewards.close()
+            f.redis.completeWrite()
+            if (!afterProvider) f.redis.completeWrite()
+            f.scheduler.executeImmediate()
+            if (afterProvider) {
                 f.record()!!.pending shouldBe false
-                fresh.status(f.playerId).join().remainingOrders shouldBe 199
-                f.record()!!.nextAt shouldBe expectedNextAt
-                f.amounts shouldBe listOf(35.0)
-                f.outcomes shouldBe emptyList()
+                f.record()!!.receipt!!.amount shouldBe 20L
+                f.amounts shouldBe listOf(20.0)
+            } else {
+                f.record() shouldBe earned
+                f.amounts shouldBe emptyList()
             }
         }
     }
 
-    "legacy waiter receipts and pending records remain compatible across every job kind" {
-        SIDE_JOB_REWARD_KEY shouldBe "arc.origin-waiter-rewards.v1"
-        val request = UUID.fromString("00000000-0000-4000-8000-000000000001")
-        val nextAt = 1_728_000_020_000L
-        for (pending in listOf(false, true)) SideJobRewardFixture().use { f ->
-            val raw = """{"day":20000,"count":1,"nextAt":1728000020000,"requests":["00000000-0000-4000-8000-000000000001"],"pending":$pending}"""
-            val codec = sideJobRewardCodec()
-            codec.encode(codec.decode(raw)) shouldBe raw
-            f.redis.values[f.playerId.toString()] = raw
-            f.now = if (pending) nextAt + 86_400_000L else nextAt - 1
-            f.rewards.status(f.playerId).join() shouldBe SideJobRewardStatus(true, SIDE_JOB_DAILY_LIMIT - 1, nextAt, pending)
-            for (kind in OriginSideJobKind.entries) {
-                f.pay(if (pending) UUID.randomUUID() else request, kind)
-                f.scheduler.executeImmediate()
-            }
-            f.outcomes shouldBe List(OriginSideJobKind.entries.size) {
-                if (pending) SideJobRewardOutcome.UNCONFIRMED else SideJobRewardOutcome.ALREADY_PAID
-            }
-            f.redis.values[f.playerId.toString()] shouldBe raw
-            f.redis.writes.size shouldBe 0
-            f.calls shouldBe 0
-        }
-    }
-
-    "all four job kinds share the daily limit and interval with distinct audit reasons" {
-        val prefixes = linkedMapOf(
-            OriginSideJobKind.WAITER to "arc-restaurant-waiter",
-            OriginSideJobKind.MOUNTYARD to "arc-mountyard-job",
-            OriginSideJobKind.FORGE to "arc-forge-job",
-            OriginSideJobKind.AUCTION to "arc-auction-job",
-        )
-        OriginSideJobKind.entries.toList() shouldBe prefixes.keys.toList()
+    "competing cashiers cannot double-pay and recovery ignores another module's active kind" {
         SideJobRewardFixture().use { f ->
-            f.seed(f.settledRecord(SIDE_JOB_DAILY_LIMIT - prefixes.size))
-            for ((kind, prefix) in prefixes) {
-                val request = UUID.randomUUID()
-                f.pay(request, kind)
-                f.completePayment()
-                f.outcomes.last() shouldBe SideJobRewardOutcome.PAID
-                f.reasons.last() shouldBe "$prefix:$request"
-                if (kind == OriginSideJobKind.WAITER) {
-                    f.pay(kind = OriginSideJobKind.MOUNTYARD)
-                    f.scheduler.executeImmediate()
-                    f.outcomes.last() shouldBe SideJobRewardOutcome.COOLDOWN
-                    f.calls shouldBe 1
-                }
-                f.now += SIDE_JOB_PAYOUT_INTERVAL_MILLIS
+            f.credit(); f.ackCredit()
+            f.owner().use { peer ->
+                peer.recover(setOf(OriginSideJobKind.WAITER)); f.scheduler.executeImmediate()
+                f.redis.writes.size shouldBe 0
+                f.settle(); peer.settle(f.playerId, f.shiftId, f.results::add)
+                f.finishPayment()
+                f.scheduler.tick(2) // The waiting cashier resumes, then delivers its read-only receipt.
+                f.amounts shouldBe listOf(20.0)
+                f.results.count { it.outcome == SideJobRewardOutcome.PAID } shouldBe 1
+                f.results.count { it.outcome == SideJobRewardOutcome.ALREADY_PAID } shouldBe 1
             }
-            f.record()?.count shouldBe SIDE_JOB_DAILY_LIMIT
-            f.rewards.status(f.playerId).join().remainingOrders shouldBe 0
-            for (kind in OriginSideJobKind.entries) {
-                f.pay(kind = kind)
-                f.scheduler.executeImmediate()
-                f.outcomes.last() shouldBe SideJobRewardOutcome.DAILY_LIMIT
-            }
-            f.calls shouldBe prefixes.size
-            f.amounts shouldBe List(prefixes.size) { 20.0 }
-            f.redis.writes.size shouldBe 0
         }
     }
 
-    "cooldown returns the existing deadline even when dispatch runs after it expires" {
-        SideJobRewardFixture().use { f ->
-            val previous = f.settledRecord(1).copy(nextAt = f.now + 5_000L)
-            f.seed(previous)
-            val request = UUID.randomUUID()
-            f.pay(request)
-            f.now = previous.nextAt + 1
+    "stale recovery of A and a cancelled admission reading live B cannot cash out B" {
+        for (viaStatus in listOf(false, true)) SideJobRewardFixture().use { f ->
+            f.credit(); f.ackCredit()
+            if (viaStatus) {
+                f.redis.holdReads = true
+                f.rewards.status(f.playerId)
+                f.redis.holdReads = false
+            } else {
+                f.redis.holdMaps = true
+                f.rewards.recover(setOf(OriginSideJobKind.FORGE))
+                f.redis.holdMaps = false
+            }
+            f.settle(); f.finishPayment()
+            val newShift = UUID.randomUUID()
+            f.rewards.credit(OriginSideJobKind.AUCTION, f.playerId, newShift, UUID.randomUUID(), 100, f.results::add)
+            f.ackCredit()
+            if (viaStatus) f.redis.completeRead() else f.redis.completeMap()
             f.scheduler.executeImmediate()
-            f.results shouldBe listOf(SideJobRewardResult(SideJobRewardOutcome.COOLDOWN, previous.nextAt))
-            f.calls shouldBe 0
+            f.amounts shouldBe listOf(20.0)
+            f.record()!!.earnings!!.id shouldBe newShift.toString()
+            f.record()!!.earnings!!.kind shouldBe OriginSideJobKind.AUCTION
             f.redis.writes.size shouldBe 0
-            f.record() shouldBe previous
-
-            f.pay(request)
-            f.completePayment()
-            f.outcomes.last() shouldBe SideJobRewardOutcome.PAID
-            f.calls shouldBe 1
         }
     }
 
-    "delayed reads and durable writes never block gameplay or pay before acknowledgement" {
+    "provider unavailable before deposit releases claim but preserves full earned balance" {
+        SideJobRewardFixture().use { f ->
+            f.credit(); f.ackCredit(); val earned = f.record()
+            f.providerAvailable = false; f.settle(); f.finishPayment()
+            f.record() shouldBe earned
+            f.results.last().outcome shouldBe SideJobRewardOutcome.UNAVAILABLE
+            f.amounts shouldBe emptyList()
+        }
+    }
+
+    "delayed reads are nonblocking and corrupted storage never becomes an empty balance" {
         SideJobRewardFixture().use { f ->
             f.redis.holdReads = true
-            f.pay()
-            f.calls shouldBe 0
-            f.scheduler.runSync(Runnable { f.gameplayTicks++ })
-            f.scheduler.executeImmediate()
-            f.gameplayTicks shouldBe 1
-            f.redis.writes.size shouldBe 0
-
-            f.redis.holdReads = false
-            CompletableFuture.runAsync { f.redis.completeRead() }.join()
-            f.redis.writes.size shouldBe 1
-            f.scheduler.executeImmediate()
-            f.calls shouldBe 0
-            f.now += 120_000L
-            CompletableFuture.runAsync { f.redis.completeWrite() }.join()
-            f.calls shouldBe 0
-            f.scheduler.executeImmediate()
-            f.calls shouldBe 1
-            f.outcomes shouldBe emptyList()
-            f.record()?.pending shouldBe true
-            f.rewards.status(f.playerId).join().unresolved shouldBe true
-            f.redis.completeWrite()
-            f.scheduler.executeImmediate()
-            f.outcomes shouldBe listOf(SideJobRewardOutcome.PAID)
-            f.record()?.nextAt shouldBe f.now + SIDE_JOB_PAYOUT_INTERVAL_MILLIS
-            f.record()?.count shouldBe 1
-            f.record()?.pending shouldBe false
-        }
-    }
-
-    "competing job kinds and repeated current or earlier requests cannot duplicate a payout" {
-        SideJobRewardFixture().use { f ->
-            val first = UUID.randomUUID()
-            val otherOutcomes = mutableListOf<SideJobRewardOutcome>()
-            f.owner().use { other ->
-                f.pay(first)
-                other.pay(OriginSideJobKind.FORGE, f.playerId, first, { true }) { otherOutcomes += it.outcome }
-                f.redis.completeWrite()
-                f.redis.completeWrite() // CAS loses; its retry observes the first pending claim.
-                f.scheduler.executeImmediate()
-                f.calls shouldBe 1
-                otherOutcomes shouldBe listOf(SideJobRewardOutcome.UNCONFIRMED)
-                f.redis.completeWrite()
-                f.scheduler.executeImmediate()
-                f.pay(first)
-                f.scheduler.executeImmediate()
-                f.outcomes.last() shouldBe SideJobRewardOutcome.ALREADY_PAID
-
-                f.now += SIDE_JOB_PAYOUT_INTERVAL_MILLIS
-                f.pay()
-                f.completePayment()
-                f.pay(first)
-                f.scheduler.executeImmediate()
-                f.outcomes.last() shouldBe SideJobRewardOutcome.ALREADY_PAID
-                f.calls shouldBe 2
-                f.record()?.count shouldBe 2
-            }
-        }
-    }
-
-    "pre-call cancellation restores the exact previous quota and suppresses stale feedback" {
-        SideJobRewardFixture().use { f ->
-            val before = f.settledRecord(count = 3)
-            f.seed(before)
-            f.pay()
-            f.redis.completeWrite()
-            f.valid = false
-            f.scheduler.executeImmediate()
-            f.calls shouldBe 0
-            f.record()?.pending shouldBe true
-            f.redis.completeWrite()
-            f.scheduler.executeImmediate()
-            f.record() shouldBe before
-            f.outcomes shouldBe emptyList()
-        }
-    }
-
-    "cancellation never overwrites a newer durable record" {
-        SideJobRewardFixture().use { f ->
-            f.pay()
-            f.redis.completeWrite()
-            f.valid = false
-            f.scheduler.executeImmediate()
-            val replacement = f.settledRecord(count = 4)
-            f.seed(replacement)
-            f.redis.completeWrite()
-            f.scheduler.executeImmediate()
-            f.record() shouldBe replacement
-            f.calls shouldBe 0
-        }
-    }
-
-    "closing before delayed acknowledgement releases only the unused claim without waiting" {
-        SideJobRewardFixture().use { f ->
-            f.pay()
-            f.rewards.close()
-            f.redis.writes.size shouldBe 1
-            CompletableFuture.runAsync { f.redis.completeWrite() }.join()
-            f.redis.writes.size shouldBe 1
-            f.redis.completeWrite()
-            f.scheduler.executeImmediate()
-            f.record() shouldBe null
-            f.calls shouldBe 0
-            f.outcomes shouldBe emptyList()
-        }
-    }
-
-    "malformed storage is unavailable and is never treated as an empty quota" {
-        SideJobRewardFixture().use { f ->
-            f.redis.values[f.playerId.toString()] = "{bad"
-            f.rewards.status(f.playerId).join() shouldBe SideJobRewardStatus(false, 0, 0, true)
-            f.pay()
-            f.scheduler.executeImmediate()
-            f.outcomes shouldBe listOf(SideJobRewardOutcome.UNCONFIRMED)
-            f.redis.values[f.playerId.toString()] shouldBe "{bad"
-            f.redis.writes.size shouldBe 0
-            f.calls shouldBe 0
-        }
-    }
-
-    "technical readiness is separate from daily quota cooldown and unresolved work" {
-        SideJobRewardFixture().use { f ->
-            val exhausted = f.settledRecord(SIDE_JOB_DAILY_LIMIT).copy(nextAt = f.now + SIDE_JOB_PAYOUT_INTERVAL_MILLIS)
-            f.seed(exhausted)
-            f.rewards.status(f.playerId).join() shouldBe SideJobRewardStatus(true, 0, exhausted.nextAt, false)
-            f.seed(exhausted.copy(pending = true))
-            f.rewards.status(f.playerId).join() shouldBe SideJobRewardStatus(true, 0, exhausted.nextAt, true)
-            f.providerAvailable = false
+            f.credit()
+            f.results shouldBe emptyList()
+            f.amounts shouldBe emptyList()
+            f.redis.holdReads = false; f.redis.completeRead(); f.ackCredit()
+            f.redis.values[f.playerId.toString()] = "{}"
             f.rewards.status(f.playerId).join().available shouldBe false
-            OriginSideJobRewards(null, { null }, f.scheduler, { f.now }, Logger.getAnonymousLogger()).use { missing ->
-                missing.status(f.playerId).join() shouldBe SideJobRewardStatus(false, 0, 0, false)
-            }
-        }
-    }
-
-    "eager server dispatch preserves the payment until delayed settlement completes" {
-        SideJobRewardFixture().use { f ->
-            val scheduler = object : TaskScheduler by f.scheduler {
-                override fun runSync(task: Runnable): ScheduledTask {
-                    task.run()
-                    return mockk(relaxed = true)
-                }
-            }
-            f.owner(scheduler).use { owner ->
-                owner.pay(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), { true }, f.results::add)
-                f.redis.completeWrite()
-                f.calls shouldBe 1
-                f.results shouldBe emptyList()
-                f.record()?.pending shouldBe true
-                f.redis.writes.size shouldBe 1
-
-                f.redis.completeWrite()
-                f.results shouldBe listOf(SideJobRewardResult(SideJobRewardOutcome.PAID))
-                f.record()?.pending shouldBe false
-                owner.status(f.playerId).join().unresolved shouldBe false
-                f.calls shouldBe 1
-                f.redis.writes.size shouldBe 0
-            }
-        }
-    }
-
-    "provider loss or rejected scheduling releases the unused reservation without paying" {
-        for (rejectedScheduling in listOf(false, true)) SideJobRewardFixture().use { f ->
-            val scheduler = if (rejectedScheduling) object : TaskScheduler by f.scheduler {
-                override fun runSync(task: Runnable): ScheduledTask = error("injected scheduler rejection")
-            } else f.scheduler
-            f.owner(scheduler).use { owner ->
-                owner.pay(OriginSideJobKind.WAITER, f.playerId, UUID.randomUUID(), { true }, f.results::add)
-                f.providerAvailable = false
-                f.redis.completeWrite()
-                f.scheduler.executeImmediate()
-                f.record()?.pending shouldBe true
-                f.redis.completeWrite()
-                f.scheduler.executeImmediate()
-                f.record() shouldBe null
-                f.calls shouldBe 0
-                f.outcomes shouldBe if (rejectedScheduling) emptyList() else listOf(SideJobRewardOutcome.UNAVAILABLE)
-            }
-        }
-    }
-
-    "UTC quota resets while the payout interval survives midnight and a new owner" {
-        SideJobRewardFixture().use { f ->
-            val midnight = (f.now / 86_400_000L + 1) * 86_400_000L
-            f.now = midnight - 10_000L
-            val previous = f.settledRecord(SIDE_JOB_DAILY_LIMIT).copy(nextAt = midnight + 10_000L)
-            f.seed(previous)
-            f.pay()
-            f.scheduler.executeImmediate()
-            f.outcomes.last() shouldBe SideJobRewardOutcome.DAILY_LIMIT
-            f.now = midnight + 1
-            f.owner().use { restarted ->
-                restarted.status(f.playerId).join() shouldBe SideJobRewardStatus(true, SIDE_JOB_DAILY_LIMIT, previous.nextAt, false)
-                restarted.pay(OriginSideJobKind.WAITER, f.playerId, UUID.randomUUID(), { true }, f.results::add)
-                f.scheduler.executeImmediate()
-                f.outcomes.last() shouldBe SideJobRewardOutcome.COOLDOWN
-                f.now = previous.nextAt
-                restarted.pay(OriginSideJobKind.WAITER, f.playerId, UUID.randomUUID(), { true }, f.results::add)
-                f.completePayment()
-                f.record()?.count shouldBe 1
-                f.record()?.day shouldBe midnight / 86_400_000L
-                f.calls shouldBe 1
-            }
-        }
-    }
-
-    "a claim acknowledged after midnight counts its actual payout in the new day" {
-        SideJobRewardFixture().use { f ->
-            val midnight = (f.now / 86_400_000L + 1) * 86_400_000L
-            f.now = midnight - 1
-            f.seed(f.settledRecord(SIDE_JOB_DAILY_LIMIT - 1))
-            f.pay()
-            f.now = midnight + 1
-            f.completePayment()
-            f.record()?.day shouldBe midnight / 86_400_000L
-            f.record()?.count shouldBe 1
-            f.record()?.requests?.size shouldBe 1
-        }
-    }
-
-    "provider false or exception blocks another job kind across reload and day rollover" {
-        for (throws in listOf(false, true)) SideJobRewardFixture().use { f ->
-            f.providerAccepts = false
-            f.providerThrows = throws
-            f.pay()
-            f.redis.completeWrite()
-            f.scheduler.executeImmediate()
-            f.outcomes shouldBe listOf(SideJobRewardOutcome.UNCONFIRMED)
-            val unresolved = f.record()
-            unresolved?.pending shouldBe true
-            f.now += 3 * 86_400_000L
-            f.owner().use { restarted ->
-                restarted.status(f.playerId).join().let {
-                    it.available shouldBe true
-                    it.unresolved shouldBe true
-                    it.remainingOrders shouldBe SIDE_JOB_DAILY_LIMIT - 1
-                }
-                restarted.pay(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), { true }, f.results::add)
-                f.scheduler.executeImmediate()
-                f.outcomes.last() shouldBe SideJobRewardOutcome.UNCONFIRMED
-                f.record() shouldBe unresolved
-                f.calls shouldBe 1
-            }
-        }
-    }
-
-    "lost reservation acknowledgement or failed settlement never replays the provider" {
-        for (failedSettlement in listOf(false, true)) SideJobRewardFixture().use { f ->
-            val request = UUID.randomUUID()
-            f.pay(request)
-            if (failedSettlement) {
-                f.redis.completeWrite()
-                f.scheduler.executeImmediate()
-                f.redis.failWrite(applyFirst = false)
-            } else f.redis.failWrite(applyFirst = true)
-            f.scheduler.executeImmediate()
-            f.outcomes shouldBe listOf(SideJobRewardOutcome.UNCONFIRMED)
-            f.record()?.pending shouldBe true
-            f.now += 86_400_000L
-            f.pay(request)
-            f.scheduler.executeImmediate()
-            f.pay()
-            f.scheduler.executeImmediate()
-            f.calls shouldBe if (failedSettlement) 1 else 0
-            f.outcomes.all { it == SideJobRewardOutcome.UNCONFIRMED } shouldBe true
-            f.redis.writes.size shouldBe 0
-        }
-    }
-
-    "late successful settlement survives close without replay or stale UI callback" {
-        SideJobRewardFixture().use { f ->
-            f.pay()
-            f.redis.completeWrite()
-            f.scheduler.executeImmediate()
-            f.calls shouldBe 1
-            f.rewards.close()
-            f.record()?.pending shouldBe true
-            f.redis.completeWrite()
-            f.scheduler.executeImmediate()
-            f.record()?.pending shouldBe false
-            f.outcomes shouldBe emptyList()
-            f.calls shouldBe 1
+            f.settle(); f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.UNCONFIRMED
+            f.amounts shouldBe emptyList()
         }
     }
 })
 
-private class SideJobRewardFixture : AutoCloseable {
-    val playerId: UUID = UUID.randomUUID()
-    private val serverThread = Thread.currentThread()
+private class SideJobRewardFixture(val policy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy()) : AutoCloseable {
+    val playerId = UUID.randomUUID()
+    val shiftId = UUID.randomUUID()
+    val serverThread = Thread.currentThread()
     val scheduler = TestTaskScheduler()
     val redis = ControlledSideJobRedis()
     var now = 1_792_108_800_000L
-    var valid = true
     var providerAvailable = true
     var providerAccepts = true
     var providerThrows = false
-    var calls = 0
-    var gameplayTicks = 0
     val results = mutableListOf<SideJobRewardResult>()
-    val outcomes get() = results.map { it.outcome }
-    val reasons = mutableListOf<String>()
     val amounts = mutableListOf<Double>()
     private val provider = mockk<ArcOriginEconomy>().also { economy ->
-        every { economy.isAvailable() } answers {
-            Thread.currentThread() shouldBe serverThread
-            providerAvailable
-        }
+        every { economy.isAvailable() } answers { Thread.currentThread() shouldBe serverThread; providerAvailable }
         every { economy.depositDefaultCurrency(any(), any(), any()) } answers {
             Thread.currentThread() shouldBe serverThread
             firstArg<UUID>() shouldBe playerId
             amounts += secondArg<Double>()
-            reasons += thirdArg<String>()
-            calls++
             if (providerThrows) error("injected provider failure")
             providerAccepts
         }
     }
-    val rewards = owner()
-
+    val rewards = owner(policy = policy)
     fun owner(taskScheduler: TaskScheduler = scheduler, policy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy()) = OriginSideJobRewards(
-        redis, { provider }, taskScheduler, { now }, Logger.getAnonymousLogger().also { it.level = Level.OFF }, policy,
-    )
-
-    fun pay(requestId: UUID = UUID.randomUUID(), kind: OriginSideJobKind = OriginSideJobKind.WAITER) = rewards.pay(kind, playerId, requestId,
-        { Thread.currentThread() shouldBe serverThread; valid },
-        { Thread.currentThread() shouldBe serverThread; results += it })
-
-    fun completePayment() {
-        redis.completeWrite()
-        scheduler.executeImmediate()
-        redis.completeWrite()
-        scheduler.executeImmediate()
-    }
-
-    fun settledRecord(count: Int) = SideJobRewardRecord(now / 86_400_000L, count, now,
-        List(count) { UUID.randomUUID().toString() }, pending = false)
-
-    fun seed(record: SideJobRewardRecord) {
-        redis.values[playerId.toString()] = sideJobRewardCodec().encode(record)
-    }
-
+        redis, { provider }, taskScheduler, { now }, Logger.getAnonymousLogger().also { it.level = Level.OFF }, policy)
+    fun credit(requestId: UUID = UUID.randomUUID()) = rewards.credit(OriginSideJobKind.FORGE, playerId, shiftId, requestId, 80, results::add)
+    fun settle() = rewards.settle(playerId, shiftId, results::add)
+    fun ackCredit() { redis.completeWrite(); scheduler.executeImmediate() }
+    fun finishPayment() { redis.completeWrite(); scheduler.executeImmediate(); redis.completeWrite(); scheduler.executeImmediate() }
+    fun seed(record: SideJobRewardRecord) { redis.values[playerId.toString()] = sideJobRewardCodec().encode(record) }
     fun record(): SideJobRewardRecord? = redis.values[playerId.toString()]?.let(sideJobRewardCodec()::decode)
-
     override fun close() = rewards.close()
 }
 
@@ -541,6 +324,14 @@ private class ControlledSideJobRedis : RedisOperations by mockk(relaxed = true) 
     val writes = ConcurrentLinkedQueue<Write>()
     private val reads = ConcurrentLinkedQueue<Pair<List<String>, CompletableFuture<List<String?>>>>()
     var holdReads = false
+    var holdMaps = false
+    private var heldMap: Pair<Map<String, String>, CompletableFuture<Map<String, String>>>? = null
+
+    override fun loadMap(key: String): CompletableFuture<Map<String, String>> {
+        if (!holdMaps) return CompletableFuture.completedFuture(values.toMap())
+        return CompletableFuture<Map<String, String>>().also { heldMap = values.toMap() to it }
+    }
+    fun completeMap() { val (snapshot, future) = requireNotNull(heldMap); heldMap = null; future.complete(snapshot) }
 
     override fun loadMapEntries(key: String, vararg mapKeys: String): CompletableFuture<List<String?>> {
         key shouldBe SIDE_JOB_REWARD_KEY
@@ -553,9 +344,9 @@ private class ControlledSideJobRedis : RedisOperations by mockk(relaxed = true) 
         return CompletableFuture<Boolean>().also { writes += Write(mapKey, expectedValue, replacementValue, it) }
     }
 
-    fun completeRead() {
+    fun completeRead(snapshot: List<String?>? = null) {
         val (fields, future) = requireNotNull(reads.poll())
-        future.complete(fields.map(values::get))
+        future.complete(snapshot ?: fields.map(values::get))
     }
 
     fun completeWrite() {

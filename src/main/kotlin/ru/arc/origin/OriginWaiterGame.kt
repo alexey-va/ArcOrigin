@@ -117,11 +117,11 @@ internal fun waiterText(text: String, color: TextColor = TextColor.color(0xE8DFD
 internal fun waiterNpcName(raw: String): String = PlainTextComponentSerializer.plainText()
     .serialize(LegacyComponentSerializer.legacyAmpersand().deserialize(raw.replace('§', '&')))
 
-internal data class OriginWaiterReceipt(val shift: OriginWorkShift, val endedAt: Long, val unpaidOrders: Int)
+internal data class OriginWaiterReceipt(val shift: OriginWorkShift, val endedAt: Long, val unpaidOrders: Int, val paid: Boolean = true)
 
 internal fun waiterReceiptLines(config: OriginWaiterConfig, receipt: OriginWaiterReceipt): List<String> = buildList {
     add(config.line("receipt-title", "time" to waiterTime(receipt.endedAt - receipt.shift.startedAt)))
-    add(config.line("receipt-score", "count" to receipt.shift.completedOrders, "amount" to receipt.shift.earnedAmount))
+    add(config.line(if (receipt.paid) "receipt-score" else "receipt-pending", "count" to receipt.shift.completedOrders, "amount" to receipt.shift.earnedAmount))
     if (receipt.unpaidOrders > 0) add(config.line("receipt-unpaid", "count" to receipt.unpaidOrders))
 }
 
@@ -145,7 +145,7 @@ internal fun waiterScreen(
     finish: () -> Unit = {},
 ): PaperDialogScreen {
     val available = shift == null && notice == null && status != null && status.available && !status.unresolved &&
-        status.remainingOrders > 0 && status.nextAtMillis <= now
+        status.remainingOrders > 0
     fun button(id: String, key: String, color: Int, action: () -> Unit = {}) = PaperDialogButton(
         id = PaperDialogActionId.of(id), label = waiterText(config.line(key), TextColor.color(color)),
         width = 155, closeDialogBeforeAction = true, onClick = { action() },
@@ -164,7 +164,6 @@ internal fun waiterScreen(
         status.unresolved -> config.line("unconfirmed")
         !status.available -> config.line("unavailable")
         status.remainingOrders <= 0 -> config.line("daily-limit")
-        status.nextAtMillis > now -> config.line("cooldown", "seconds" to waiterSeconds(status.nextAtMillis - now))
         else -> null
     } else config.line("finish-help")
     return PaperDialogScreen(
@@ -237,6 +236,7 @@ internal class OriginWaiterGame(
         var disputes = 0
         var inFlight: UUID? = null
         var payoutAttempt = 0L
+        var settling = false
         var retryAt = 0L
         var reserveAt = 0L
         var lastFeedback: Pair<String, Long>? = null
@@ -261,7 +261,9 @@ internal class OriginWaiterGame(
     private val interventions = mutableMapOf<UUID, Intervention>()
     private var closed = false
 
-    init { tasks.runTimer(1, 1) {
+    init {
+        rewards.recover(setOf(OriginSideJobKind.WAITER))
+        tasks.runTimer(1, 1) {
         carry.tick()
         val now = clock()
         stations.tick(now)
@@ -481,6 +483,7 @@ internal class OriginWaiterGame(
     }
 
     private fun status(player: Player, venue: OriginWaiterVenue, start: Boolean) {
+        if (otherWork(player.uniqueId)) { feedback(player, "other-work"); return }
         if (closed || !near(player, venue.staffId) || isWorking(player.uniqueId)) return
         val playerId = player.uniqueId
         if (playerId in requests) { feedback(player, "checking"); return }
@@ -494,9 +497,19 @@ internal class OriginWaiterGame(
         rewards.status(playerId).whenComplete { state, failure ->
             tasks.runSync(epoch) {
                 if (!requests.remove(playerId, request) || closed || !near(player, venue.staffId) || isWorking(playerId)) return@runSync
+                if (otherWork(playerId)) { feedback(player, "other-work"); return@runSync }
                 if (failure != null) {
                     warn("ORIGIN_WAITER phase=STATUS_FAILED player={}", playerId, failure)
                     if (start) feedback(player, "unavailable") else show(player, venue, notice = config.line("unavailable"))
+                    return@runSync
+                }
+                if (state.recoverableShiftId != null) {
+                    rewards.settle(playerId, state.recoverableShiftId) { result ->
+                        if (!closed && !isWorking(playerId) && !otherWork(playerId) && near(player, venue.staffId)) {
+                            if (result.outcome in setOf(SideJobRewardOutcome.PAID, SideJobRewardOutcome.ALREADY_PAID)) status(player, venue, start)
+                            else show(player, venue, notice = config.line(if (result.outcome == SideJobRewardOutcome.UNCONFIRMED) "unconfirmed" else "unavailable"))
+                        }
+                    }
                     return@runSync
                 }
                 val now = clock()
@@ -505,7 +518,6 @@ internal class OriginWaiterGame(
                     state.unresolved -> "unconfirmed"
                     !state.available -> "unavailable"
                     state.remainingOrders <= 0 -> "daily-limit"
-                    state.nextAtMillis > now -> "cooldown"
                     else -> null
                 }
                 if (rejected != null) {
@@ -622,41 +634,37 @@ internal class OriginWaiterGame(
         }
     }
 
-    /** Only a known pre-deposit cooldown may be retried; each accepted handoff survives leaving the venue. */
+    /** Save completed orders without paying; only idempotent storage operations may retry. */
     private fun settleNext(playerId: UUID, now: Long) {
         val session = sessions[playerId] ?: return
         if (closed || session.inFlight != null || now < session.retryAt) return
         val job = progress.tickets(playerId).firstOrNull { it.stage == OriginWaiterStage.PAYOUT } ?: return
         session.inFlight = job.id
         val attempt = ++session.payoutAttempt
-        rewards.pay(OriginSideJobKind.WAITER, playerId, job.id,
-            stillValid = { !closed && sessions[playerId] === session && session.payoutAttempt == attempt &&
-                progress.current(playerId, job.id)?.stage == OriginWaiterStage.PAYOUT },
-        ) { result ->
-            if (closed || sessions[playerId] !== session || session.inFlight != job.id || session.payoutAttempt != attempt) return@pay
+        rewards.credit(OriginSideJobKind.WAITER, playerId, session.shift.id, job.id, job.quality) { result ->
+            if (closed || sessions[playerId] !== session || session.inFlight != job.id || session.payoutAttempt != attempt) return@credit
             session.inFlight = null
             val player = Bukkit.getPlayer(playerId)?.takeIf(Player::isOnline)
             val outcome = result.outcome
-            if (outcome == SideJobRewardOutcome.COOLDOWN) {
-                session.retryAt = result.retryAtMillis
-                player?.let { feedback(it, "payment-wait", "seconds" to waiterSeconds(result.retryAtMillis - clock())) }
-                return@pay
+            if (outcome == SideJobRewardOutcome.RETRY) {
+                session.retryAt = clock() + 1_000
+                return@credit
             }
-            val finished = progress.finish(playerId, job.id) ?: return@pay
+            val finished = progress.finish(playerId, job.id) ?: return@credit
             release(finished.target)
             when (outcome) {
-                SideJobRewardOutcome.PAID, SideJobRewardOutcome.ALREADY_PAID -> {
+                SideJobRewardOutcome.CREDITED -> {
                     session.shift = session.shift.record(job.id, rewards.amount, job.quality)
                     session.remaining = (session.remaining - 1).coerceAtLeast(0)
-                    session.retryAt = clock() + rewards.payoutIntervalMillis
+                    session.retryAt = 0
                     player?.let {
-                        feedback(it, "order-paid", "amount" to rewards.amount, "count" to session.shift.completedOrders)
+                        feedback(it, "order-credited", "amount" to session.shift.earnedAmount, "count" to session.shift.completedOrders)
                         it.playSound(it.location, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, SoundCategory.PLAYERS, 0.45f, 1.15f)
                     }
                     if (session.remaining == 0) stop(playerId, "daily-limit") else fillOrders(playerId, clock())
                 }
                 else -> {
-                    // An unknown provider result is terminal. Never turn it into a fresh request or replay.
+                    // A rejected ledger record is terminal. Never turn it into a fresh identity.
                     session.unpaidOrders++
                     progress.tickets(playerId).filter { it.stage == OriginWaiterStage.PAYOUT }.forEach {
                         progress.finish(playerId, it.id)?.let { waiting -> release(waiting.target); session.unpaidOrders++ }
@@ -809,7 +817,7 @@ internal class OriginWaiterGame(
             "action" to config.line("wash-${job?.washing?.getOrNull(job.washed)?.name?.lowercase()}"))
         val remaining = waiterTime((if (session.shift.acceptsOrders(now)) session.shift.closesAt else session.shift.hardStopAt) - now)
         session.bossBar.name(waiterText(next, TextColor.color(0xFFB277))
-            .append(waiterText("  ·  $remaining", TextColor.color(0xE8DFD2))))
+            .append(waiterText("  ·  $remaining  ·  ${session.shift.earnedAmount} 💰", TextColor.color(0xE8DFD2))))
         session.bossBar.progress(if (action != null) ((now - action.startedAt).toFloat() / (action.endsAt - action.startedAt)).coerceIn(0f, 1f)
             else if (dispute == null) waiterJobProgress(job) else dispute.stage.ordinal.toFloat() / OriginWaiterDisputeStage.entries.size)
         session.bossBar.color(if (job?.carries == true) BossBar.Color.GREEN else BossBar.Color.YELLOW)
@@ -905,7 +913,7 @@ internal class OriginWaiterGame(
         val session = sessions[player.uniqueId]
         if (session?.lastFeedback?.let { it.first == text && now - it.second < 1_800 } == true) return
         session?.lastFeedback = text to now
-        val color = if (key in setOf("order-paid", "table-ready", "plate-collected", "meal-served", "drink-served"))
+        val color = if (key in setOf("order-credited", "table-ready", "plate-collected", "meal-served", "drink-served"))
             0x9BD48D else 0xFFB277
         player.sendActionBar(waiterText(text, TextColor.color(color)))
     }
@@ -945,12 +953,25 @@ internal class OriginWaiterGame(
     private fun finishIfReady(playerId: UUID, now: Long) {
         val session = sessions[playerId] ?: return
         if (progress.tickets(playerId).isNotEmpty() || session.inFlight != null || !session.shift.shouldFinish(now, false)) return
+        if (session.settling) return
+        session.settling = true
+        Bukkit.getPlayer(playerId)?.takeIf(Player::isOnline)?.let { feedback(it, "settling") }
+        rewards.settle(playerId, session.shift.id) { result ->
+            if (closed || sessions[playerId] !== session) return@settle
+            if (result.outcome == SideJobRewardOutcome.RETRY) { session.settling = false; return@settle }
+            completeShift(playerId, session, result, now)
+        }
+    }
+
+    private fun completeShift(playerId: UUID, session: Session, result: SideJobRewardResult, now: Long) {
         sessions.remove(playerId, session)
         Bukkit.getPlayer(playerId)?.hideBossBar(session.bossBar)
         stations.remove(playerId)
         carry.remove(playerId)
         clearGlow(playerId)
-        val receipt = OriginWaiterReceipt(session.shift, session.endedAt ?: now, session.unpaidOrders)
+        val confirmed = result.outcome in setOf(SideJobRewardOutcome.PAID, SideJobRewardOutcome.ALREADY_PAID)
+        val receipt = OriginWaiterReceipt(if (confirmed) session.shift.confirmed(result.earnings) else session.shift,
+            session.endedAt ?: now, session.unpaidOrders, paid = confirmed)
         receipts[playerId] = receipt
         Bukkit.getPlayer(playerId)?.takeIf(Player::isOnline)?.sendMessage(waiterReceipt(config, receipt))
         info("ORIGIN_WAITER phase=SHIFT_FINISHED player={} shift={} orders={} amount={} quality={} unpaid={}",
@@ -959,6 +980,11 @@ internal class OriginWaiterGame(
 
     override fun close() {
         if (closed) return
+        sessions.forEach { (id, session) ->
+            progress.tickets(id).filter { it.stage == OriginWaiterStage.PAYOUT && it.id != session.inFlight }.forEach { job ->
+                rewards.credit(OriginSideJobKind.WAITER, id, session.shift.id, job.id, job.quality) {}
+            }
+        }
         closed = true
         tasks.close()
         requests.clear()

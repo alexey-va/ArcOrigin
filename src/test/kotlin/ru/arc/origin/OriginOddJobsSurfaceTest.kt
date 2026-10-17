@@ -69,6 +69,13 @@ class OriginOddJobsSurfaceTest : StringSpec({
             screen.body.flatMap { components(it.text) }.filter { plain(it) == "💰" }.all { it.color() == NamedTextColor.WHITE } shouldBe true
         }
     }
+    "legacy payout deadline does not hide the start button or display a wait" {
+        val config = oddJobTestConfig()
+        val screen = originOddJobsScreen(config, config.venues.first(), null, 20,
+            SideJobRewardStatus(true, 5, 20_000, false), 0)
+        screen.buttons.first().id.value shouldBe "odd_job_start"
+        screen.body.joinToString(" ") { plain(it.text) }.contains("через") shouldBe false
+    }
     "working employers never expose task selection or per-order cancellation" {
         val config = oddJobTestConfig()
         for (venue in config.venues) {

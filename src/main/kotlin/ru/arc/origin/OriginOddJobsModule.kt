@@ -136,7 +136,8 @@ internal class OriginOddJobsGame(
     private val renderedForge = mutableMapOf<UUID, Pair<OriginForgeWork, Boolean>>()
     private val renderedCargo = mutableMapOf<UUID, OriginForgeCargo>()
     private val renderedEngraving = mutableMapOf<UUID, Pair<OriginForgeEngraving, Boolean>>()
-    private data class Shift(val venue: OriginOddJobVenue, var score: OriginWorkShift, val dispatch: OriginOddJobDispatch)
+    private data class Shift(val venue: OriginOddJobVenue, var score: OriginWorkShift, val dispatch: OriginOddJobDispatch,
+        var settling: Boolean = false)
     private data class Accepted(val job: OriginOddJobSession, val shiftId: UUID, val quality: Int, var nextAttempt: Long = 0, var inFlight: Boolean = false)
     private val shifts = mutableMapOf<UUID, Shift>()
     private val accepted = mutableMapOf<UUID, Accepted>()
@@ -148,6 +149,7 @@ internal class OriginOddJobsGame(
     private var closed = false
 
     init {
+        rewards.recover(OriginSideJobKind.entries.filter { it != OriginSideJobKind.WAITER }.toSet())
         Bukkit.getOnlinePlayers().forEach { supplies.clear(it) }
         tasks.runTimer(1, 1) {
             try { visuals.tick() } catch (failure: Exception) {
@@ -200,7 +202,14 @@ internal class OriginOddJobsGame(
     fun onQuit(event: PlayerQuitEvent) { stop(event.player.uniqueId, "quit") }
 
     @EventHandler
-    fun onJoin(event: PlayerJoinEvent) { supplies.clear(event.player) }
+    fun onJoin(event: PlayerJoinEvent) {
+        supplies.clear(event.player)
+        val id = event.player.uniqueId; val token = tasks.token()
+        rewards.status(id).whenComplete { state, _ -> tasks.runSync(token) {
+            if (!closed && !isWorking(id) && otherWork(id) == null)
+                state?.recoverableShiftId?.let { rewards.settle(id, it) {} }
+        } }
+    }
 
     @EventHandler
     fun onDeath(event: PlayerDeathEvent) {
@@ -307,6 +316,16 @@ internal class OriginOddJobsGame(
             onDismiss = { requests.remove(playerId, request) })
         rewards.status(playerId).whenComplete { state, failure -> tasks.runSync(epoch) {
             if (!requests.remove(playerId, request) || closed || !near(player, venue.npcId) || isWorking(playerId)) return@runSync
+            if (otherWork(playerId) != null) { feedback(player, requireNotNull(otherWork(playerId))); return@runSync }
+            if (state?.recoverableShiftId != null) {
+                rewards.settle(playerId, state.recoverableShiftId) { result ->
+                    if (!closed && !isWorking(playerId) && otherWork(playerId) == null && near(player, venue.npcId)) {
+                        if (result.outcome in setOf(SideJobRewardOutcome.PAID, SideJobRewardOutcome.ALREADY_PAID)) status(player, venue, start)
+                        else feedback(player, if (result.outcome == SideJobRewardOutcome.UNCONFIRMED) "unconfirmed" else "cash-unavailable")
+                    }
+                }
+                return@runSync
+            }
             val key = if (failure != null || state == null) "cash-unavailable" else originOddJobStatusKey(state, clock())
             if (!start) {
                 OriginMenus.openDialog(player, originOddJobsScreen(config, venue, null, rewards.amount, state, clock(),
@@ -344,7 +363,7 @@ internal class OriginOddJobsGame(
         if (!workMode(player) || otherWork(id) != null || !available(shift.venue.kind, refresh = true)) { feedback(player, "unavailable"); return }
         if (id in requests) return
         val request = UUID.randomUUID(); requests[id] = request; val epoch = tasks.token()
-        rewards.status(id).whenComplete { state, failure -> tasks.runSync(epoch) {
+        rewards.status(id, shift.score.id).whenComplete { state, failure -> tasks.runSync(epoch) {
             if (!requests.remove(id, request) || closed || shifts[id] !== shift || !shift.score.acceptsOrders(clock()) ||
                 progress.current(id) != null || id in accepted || !inArea(player, shift.venue.kind)) return@runSync
             val gate = when {
@@ -521,23 +540,21 @@ internal class OriginOddJobsGame(
         }
         if (closed || accepted[id] !== result || result.inFlight || clock() < result.nextAttempt) return
         result.inFlight = true; feedback("paying")
-        rewards.pay(result.job.kind.rewardKind, id, result.job.id,
-            stillValid = { !closed && accepted[id] === result  }) onPaid@ { payment ->
+        rewards.credit(result.job.kind.rewardKind, id, result.shiftId, result.job.id, result.quality) onPaid@ { payment ->
             if (accepted[id] !== result) return@onPaid
             result.inFlight = false
             val outcome = payment.outcome
-            if (outcome == SideJobRewardOutcome.COOLDOWN) {
-                result.nextAttempt = payment.retryAtMillis
-                feedback("payment-cooldown", "seconds" to waiterSeconds(result.nextAttempt - clock()))
-                info("ORIGIN_ODD_JOBS phase=PAYMENT_WAIT player={} request={} kind={} retryAt={}",
+            if (outcome == SideJobRewardOutcome.RETRY) {
+                result.nextAttempt = clock() + 1_000
+                info("ORIGIN_ODD_JOBS phase=CREDIT_RETRY player={} request={} kind={} retryAt={}",
                     id, result.job.id, result.job.kind, result.nextAttempt)
                 return@onPaid
             }
             accepted.remove(id, result)
             val shift = shifts[id]?.takeIf { it.score.id == result.shiftId }
-            if (outcome in setOf(SideJobRewardOutcome.PAID, SideJobRewardOutcome.ALREADY_PAID)) {
+            if (outcome == SideJobRewardOutcome.CREDITED) {
                 if (shift != null) shift.score = shift.score.record(result.job.id, rewards.amount, result.quality)
-                feedback(if (result.job.kind == OriginOddJobKind.FORGE) "forge.paid" else "paid", "amount" to rewards.amount, "quality" to result.quality)
+                feedback("credited", "amount" to (shift?.score?.earnedAmount ?: rewards.amount), "quality" to result.quality)
             } else {
                 if (shift != null) shift.score = shift.score.requestFinish()
                 feedback(when (outcome) {
@@ -564,13 +581,26 @@ internal class OriginOddJobsGame(
         val shift = shifts[id] ?: return
         if (now >= shift.score.hardStopAt) cancelOrder(id, "expired")
         if (id in accepted || progress.current(id) != null || !shift.score.shouldFinish(now, false)) return
+        if (shift.settling) return
+        shift.settling = true
+        Bukkit.getPlayer(id)?.takeIf { it.isOnline }?.let { feedback(it, "settling") }
+        rewards.settle(id, shift.score.id) { result ->
+            if (closed || shifts[id] !== shift) return@settle
+            if (result.outcome == SideJobRewardOutcome.RETRY) { shift.settling = false; return@settle }
+            completeShift(id, shift, result)
+        }
+    }
+
+    private fun completeShift(id: UUID, shift: Shift, result: SideJobRewardResult) {
         shifts.remove(id, shift); requests.remove(id); lastClicks.remove(id)
         clearGlow(id); clearBar(id); retryAt.remove(id)
+        val confirmed = result.outcome in setOf(SideJobRewardOutcome.PAID, SideJobRewardOutcome.ALREADY_PAID)
+        val score = if (confirmed) shift.score.confirmed(result.earnings) else shift.score
         Bukkit.getPlayer(id)?.takeIf { it.isOnline }?.sendMessage(net.kyori.adventure.text.Component.newline()
             .append(waiterText("  " + config.line("shift.receipt-title"), TextColor.color(0xFFB277))).appendNewline()
-            .append(waiterText("  " + config.line("shift.receipt-score", "done" to shift.score.completedOrders,
-                "amount" to shift.score.earnedAmount), TextColor.color(0x9BD48D))).appendNewline())
-        info("ORIGIN_ODD_JOBS phase=SHIFT_FINISHED player={} shift={} orders={} amount={}", id, shift.score.id, shift.score.completedOrders, shift.score.earnedAmount)
+            .append(waiterText("  " + config.line(if (confirmed) "shift.receipt-score" else "shift.receipt-pending",
+                "done" to score.completedOrders, "amount" to score.earnedAmount), TextColor.color(if (confirmed) 0x9BD48D else 0xE8DFD2))).appendNewline())
+        info("ORIGIN_ODD_JOBS phase=SHIFT_FINISHED player={} shift={} orders={} amount={} outcome={}", id, shift.score.id, score.completedOrders, score.earnedAmount, result.outcome)
     }
 
     fun tick(now: Long) {
@@ -702,7 +732,7 @@ internal class OriginOddJobsGame(
         val caption = config.line("shift.hud", "guide" to (job?.let { originOddJobGuide(config, it, now) }
             ?: paymentGuide(player.uniqueId, now) ?: config.line("shift.assigning")),
             "clock" to originOddJobClock((if (shift.acceptsOrders(now)) shift.closesAt else shift.hardStopAt) - now),
-            "done" to shift.completedOrders, "quality" to (job?.quality ?: 100))
+            "done" to shift.completedOrders, "amount" to shift.earnedAmount, "quality" to (job?.quality ?: 100))
         val bar = bars.getOrPut(player.uniqueId) {
             BossBar.bossBar(waiterText(caption), 0f, BossBar.Color.YELLOW, BossBar.Overlay.PROGRESS).also(player::showBossBar)
         }
@@ -711,10 +741,10 @@ internal class OriginOddJobsGame(
         bar.color(if (ready) BossBar.Color.GREEN else BossBar.Color.YELLOW)
     }
 
-    private fun paymentGuide(id: UUID, now: Long): String? = accepted[id]?.let { result ->
-        if (!result.inFlight && result.nextAttempt > now)
-            config.line("payment-cooldown", "seconds" to waiterSeconds(result.nextAttempt - now))
-        else config.line("paying")
+    private fun paymentGuide(id: UUID, now: Long): String? = when {
+        shifts[id]?.settling == true -> config.line("settling")
+        id in accepted -> config.line("paying")
+        else -> null
     }
 
     private fun clearBar(id: UUID) { bars.remove(id)?.let { Bukkit.getPlayer(id)?.hideBossBar(it) } }
@@ -758,7 +788,7 @@ internal class OriginOddJobsGame(
     }
     private fun feedback(player: Player, key: String, vararg values: Pair<String, Any>) {
         noticeUntil[player.uniqueId] = clock() + 1_500
-        player.sendActionBar(waiterText(config.line(key, *values), TextColor.color(if (key in setOf("paid", "forge.paid")) 0x9BD48D else 0xFFCA82)))
+        player.sendActionBar(waiterText(config.line(key, *values), TextColor.color(if (key == "credited") 0x9BD48D else 0xFFCA82)))
     }
     private fun glow(player: Player, npcId: Int?) {
         val entity = npcId?.let(::actor)
@@ -798,6 +828,9 @@ internal class OriginOddJobsGame(
         }
     }
     override fun close() {
+        accepted.forEach { (id, result) ->
+            if (!result.inFlight) rewards.credit(result.job.kind.rewardKind, id, result.shiftId, result.job.id, result.quality) {}
+        }
         closed = true; tasks.close(); requests.clear()
         shifts.keys.toList().forEach { stop(it, "reload") }
         accepted.clear(); visuals.close(); rewards.close(); lastClicks.clear(); noticeUntil.clear(); retryAt.clear()

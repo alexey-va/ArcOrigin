@@ -114,7 +114,7 @@ open class ArcOriginPlugin : JavaPlugin() {
         // Validate before closing modules; an invalid edit leaves current owners and payments intact.
         val candidate = OriginSideJobRewardPolicy.load(ConfigManager.ofModule(legacyDataPath, "origin-side-job-rewards.yml"))
         sideJobRewardPolicy = candidate
-        logger.info("ORIGIN_SIDE_JOB_POLICY orders=${candidate.dailyOrderLimit} amount=${candidate.rewardPerOrder} intervalMillis=${candidate.payoutIntervalMillis}")
+        logger.info("ORIGIN_SIDE_JOB_POLICY orders=${candidate.dailyOrderLimit} amount=${candidate.rewardPerOrder} settlement=shift-end")
     }
 
     private fun publishModuleHealth() {

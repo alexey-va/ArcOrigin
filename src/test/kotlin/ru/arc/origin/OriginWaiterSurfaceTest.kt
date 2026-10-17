@@ -65,11 +65,10 @@ class OriginWaiterSurfaceTest : StringSpec({
         waiterReceiptLines(config, receipt.copy(unpaidOrders = 1)).last() shouldContain "Оплата ожидается"
     }
 
-    "quota cooldown and unresolved payment explain why acceptance is unavailable" {
+    "quota and unresolved payment explain why acceptance is unavailable" {
         val config = waiterTestConfig()
         for ((status, text) in listOf(
             SideJobRewardStatus(true, 0, 0, false) to "100 поручений",
-            SideJobRewardStatus(true, 5, 20_000, false) to "через 20 с",
             SideJobRewardStatus(false, 5, 0, true) to "Касса ещё проверяет",
             SideJobRewardStatus(false, 20, 0, false) to "Касса временно недоступна",
         )) {
@@ -77,6 +76,19 @@ class OriginWaiterSurfaceTest : StringSpec({
             screen.buttons.map { it.id.value } shouldBe listOf("waiter_cancel")
             screen.body.joinToString("\n") { plain(it.text) } shouldContain text
         }
+    }
+
+    "legacy payout deadlines do not delay admission and unconfirmed earnings are not a payment receipt" {
+        val config = waiterTestConfig()
+        val ready = waiterScreen(config, config.venues.last(), null, emptyList(), 20,
+            SideJobRewardStatus(true, 5, 20_000, false), 0)
+        ready.buttons.first().id.value shouldBe "waiter_start"
+        ready.body.joinToString(" ") { plain(it.text) }.contains("через 20") shouldBe false
+        val shift = OriginWorkShift.begin(0).record(java.util.UUID.randomUUID(), 20, 100)
+        val receipt = waiterReceipt(config, OriginWaiterReceipt(shift, 1000, 0, paid = false))
+        plain(receipt) shouldContain "Заработано 20 💰"
+        plain(receipt).contains("Получено") shouldBe false
+        components(receipt).filter { plain(it) == "💰" }.single().color() shouldBe NamedTextColor.WHITE
     }
 
     "legacy configuration gains shift keys without overwriting operator values and merges once" {

@@ -16,11 +16,11 @@ class OriginSideJobRewardPolicyTest : StringSpec({
             Files.writeString(file, "daily-order-limit: 100\nreward-per-order: 20\npayout-interval-seconds: 20\n")
             val source = Config(directory, file.fileName.toString())
             val before = OriginSideJobRewardPolicy.load(source)
-            before shouldBe OriginSideJobRewardPolicy(100, 20, 20_000)
+            before shouldBe OriginSideJobRewardPolicy(100, 20)
             Files.writeString(file, "daily-order-limit: 60\nreward-per-order: 35\npayout-interval-seconds: 7\n")
             source.reload()
             val after = OriginSideJobRewardPolicy.load(source)
-            after shouldBe OriginSideJobRewardPolicy(60, 35, 7_000)
+            after shouldBe OriginSideJobRewardPolicy(60, 35)
             before.rewardPerOrder shouldBe 20
             val waiter = waiterTestConfig().copy(rewardPolicy = after)
             val oddJobs = oddJobTestConfig().copy(rewardPolicy = after)
@@ -39,7 +39,7 @@ class OriginSideJobRewardPolicyTest : StringSpec({
             after.limits("{daily-orders} / {daily-amount}") shouldBe "60 / 2100"
             waiter.line("daily-limit") shouldContain "60"
             // The in-world forge receipt uses the same policy as its employer dialog.
-            oddJobs.line("forge.paid", "amount" to after.rewardPerOrder) shouldContain "35 💰"
+            oddJobs.line("table.pay-value", "amount" to after.rewardPerOrder) shouldContain "35 💰"
         } finally { directory.toFile().deleteRecursively() }
     }
 
@@ -48,12 +48,11 @@ class OriginSideJobRewardPolicyTest : StringSpec({
         try {
             val file = directory.resolve("rewards.yml")
             for ((key, value) in listOf("daily-order-limit" to "0", "daily-order-limit" to "10001",
-                "reward-per-order" to "-1", "reward-per-order" to "1.5", "reward-per-order" to "invalid",
-                "payout-interval-seconds" to "0", "payout-interval-seconds" to "3601")) {
+                "reward-per-order" to "-1", "reward-per-order" to "1.5", "reward-per-order" to "invalid")) {
                 Files.writeString(file, "$key: $value\n")
                 shouldThrowAny { OriginSideJobRewardPolicy.load(Config(directory, file.fileName.toString())) }
             }
-            shouldThrowAny { OriginSideJobRewardPolicy(10_000, 1_000_000, 20_000) }
+            shouldThrowAny { OriginSideJobRewardPolicy(10_000, 1_000_000) }
         } finally { directory.toFile().deleteRecursively() }
     }
 })

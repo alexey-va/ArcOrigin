@@ -168,7 +168,6 @@ internal fun originOddJobStatusKey(status: SideJobRewardStatus?, now: Long): Str
     status.unresolved -> "unconfirmed"
     !status.available -> "cash-unavailable"
     status.remainingOrders <= 0 -> "daily-limit"
-    status.nextAtMillis > now -> "cooldown"
     else -> null
 }
 
