@@ -16,7 +16,7 @@ class OriginOddJobsProgressTest : StringSpec({
         }
     }
     "reopening the employer cannot reroll offers and each bag covers all families" {
-        for (kind in OriginOddJobKind.entries) {
+        for (kind in OriginOddJobKind.entries.filterNot { it == OriginOddJobKind.FORGE }) {
             val board = OriginOddJobDispatch(kind, Random(7))
             repeat(3) {
                 val accepted = OriginOddJobVariant.entries.filter { it.kind == kind }.map {
@@ -29,21 +29,51 @@ class OriginOddJobsProgressTest : StringSpec({
             }
         }
     }
-    "water and feed are single pickup delivery chains without timing levels or portions" {
-        for ((variant, pickup, delivery) in listOf(
-            Triple(OriginOddJobVariant.YARD_WATER, OriginOddJobAction.WATER, OriginOddJobAction.WATER),
-            Triple(OriginOddJobVariant.YARD_RATIONS, OriginOddJobAction.HAY, OriginOddJobAction.FEED),
-            Triple(OriginOddJobVariant.YARD_SADDLE, OriginOddJobAction.TACK, OriginOddJobAction.SADDLE))) {
+    "smith rotates every activity before repeating it and each craft keeps its own non-repeating variant bag" {
+        repeat(20) { seed ->
+            val board = OriginOddJobDispatch(OriginOddJobKind.FORGE, Random(seed))
+            val selected = List(36) {
+                val shown = board.offers(OriginWorkShiftPhase.OPENING)
+                board.offers(OriginWorkShiftPhase.CLOSING) shouldBe shown
+                board.accept(shown.first().id)!!
+            }
+            selected.first().variant shouldBe OriginOddJobVariant.FORGE_NEW
+            selected.chunked(3).forEach { batch -> batch.map { it.kind }.toSet() shouldBe
+                setOf(OriginOddJobKind.FORGE, OriginOddJobKind.FORGE_HAUL, OriginOddJobKind.FORGE_ENGRAVE) }
+            selected.zipWithNext().none { (a, b) -> a.kind == b.kind } shouldBe true
+            selected.groupBy { it.kind }.forEach { (kind, orders) ->
+                val variants = OriginOddJobVariant.entries.filter { it.kind == kind }.toSet()
+                orders.chunked(variants.size).filter { it.size == variants.size }.forEach { bag ->
+                    bag.map { it.variant }.toSet() shouldBe variants
+                }
+                orders.zipWithNext().none { (a, b) -> a.variant == b.variant } shouldBe true
+            }
+        }
+        val auction = OriginOddJobDispatch(OriginOddJobKind.AUCTION, Random(4)).offers(OriginWorkShiftPhase.RUSH)
+        auction.size shouldBe 2
+        auction.map { it.variant }.distinct().size shouldBe 2
+        auction.map { it.urgent } shouldBe listOf(false, true)
+    }
+    "water and feed wait for the animal and saddling requires leading grooming and handoff in order" {
+        val chains = mapOf(
+            OriginOddJobVariant.YARD_WATER to listOf(OriginOddJobAction.WATER, OriginOddJobAction.WATER,
+                OriginOddJobAction.WATER, OriginOddJobAction.CARE_DONE),
+            OriginOddJobVariant.YARD_RATIONS to listOf(OriginOddJobAction.HAY, OriginOddJobAction.FEED, OriginOddJobAction.CARE_DONE),
+            OriginOddJobVariant.YARD_SADDLE to listOf(OriginOddJobAction.TACK, OriginOddJobAction.LEAD, OriginOddJobAction.ARRIVE,
+                OriginOddJobAction.BRUSH, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM,
+                OriginOddJobAction.TACK, OriginOddJobAction.SADDLE, OriginOddJobAction.ARRIVE,
+                OriginOddJobAction.HANDOFF, OriginOddJobAction.CARE_DONE),
+        )
+        for ((variant, actions) in chains) {
             val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
-            val target = OriginYardWork(422, "Буран")
-            val job = jobs.begin(id, offer(variant), 0, yardTarget = target)!!
-            jobs.choose(id, 0, 1).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-            jobs.act(id, pickup, 2)
-            jobs.current(id)!!.yard shouldBe target
-            jobs.act(id, delivery, 60_000)
+            val job = jobs.begin(id, offer(variant), 0, yardTarget = OriginYardWork(422, "Буран"))!!
+            actions.forEachIndexed { index, action ->
+                jobs.act(id, OriginOddJobAction.RETURN, index * 1_000L).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+                (jobs.act(id, action, index * 1_000L + 1) is OriginOddJobStep.Changed) shouldBe true
+            }
             jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
+            jobs.current(id)!!.yard!!.animalId shouldBe 422
             jobs.current(id)!!.quality shouldBe 100
-            jobs.act(id, delivery, 60_001).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
             jobs.act(id, OriginOddJobAction.RETURN, 60_002)
             jobs.finish(id, job.id)!!.stage shouldBe OriginOddJobStage.PAYOUT
             jobs.finish(id, job.id) shouldBe null
@@ -76,6 +106,7 @@ class OriginOddJobsProgressTest : StringSpec({
             OriginOddJobVariant.FORGE_HOOK to 3, OriginOddJobVariant.FORGE_HINGE to 3, OriginOddJobVariant.FORGE_BRACKET to 3)) {
             val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID(); var now = 0L
             jobs.begin(id, offer(variant), now)
+            jobs.current(id)!!.stage shouldBe OriginOddJobStage.FORGE_BLANK
             jobs.current(id)!!.forge!!.remainingStrikes shouldBe strikes
             jobs.choose(id, 0, ++now).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
             jobs.act(id, OriginOddJobAction.HAMMER, ++now).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
@@ -104,7 +135,7 @@ class OriginOddJobsProgressTest : StringSpec({
             jobs.current(id)!!.stage shouldBe OriginOddJobStage.PAYOUT
         }
     }
-    "hauling needs three delivered loads and every forge employer shares the existing reward kind" {
+    "hauling loads then pushes then unloads and returns its empty cart before one forge reward" {
         val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
         jobs.begin(id, offer(OriginOddJobVariant.HAUL_COPPER), 0)
         jobs.current(id)!!.haul!!.cargo shouldBe OriginForgeCargo.COPPER
@@ -112,9 +143,22 @@ class OriginOddJobsProgressTest : StringSpec({
         repeat(3) { index ->
             jobs.act(id, OriginOddJobAction.PICKUP, index * 10_000L + 2)
             jobs.act(id, OriginOddJobAction.PICKUP, index * 10_000L + 3).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-            jobs.act(id, OriginOddJobAction.DELIVER, index * 10_000L + 4)
+            jobs.act(id, OriginOddJobAction.DELIVER, index * 10_000L + 4).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+            jobs.act(id, OriginOddJobAction.LOAD, index * 10_000L + 5)
+            jobs.current(id)!!.haul!!.loaded shouldBe index + 1
+        }
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.HAUL_PUSH
+        jobs.act(id, OriginOddJobAction.PICKUP, 30_000).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.CART_ARRIVE, 30_001)
+        repeat(3) { index ->
+            jobs.act(id, OriginOddJobAction.DELIVER, 40_000L + index * 10_000).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+            jobs.act(id, OriginOddJobAction.PICKUP, 40_001L + index * 10_000)
+            jobs.act(id, OriginOddJobAction.DELIVER, 40_002L + index * 10_000)
             jobs.current(id)!!.haul!!.delivered shouldBe index + 1
         }
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.HAUL_RETURN_CART
+        jobs.act(id, OriginOddJobAction.RETURN, 70_000).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.CART_ARRIVE, 70_001)
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
         listOf(OriginOddJobKind.FORGE, OriginOddJobKind.FORGE_HAUL, OriginOddJobKind.FORGE_ENGRAVE)
             .map { it.rewardKind }.toSet() shouldBe setOf(OriginSideJobKind.FORGE)

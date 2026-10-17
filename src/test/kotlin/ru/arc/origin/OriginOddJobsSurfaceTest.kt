@@ -126,7 +126,7 @@ class OriginOddJobsSurfaceTest : StringSpec({
                 val blocks = mutableMapOf(
                     Triple(55, 71, -125) to Material.HAY_BLOCK,
                     Triple(55, 70, -125) to Material.HAY_BLOCK,
-                    Triple(63, 69, -122) to Material.PACKED_MUD,
+                    Triple(48, 69, -135) to Material.PACKED_MUD,
                     Triple(57, 70, -122) to Material.WATER_CAULDRON,
                     Triple(55, 70, -135) to Material.BARREL,
                     Triple(55, 70, -134) to Material.BARREL,
@@ -154,7 +154,7 @@ class OriginOddJobsSurfaceTest : StringSpec({
                     OriginOddJobStationId.BLANK, OriginOddJobStationId.FIRE, OriginOddJobStationId.ANVIL, OriginOddJobStationId.QUENCH)) shouldBe true
                 stations.getValue(OriginOddJobStationId.HAY).point.y shouldBe 72.02
                 stations.getValue(OriginOddJobStationId.WATER).point shouldBe Location(world, 57.5, 70.9, -121.5)
-                stations.getValue(OriginOddJobStationId.FEED).point shouldBe Location(world, 63.5, 70.02, -121.5)
+                stations.getValue(OriginOddJobStationId.FEED).point shouldBe Location(world, 48.5, 70.02, -134.5)
                 stations.getValue(OriginOddJobStationId.WELL).point shouldBe Location(world, 55.5, 71.02, -134.5)
                 stations.getValue(OriginOddJobStationId.BRUSH).point shouldBe Location(world, 55.5, 71.02, -133.5)
                 stations.getValue(OriginOddJobStationId.SADDLE_RACK).point shouldBe Location(world, 65.5, 71.02, -133.5)

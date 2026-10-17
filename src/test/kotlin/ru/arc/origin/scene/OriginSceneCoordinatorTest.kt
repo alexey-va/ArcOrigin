@@ -5,6 +5,36 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 
 class OriginSceneCoordinatorTest : FreeSpec({
+    "worksite revocation restores native resources before releasing the outgoing actor generation" {
+        val coordinator = OriginSceneCoordinator()
+        val outgoing = coordinator.tryAcquire("mount-yard", "player-work", setOf(371), 0L)!!
+        var workingSaddle = true
+        var cleaned = 0
+        coordinator.onWorksiteRevoked(outgoing) {
+            coordinator.owns(outgoing) shouldBe true
+            coordinator.tryAcquire("mount-yard", "ambient", setOf(371), 1L) shouldBe null
+            workingSaddle = false
+            cleaned++
+            coordinator.release(outgoing, 1L, 0L)
+        } shouldBe true
+        coordinator.revokeWorksites() shouldBe emptyList()
+        coordinator.clear()
+        val replacement = coordinator.tryAcquire("mount-yard", "ambient", setOf(371), 2L)!!
+        workingSaddle shouldBe false
+        coordinator.owns(replacement) shouldBe true
+        coordinator.revokeWorksites() shouldBe emptyList()
+        cleaned shouldBe 1
+        coordinator.onWorksiteRevoked(outgoing) { error("stale callback") } shouldBe false
+    }
+
+    "ordinary release removes its worksite revocation callback" {
+        val coordinator = OriginSceneCoordinator()
+        val lease = coordinator.tryAcquire("mount-yard", "player-work", setOf(371), 0L)!!
+        coordinator.onWorksiteRevoked(lease) { error("released callback") } shouldBe true
+        coordinator.release(lease, 1L, 0L)
+        coordinator.revokeWorksites() shouldBe emptyList()
+    }
+
     "player work blocks ambient stations and reload invalidates its token" {
         val coordinator = OriginSceneCoordinator()
         val work = coordinator.tryAcquire("forge", "player-work", setOf(349, 362), 0L, ignoreDue = true)!!

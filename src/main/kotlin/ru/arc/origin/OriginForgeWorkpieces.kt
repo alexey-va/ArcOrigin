@@ -60,7 +60,8 @@ internal fun originForgeCargoPieces(cargo: OriginForgeCargo): List<OriginWorksho
         forgePiece(material, -0.04, 0.34, 0.0, 0.22f, 0.12f, 0.20f),
         forgePiece(Material.DARK_OAK_PLANKS, -0.31, 0.09, 0.0, 0.06f, 0.13f, 0.20f),
         forgePiece(Material.DARK_OAK_PLANKS, 0.31, 0.09, 0.0, 0.06f, 0.13f, 0.20f),
-    )
+    ).map { piece -> piece.copy(center = OriginWorkshopPoint(piece.center.x * 0.7, piece.center.y * 0.7, piece.center.z * 0.7),
+        size = OriginWorkshopGamePartSize(piece.size.x * 0.7f, piece.size.y * 0.7f, piece.size.z * 0.7f)) }
 }
 
 private val FORGE_LETTERS = mapOf(

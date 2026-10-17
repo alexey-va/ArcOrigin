@@ -129,33 +129,42 @@ cleanup, late dialog replies, and durable payout failures:
 Packet and model checks establish source behavior and geometry. They do not
 establish native-client interaction, attachment motion or visual acceptance.
 
-## Mount-yard, forge and auction-house work
+## Mount-yard and forge work
 
-`OriginOddJobsModule` owns the three repeatable jobs configured in
-`modules/origin-odd-jobs.yml`. Sneak and right-click Senya (440), Edgar (349)
-or auctioneer Victor (365) to start. Their ordinary clicks retain daily mount
-care, forge advice and the auction respectively.
+`OriginOddJobsModule` owns the shifts configured in `modules/origin-odd-jobs.yml`.
+Right-click Senya (440), Edgar (349), Savva (351) or Luka (354) to start.
+The employer assigns the next order automatically. Victor (365) retains the
+auction entry; his retired paid-work route is not re-enabled.
 
-The mount-yard route moves hay to the feeding area and refreshes the trough.
-The forge route heats a blank, requires timed strikes to form a horseshoe,
-then quenches and returns it. The auction route matches a service request to
-an item and suitable packaging, takes the package to Greta (382), then returns
-the paperwork to Victor. Auction service props never enter player inventories
-or change auction listings. The existing mount-care boost and Bran's training
-challenge remain separate activities with their existing rewards.
+Edgar rotates forging, cart transport and engraving without consecutive craft
+families. Every smithing order starts with a separate request-bound stock item,
+including repairs and matching horseshoes. Finished work returns to the
+original employer. The cart route loads three baskets, requires player movement
+to push the cart, unloads into the stock chest, then returns the empty cart.
+Engraving progressively cuts the assigned word into a plate. Savva and Luka
+also retain their specialist shifts.
+
+Stable work takes an empty bucket from supplies, fills it at the actual water
+cauldron and lets the selected animal drink. Hay remains inside Buran's stall
+while he approaches and eats. Longer preparation orders lead Wind out to a
+care pad, brush him, fit the saddle and escort him to Senya for handoff.
+The existing mount-care boost and Bran's training challenge remain separate
+activities with their existing rewards.
 
 Scene anchors and actual workstation surfaces come from `origin-scenes.yml`.
-Forge work reserves its actor through the ambient scene coordinator, so the
-background scene cannot reclaim the work surface. Personal packet props and
-target guidance are owned by the player and request token. Cancellation,
-expiry, departure and reload remove them and invalidate late callbacks.
+Work reserves the required actors through the ambient scene coordinator, so
+background scenes cannot reclaim an active work surface or animal. Packet
+props, temporary supplies and guidance are fenced by player and request token.
+Stable movement uses the existing collision-checked NPC route controller;
+cleanup restores native animal equipment and holds the lease during the bounded
+return route. Cancellation, expiry, departure and reload invalidate late callbacks.
 
-All four job kinds share the cashier described above. Existing receipts and
+All side jobs share the cashier described above. Existing receipts and
 pending claims continue to count; adding a worksite does not reset the quota.
 The default pooled cap is 2,000 coins per UUID per UTC day, reset at 03:00 Moscow
 time; it is not a rolling 24-hour or network-wide limit. While working, the HUD
 and employer dialog show earned money; only the final receipt says it was received.
 
-Focused verification also includes `OriginOddJobs*Test` and
-`OriginOddJobVisualsTest`. Unit tests and offline geometry previews do not
+Focused verification includes `OriginOddJob*Test`, `OriginWorkShiftTest` and
+`OriginSideJob*Test`. Unit tests and offline geometry previews do not
 establish native-client gameplay, rendered motion or an observed live payout.

@@ -19,6 +19,7 @@ internal class OriginSceneCoordinator {
     private val actorOwners = mutableMapOf<Int, UUID>()
     private val leases = mutableMapOf<UUID, OriginSceneLease>()
     private val dueAt = mutableMapOf<Pair<String, String>, Long>()
+    private val worksiteRevocations = mutableMapOf<UUID, Pair<OriginSceneLease, () -> Unit>>()
 
     fun tryAcquire(
         sceneId: String,
@@ -38,6 +39,7 @@ internal class OriginSceneCoordinator {
 
     fun release(lease: OriginSceneLease, nowMillis: Long, cooldownMillis: Long) {
         if (leases.remove(lease.token) != lease) return
+        worksiteRevocations.remove(lease.token)
         lease.actorIds.forEach { actorId -> actorOwners.remove(actorId, lease.token) }
         dueAt[lease.sceneId to lease.cycleId] = nowMillis + cooldownMillis.coerceAtLeast(0L)
     }
@@ -53,6 +55,22 @@ internal class OriginSceneCoordinator {
 
     fun owns(lease: OriginSceneLease): Boolean = leases[lease.token] == lease &&
         lease.actorIds.all { actorOwners[it] == lease.token }
+
+    fun onWorksiteRevoked(lease: OriginSceneLease, cleanup: () -> Unit): Boolean {
+        if (!owns(lease)) return false
+        worksiteRevocations[lease.token] = lease to cleanup
+        return true
+    }
+
+    /** Native resources must be restored while the outgoing generation still owns its actors. */
+    fun revokeWorksites(): List<Exception> {
+        val failures = mutableListOf<Exception>()
+        worksiteRevocations.toMap().forEach { (token, registration) ->
+            worksiteRevocations.remove(token)
+            if (owns(registration.first)) try { registration.second() } catch (failure: Exception) { failures += failure }
+        }
+        return failures
+    }
 
     fun cooldownRemainingMillis(sceneId: String, cycleId: String, nowMillis: Long): Long =
         (dueAt.getOrDefault(sceneId to cycleId, 0L) - nowMillis).coerceAtLeast(0L)
@@ -72,6 +90,7 @@ internal class OriginSceneCoordinator {
     }
 
     fun clear() {
+        worksiteRevocations.clear()
         actorOwners.clear()
         leases.clear()
         dueAt.clear()

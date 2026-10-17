@@ -24,35 +24,58 @@ internal data class OriginOddJobOffer(val id: UUID, val variant: OriginOddJobVar
     val kind: OriginOddJobKind get() = variant.kind
 }
 
-/** Every bag covers all families. Unchosen offers do not reroll on reopening the employer dialog. */
+/** Edgar rotates all three crafts; specialists retain their own work. Each bag is stable until accepted. */
 internal class OriginOddJobDispatch(private val kind: OriginOddJobKind, private val random: Random = Random.Default) {
-    private var bag = emptyList<OriginOddJobVariant>()
+    private var families = emptyList<OriginOddJobKind>()
+    private val variants = mutableMapOf<OriginOddJobKind, List<OriginOddJobVariant>>()
+    private val lastVariant = mutableMapOf<OriginOddJobKind, OriginOddJobVariant>()
+    private var lastFamily: OriginOddJobKind? = null
     private var shown = emptyList<OriginOddJobOffer>()
     private var first = true
     fun offers(phase: OriginWorkShiftPhase): List<OriginOddJobOffer> {
         if (shown.isNotEmpty()) return shown
-        if (bag.isEmpty()) {
-            bag = OriginOddJobVariant.entries.filter { it.kind == kind }.shuffled(random)
-            if (first && kind == OriginOddJobKind.FORGE) bag = listOf(OriginOddJobVariant.FORGE_NEW) + bag.filterNot { it == OriginOddJobVariant.FORGE_NEW }
-            first = false
+        if (families.isEmpty()) {
+            families = (if (kind == OriginOddJobKind.FORGE)
+                listOf(kind, OriginOddJobKind.FORGE_HAUL, OriginOddJobKind.FORGE_ENGRAVE) else listOf(kind)).shuffled(random)
+            if (families.size > 1 && families.first() == lastFamily) families = families.drop(1) + families.first()
+            if (first && kind == OriginOddJobKind.FORGE) families = listOf(kind) + families.filterNot { it == kind }
         }
-        shown = List(2) { index -> OriginOddJobOffer(UUID.randomUUID(), bag[index % bag.size], random.nextInt(1, 10_000),
-            kind == OriginOddJobKind.AUCTION && phase == OriginWorkShiftPhase.RUSH && index == 1) }
+        fun bagFor(family: OriginOddJobKind): List<OriginOddJobVariant> {
+            var bag = variants[family].orEmpty()
+            if (bag.isEmpty()) {
+                bag = OriginOddJobVariant.entries.filter { it.kind == family }.shuffled(random)
+                if (bag.size > 1 && bag.first() == lastVariant[family]) bag = bag.drop(1) + bag.first()
+                if (first && family == OriginOddJobKind.FORGE)
+                    bag = listOf(OriginOddJobVariant.FORGE_NEW) + bag.filterNot { it == OriginOddJobVariant.FORGE_NEW }
+                variants[family] = bag
+            }
+            return bag
+        }
+        val candidates = if (kind == OriginOddJobKind.FORGE) families.take(2).map { bagFor(it).first() }
+            else bagFor(kind).take(2)
+        shown = candidates.mapIndexed { index, variant ->
+            OriginOddJobOffer(UUID.randomUUID(), variant, random.nextInt(1, 10_000),
+                kind == OriginOddJobKind.AUCTION && phase == OriginWorkShiftPhase.RUSH && index == 1)
+        }
         return shown
     }
     fun accept(id: UUID): OriginOddJobOffer? = shown.firstOrNull { it.id == id }?.also {
-        bag = bag.filterNot { family -> family == it.variant }; shown = emptyList()
+        families = families.filterNot { family -> family == it.kind }
+        variants[it.kind] = variants.getValue(it.kind).filterNot { variant -> variant == it.variant }
+        lastFamily = it.kind; lastVariant[it.kind] = it.variant; shown = emptyList(); first = false
     }
 }
 
 internal enum class OriginOddJobStage {
-    YARD_HAY, YARD_FEED, YARD_WELL, YARD_WATER, YARD_BRUSH, YARD_GROOM, YARD_TACK, YARD_SADDLE,
+    YARD_HAY, YARD_FEED, YARD_EATING, YARD_BUCKET, YARD_WELL, YARD_WATER, YARD_DRINKING,
+    YARD_BRUSH, YARD_GROOM, YARD_TACK, YARD_SADDLE, YARD_LEAD_RACK, YARD_LEAD, YARD_LEAD_OUT, YARD_DELIVER, YARD_HANDOFF, YARD_HANDED,
     FORGE_BLANK, FORGE_INSPECT, FORGE_HEAT, FORGE_HEATING, FORGE_PLACE, FORGE_HAMMER, FORGE_QUENCH,
-    HAUL_PICKUP, HAUL_DELIVER, ENGRAVE_BLANK, ENGRAVE_PLACE, ENGRAVE_CARVE, ENGRAVE_COLLECT,
+    HAUL_PICKUP, HAUL_LOAD, HAUL_PUSH, HAUL_UNLOAD, HAUL_DELIVER, HAUL_RETURN_CART,
+    ENGRAVE_BLANK, ENGRAVE_PLACE, ENGRAVE_CARVE, ENGRAVE_COLLECT,
     AUCTION_ITEM, AUCTION_INSPECT, AUCTION_VERIFY, AUCTION_DOCUMENT, AUCTION_PACK, AUCTION_LOAD, AUCTION_DELIVER, AUCTION_RECEIPT,
     RETURN, PAYOUT,
 }
-internal enum class OriginOddJobAction { HAY, FEED, WATER, BRUSH, GROOM, TACK, SADDLE, BLANK, HEAT, PLACE, HAMMER, QUENCH, PICKUP, DELIVER, ENGRAVE, COLLECT, HANDOFF, RETURN }
+internal enum class OriginOddJobAction { HAY, FEED, WATER, BRUSH, GROOM, TACK, SADDLE, LEAD, ARRIVE, CARE_DONE, BLANK, HEAT, PLACE, HAMMER, QUENCH, PICKUP, LOAD, CART_ARRIVE, DELIVER, ENGRAVE, COLLECT, HANDOFF, RETURN }
 internal enum class OriginAuctionPacking { PADDED_BOX, PAPER_WRAP, SCABBARD }
 internal enum class OriginAuctionParcel(val packing: OriginAuctionPacking, val weight: Int) {
     VASE(OriginAuctionPacking.PADDED_BOX, 1), BOOK(OriginAuctionPacking.PAPER_WRAP, 2), BLADE(OriginAuctionPacking.SCABBARD, 3),
@@ -64,7 +87,7 @@ internal enum class OriginForgeMetal(val title: String, val itemModel: String) {
 internal enum class OriginForgeCargo(val title: String, val itemModel: String) {
     IRON("Железная руда", "raw_iron"), COPPER("Медная руда", "raw_copper"), COAL("Уголь", "coal")
 }
-internal data class OriginForgeHaul(val cargo: OriginForgeCargo, val delivered: Int = 0, val loads: Int = 3)
+internal data class OriginForgeHaul(val cargo: OriginForgeCargo, val delivered: Int = 0, val loads: Int = 3, val loaded: Int = 0)
 internal data class OriginForgeEngraving(val word: String, val metal: OriginForgeMetal, val strokes: Int = 0) {
     val totalStrokes: Int get() = word.length * 2
 }
@@ -82,6 +105,7 @@ internal data class OriginOddJobSession(
     val offer: OriginOddJobOffer, val quality: Int = 100, val progress: Int = 0,
     val yard: OriginYardWork? = null, val forge: OriginForgeWork? = null, val auction: OriginAuctionWork? = null,
     val haul: OriginForgeHaul? = null, val engraving: OriginForgeEngraving? = null,
+    val employer: OriginOddJobKind = offer.kind,
 ) {
     val variant: OriginOddJobVariant get() = offer.variant
     val parcel: OriginAuctionParcel? get() = auction?.lot?.parcel
@@ -119,15 +143,29 @@ internal fun originOddJobProgress(job: OriginOddJobSession, now: Long): Float = 
     OriginOddJobStage.FORGE_PLACE -> 0.4f
     OriginOddJobStage.FORGE_HAMMER -> 0.45f + 0.35f * (job.progress.toFloat() / (job.progress + (job.forge?.remainingStrikes ?: 0)).coerceAtLeast(1))
     OriginOddJobStage.FORGE_QUENCH -> 0.85f
-    OriginOddJobStage.HAUL_PICKUP -> requireNotNull(job.haul).let { it.delivered.toFloat() / it.loads }
-    OriginOddJobStage.HAUL_DELIVER -> requireNotNull(job.haul).let { (it.delivered + 0.5f) / it.loads }
+    OriginOddJobStage.HAUL_PICKUP -> requireNotNull(job.haul).let { 0.25f * it.loaded / it.loads }
+    OriginOddJobStage.HAUL_LOAD -> requireNotNull(job.haul).let { 0.25f * (it.loaded + 0.5f) / it.loads }
+    OriginOddJobStage.HAUL_PUSH -> 0.3f
+    OriginOddJobStage.HAUL_UNLOAD -> requireNotNull(job.haul).let { 0.55f + 0.3f * it.delivered / it.loads }
+    OriginOddJobStage.HAUL_DELIVER -> requireNotNull(job.haul).let { 0.55f + 0.3f * (it.delivered + 0.5f) / it.loads }
+    OriginOddJobStage.HAUL_RETURN_CART -> 0.9f
     OriginOddJobStage.ENGRAVE_BLANK -> 0f
     OriginOddJobStage.ENGRAVE_PLACE -> 0.15f
     OriginOddJobStage.ENGRAVE_CARVE -> requireNotNull(job.engraving).let { 0.25f + 0.6f * it.strokes / it.totalStrokes }
     OriginOddJobStage.ENGRAVE_COLLECT -> 0.95f
-    OriginOddJobStage.YARD_WELL, OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_TACK -> 0f
-    OriginOddJobStage.YARD_FEED, OriginOddJobStage.YARD_WATER, OriginOddJobStage.YARD_SADDLE -> 0.5f
-    OriginOddJobStage.YARD_GROOM -> 0.4f + 0.5f * requireNotNull(job.yard).brushStrokes / ODD_JOB_GROOM_STROKES
+    OriginOddJobStage.YARD_BUCKET, OriginOddJobStage.YARD_LEAD_RACK -> 0f
+    OriginOddJobStage.YARD_LEAD -> 0.1f
+    OriginOddJobStage.YARD_LEAD_OUT -> 0.2f
+    OriginOddJobStage.YARD_WELL -> 0.25f
+    OriginOddJobStage.YARD_BRUSH -> if (job.variant == OriginOddJobVariant.YARD_SADDLE) 0.35f else 0f
+    OriginOddJobStage.YARD_TACK -> 0.65f
+    OriginOddJobStage.YARD_EATING, OriginOddJobStage.YARD_DRINKING -> 0.8f
+    OriginOddJobStage.YARD_DELIVER -> 0.85f
+    OriginOddJobStage.YARD_HANDOFF, OriginOddJobStage.YARD_HANDED -> 0.95f
+    OriginOddJobStage.YARD_FEED, OriginOddJobStage.YARD_WATER -> 0.5f
+    OriginOddJobStage.YARD_SADDLE -> 0.75f
+    OriginOddJobStage.YARD_GROOM -> 0.4f + (if (job.variant == OriginOddJobVariant.YARD_SADDLE) 0.2f else 0.5f) *
+        requireNotNull(job.yard).brushStrokes / ODD_JOB_GROOM_STROKES
     OriginOddJobStage.AUCTION_VERIFY, OriginOddJobStage.AUCTION_DOCUMENT -> 0.3f
     OriginOddJobStage.AUCTION_PACK -> 0.45f
     OriginOddJobStage.AUCTION_LOAD -> 0.6f
@@ -152,7 +190,7 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
     fun current(playerId: UUID): OriginOddJobSession? = jobs[playerId]
     fun entries(): List<Pair<UUID, OriginOddJobSession>> = jobs.toList()
     fun begin(playerId: UUID, offer: OriginOddJobOffer, now: Long, hardStopAt: Long = now + lifetimeMillis,
-        yardTarget: OriginYardWork? = null): OriginOddJobSession? {
+        yardTarget: OriginYardWork? = null, employer: OriginOddJobKind = offer.kind): OriginOddJobSession? {
         if (playerId in jobs) return null
         val n = offer.seed
         val target = listOf(2 + n % 2, 2 + n / 2 % 2, 2 + n / 3 % 2)
@@ -168,13 +206,13 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
             listOf(OriginAuctionLot(OriginAuctionParcel.VASE, n + 100, false), OriginAuctionLot(OriginAuctionParcel.BLADE, n + 200, n % 2 == 0))
         else listOf(OriginAuctionLot(parcel, n + 100, n % 2 == 0))
         val stage = when (offer.variant) {
-            OriginOddJobVariant.YARD_WATER -> OriginOddJobStage.YARD_WELL
+            OriginOddJobVariant.YARD_WATER -> OriginOddJobStage.YARD_BUCKET
             OriginOddJobVariant.YARD_RATIONS -> OriginOddJobStage.YARD_HAY
             OriginOddJobVariant.YARD_GROOM -> OriginOddJobStage.YARD_BRUSH
-            OriginOddJobVariant.YARD_SADDLE -> OriginOddJobStage.YARD_TACK
+            OriginOddJobVariant.YARD_SADDLE -> OriginOddJobStage.YARD_LEAD_RACK
             OriginOddJobVariant.FORGE_NEW, OriginOddJobVariant.FORGE_HOOK, OriginOddJobVariant.FORGE_HINGE,
-            OriginOddJobVariant.FORGE_BRACKET -> OriginOddJobStage.FORGE_BLANK
-            OriginOddJobVariant.FORGE_REPAIR, OriginOddJobVariant.FORGE_PAIR -> OriginOddJobStage.FORGE_INSPECT
+            OriginOddJobVariant.FORGE_BRACKET, OriginOddJobVariant.FORGE_REPAIR,
+            OriginOddJobVariant.FORGE_PAIR -> OriginOddJobStage.FORGE_BLANK
             OriginOddJobVariant.HAUL_IRON, OriginOddJobVariant.HAUL_COPPER, OriginOddJobVariant.HAUL_COAL -> OriginOddJobStage.HAUL_PICKUP
             OriginOddJobVariant.ENGRAVE_RUS, OriginOddJobVariant.ENGRAVE_HOME, OriginOddJobVariant.ENGRAVE_CAT -> OriginOddJobStage.ENGRAVE_BLANK
             else -> OriginOddJobStage.AUCTION_ITEM
@@ -198,6 +236,7 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
                 OriginOddJobVariant.ENGRAVE_CAT -> "КОТ"
                 else -> "РУС"
             }, if (n % 2 == 0) OriginForgeMetal.COPPER else OriginForgeMetal.IRON) else null,
+            employer = employer,
         ).also { jobs[playerId] = it }
     }
 
@@ -207,17 +246,26 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
         val yard = job.yard; val forge = job.forge
         when (job.stage) {
             OriginOddJobStage.YARD_HAY -> if (action == OriginOddJobAction.HAY) next(OriginOddJobStage.YARD_FEED) else wrong()
-            OriginOddJobStage.YARD_FEED -> if (action == OriginOddJobAction.FEED) next(OriginOddJobStage.RETURN) else wrong()
+            OriginOddJobStage.YARD_FEED -> if (action == OriginOddJobAction.FEED) next(OriginOddJobStage.YARD_EATING) else wrong()
+            OriginOddJobStage.YARD_BUCKET -> if (action == OriginOddJobAction.WATER) next(OriginOddJobStage.YARD_WELL) else wrong()
+            OriginOddJobStage.YARD_EATING, OriginOddJobStage.YARD_DRINKING, OriginOddJobStage.YARD_HANDED ->
+                if (action == OriginOddJobAction.CARE_DONE) next(OriginOddJobStage.RETURN) else wrong()
             OriginOddJobStage.YARD_WELL -> if (action == OriginOddJobAction.WATER) next(OriginOddJobStage.YARD_WATER) else wrong()
-            OriginOddJobStage.YARD_WATER -> if (action == OriginOddJobAction.WATER) next(OriginOddJobStage.RETURN) else wrong()
+            OriginOddJobStage.YARD_WATER -> if (action == OriginOddJobAction.WATER) next(OriginOddJobStage.YARD_DRINKING) else wrong()
+            OriginOddJobStage.YARD_LEAD_RACK -> if (action == OriginOddJobAction.TACK) next(OriginOddJobStage.YARD_LEAD) else wrong()
+            OriginOddJobStage.YARD_LEAD -> if (action == OriginOddJobAction.LEAD) next(OriginOddJobStage.YARD_LEAD_OUT) else wrong()
+            OriginOddJobStage.YARD_LEAD_OUT -> if (action == OriginOddJobAction.ARRIVE) next(OriginOddJobStage.YARD_BRUSH) else wrong()
+            OriginOddJobStage.YARD_DELIVER -> if (action == OriginOddJobAction.ARRIVE) next(OriginOddJobStage.YARD_HANDOFF) else wrong()
+            OriginOddJobStage.YARD_HANDOFF -> if (action == OriginOddJobAction.HANDOFF) next(OriginOddJobStage.YARD_HANDED) else wrong()
             OriginOddJobStage.YARD_BRUSH -> if (action == OriginOddJobAction.BRUSH) next(OriginOddJobStage.YARD_GROOM) else wrong()
             OriginOddJobStage.YARD_GROOM -> if (action != OriginOddJobAction.GROOM) wrong() else {
                 val work = requireNotNull(yard).copy(brushStrokes = yard.brushStrokes + 1)
-                if (work.brushStrokes == ODD_JOB_GROOM_STROKES) next(OriginOddJobStage.RETURN, job.copy(yard = work))
+                if (work.brushStrokes == ODD_JOB_GROOM_STROKES) next(
+                    if (job.variant == OriginOddJobVariant.YARD_SADDLE) OriginOddJobStage.YARD_TACK else OriginOddJobStage.RETURN, job.copy(yard = work))
                 else changed(job.copy(yard = work))
             }
             OriginOddJobStage.YARD_TACK -> if (action == OriginOddJobAction.TACK) next(OriginOddJobStage.YARD_SADDLE) else wrong()
-            OriginOddJobStage.YARD_SADDLE -> if (action == OriginOddJobAction.SADDLE) next(OriginOddJobStage.RETURN) else wrong()
+            OriginOddJobStage.YARD_SADDLE -> if (action == OriginOddJobAction.SADDLE) next(OriginOddJobStage.YARD_DELIVER) else wrong()
             OriginOddJobStage.FORGE_BLANK, OriginOddJobStage.FORGE_INSPECT ->
                 if (action == OriginOddJobAction.BLANK) next(OriginOddJobStage.FORGE_HEAT) else wrong()
             OriginOddJobStage.FORGE_HEAT -> if (action == OriginOddJobAction.HEAT) next(OriginOddJobStage.FORGE_HEATING) else wrong()
@@ -240,11 +288,18 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
                 }
             }
             OriginOddJobStage.FORGE_QUENCH -> if (action == OriginOddJobAction.QUENCH) next(OriginOddJobStage.RETURN) else wrong()
-            OriginOddJobStage.HAUL_PICKUP -> if (action == OriginOddJobAction.PICKUP) next(OriginOddJobStage.HAUL_DELIVER) else wrong()
+            OriginOddJobStage.HAUL_PICKUP -> if (action == OriginOddJobAction.PICKUP) next(OriginOddJobStage.HAUL_LOAD) else wrong()
+            OriginOddJobStage.HAUL_LOAD -> if (action != OriginOddJobAction.LOAD) wrong() else {
+                val work = requireNotNull(job.haul).let { it.copy(loaded = it.loaded + 1) }
+                next(if (work.loaded == work.loads) OriginOddJobStage.HAUL_PUSH else OriginOddJobStage.HAUL_PICKUP, job.copy(haul = work))
+            }
+            OriginOddJobStage.HAUL_PUSH -> if (action == OriginOddJobAction.CART_ARRIVE) next(OriginOddJobStage.HAUL_UNLOAD) else wrong()
+            OriginOddJobStage.HAUL_UNLOAD -> if (action == OriginOddJobAction.PICKUP) next(OriginOddJobStage.HAUL_DELIVER) else wrong()
             OriginOddJobStage.HAUL_DELIVER -> if (action != OriginOddJobAction.DELIVER) wrong() else {
                 val work = requireNotNull(job.haul).let { it.copy(delivered = it.delivered + 1) }
-                next(if (work.delivered == work.loads) OriginOddJobStage.RETURN else OriginOddJobStage.HAUL_PICKUP, job.copy(haul = work))
+                next(if (work.delivered == work.loads) OriginOddJobStage.HAUL_RETURN_CART else OriginOddJobStage.HAUL_UNLOAD, job.copy(haul = work))
             }
+            OriginOddJobStage.HAUL_RETURN_CART -> if (action == OriginOddJobAction.CART_ARRIVE) next(OriginOddJobStage.RETURN) else wrong()
             OriginOddJobStage.ENGRAVE_BLANK -> if (action == OriginOddJobAction.BLANK) next(OriginOddJobStage.ENGRAVE_PLACE) else wrong()
             OriginOddJobStage.ENGRAVE_PLACE -> if (action == OriginOddJobAction.PLACE) next(OriginOddJobStage.ENGRAVE_CARVE) else wrong()
             OriginOddJobStage.ENGRAVE_CARVE -> when {

@@ -2,7 +2,9 @@ package ru.arc.npc
 
 import net.citizensnpcs.api.CitizensAPI
 import net.citizensnpcs.api.ai.AbstractPathStrategy
+import net.citizensnpcs.api.ai.Navigator
 import net.citizensnpcs.api.ai.NavigatorParameters
+import net.citizensnpcs.api.ai.PathStrategy
 import net.citizensnpcs.api.ai.PathfinderType
 import net.citizensnpcs.api.ai.TargetType
 import net.citizensnpcs.api.ai.event.CancelReason
@@ -512,6 +514,7 @@ internal fun findNpcGridPathToNearestCandidate(
 
 private data class ActiveNpcRoute(
     val token: UUID,
+    val strategy: PathStrategy,
     val profile: NpcRouteProfile,
     val destination: Location,
     val via: List<Location>,
@@ -527,6 +530,14 @@ private data class ActiveNpcRoute(
     var previousZ: Double,
     val recoveries: Int = 0,
 )
+
+/** A stale worksite owner may cancel its own installed strategy, never a replacement. */
+internal fun stopOwnedNpcRoute(navigator: Navigator, strategy: PathStrategy) {
+    if (navigator.pathStrategy === strategy) navigator.cancelNavigation()
+}
+
+internal fun canResumeOwnedNpcRoute(navigator: Navigator, strategy: PathStrategy): Boolean =
+    navigator.pathStrategy.let { it == null || it === strategy }
 
 /** Range to the final endpoint must cover the entire detour, not just its first cell. */
 internal fun npcRouteRequiredRange(start: Vector, points: List<Vector>, margin: Double): Float {
@@ -670,6 +681,12 @@ internal class CitizensNpcRouteController(
     fun stop(npc: NPC) {
         active.remove(npc.id)
         if (npc.navigator.isNavigating) npc.navigator.cancelNavigation()
+    }
+
+    fun abandon(npc: NPC) {
+        val route = active.remove(npc.id)
+        outcomes.reset(npc.id)
+        if (route != null) stopOwnedNpcRoute(npc.navigator, route.strategy)
     }
 
     private fun navigate(
@@ -841,6 +858,7 @@ internal class CitizensNpcRouteController(
         }
         val route = ActiveNpcRoute(
             UUID.randomUUID(),
+            npc.navigator.pathStrategy ?: return false,
             profile,
             destination.clone(),
             via.map(Location::clone),
@@ -889,6 +907,7 @@ internal class CitizensNpcRouteController(
     private fun activate(npcId: Int, token: UUID) {
         val route = active[npcId]?.takeIf { it.token == token } ?: return
         val npc = runCatching { CitizensAPI.getNPCRegistry().getById(npcId) }.getOrNull()?.takeIf { it.isSpawned } ?: return
+        if (npc.navigator.isNavigating && npc.navigator.pathStrategy !== route.strategy) { abandon(npc); return }
         if (!npc.navigator.isNavigating || npc.entity.world != route.destination.world) return
         // Citizens gates NPC movement on activatedTick; refresh it only for this live route heartbeat.
         NMS.activate(npc.entity)
@@ -901,6 +920,7 @@ internal class CitizensNpcRouteController(
             active.remove(npcId, route)
             return
         }
+        if (npc.navigator.isNavigating && npc.navigator.pathStrategy !== route.strategy) { abandon(npc); return }
         val actual = npc.entity.location
         if (actual.world != route.destination.world) {
             active.remove(npcId, route)
@@ -943,6 +963,7 @@ internal class CitizensNpcRouteController(
             if (route.recoveries < 2) {
                 tasks.runLater(1L) {
                     if (active[npcId] === route) {
+                        if (!canResumeOwnedNpcRoute(npc.navigator, route.strategy)) { abandon(npc); return@runLater }
                         navigate(npc, route.destination, route.profile, route.via, route.extraBlocked, route.faceOnArrival, route.arrivalLookAt, route.recoveries + 1)
                     }
                 }
@@ -977,6 +998,7 @@ internal class CitizensNpcRouteController(
             event("REPLANNING", route.profile, npc, route.destination, route.cells.size, "terrain-changed", actual)
             tasks.runLater(1L) {
                 if (active[npcId] === route) {
+                    if (!canResumeOwnedNpcRoute(npc.navigator, route.strategy)) { abandon(npc); return@runLater }
                     navigate(npc, route.destination, route.profile, route.via, route.extraBlocked, route.faceOnArrival, route.arrivalLookAt, route.recoveries)
                 }
             }
@@ -1028,7 +1050,7 @@ internal class CitizensNpcRouteController(
     override fun close() {
         tasks.close()
         active.keys.toList().forEach { id ->
-            runCatching { CitizensAPI.getNPCRegistry().getById(id) }.getOrNull()?.takeIf { it.isSpawned }?.let(::stop)
+            runCatching { CitizensAPI.getNPCRegistry().getById(id) }.getOrNull()?.takeIf { it.isSpawned }?.let(::abandon)
         }
         active.clear()
         outcomes.clear()

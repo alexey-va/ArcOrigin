@@ -108,6 +108,9 @@ object OriginAmbientScenesModule : PluginModule, Listener {
 
     internal fun ownsWorksite(lease: OriginSceneLease): Boolean = service?.ownsWorksite(lease) == true
 
+    internal fun onWorksiteRevoked(lease: OriginSceneLease, cleanup: () -> Unit): Boolean =
+        service?.onWorksiteRevoked(lease, cleanup) == true
+
     internal fun releaseWorksite(lease: OriginSceneLease) {
         service?.releaseWorksite(lease)
     }
@@ -206,12 +209,13 @@ private class OriginSceneService(
     private val lastResults = mutableMapOf<OriginSceneCycleKey, String>()
     private val cropProtection = OriginSceneCropProtection.from(plan)
     private var closed = false
+    private var closing = false
 
     fun protectsCrop(world: String, actorId: Int, material: Material): Boolean =
         cropProtection.protects(world, actorId, material)
 
     fun acquireWorksite(sceneId: String, actorIds: Set<Int>): OriginSceneLease? {
-        if (closed || actorIds.isEmpty()) return null
+        if (closed || closing || actorIds.isEmpty()) return null
         val scene = plan.scenes.firstOrNull { it.id == sceneId } ?: return null
         if (!scene.actors.keys.containsAll(actorIds)) return null
         val overlapping = active.values.filter { running -> running.cycle.actorIds.any(actorIds::contains) }
@@ -222,6 +226,9 @@ private class OriginSceneService(
     }
 
     fun ownsWorksite(lease: OriginSceneLease): Boolean = !closed && coordinator.owns(lease)
+
+    fun onWorksiteRevoked(lease: OriginSceneLease, cleanup: () -> Unit): Boolean =
+        !closed && !closing && coordinator.onWorksiteRevoked(lease, cleanup)
 
     fun releaseWorksite(lease: OriginSceneLease) {
         coordinator.release(lease, System.currentTimeMillis(), 0L)
@@ -1233,6 +1240,9 @@ private class OriginSceneService(
     }
 
     override fun close() {
+        if (closed || closing) return
+        closing = true
+        coordinator.revokeWorksites().forEach { warn("ORIGIN_SCENE phase=FAILED stage=worksite-revocation", it) }
         closed = true
         tasks.close()
         active.values.toList().forEach { it.execution.close() }

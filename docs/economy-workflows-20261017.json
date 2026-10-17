@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "title": "ArcOrigin forge and stable workflow diversity 2026-10-17",
+  "assumptions": [
+    "Unchanged live policy read on spawn 2026-10-17: 20 vault/completed order, shared cap 100 orders per UUID per UTC date, 600-second shift; full accrued shift paid exactly once.",
+    "Low/base/high: 5/20/50 participants, 0.25/1/2 active hours per day. 40/40/50 completed orders per hour are capacity assumptions, not observed timings; before/after amounts hold the same completed-order counts for a comparable-work comparison.",
+    "Before/after completed orders are 10/40/100 per player-day, capped across all side jobs. New multi-step chains have no per-step reward, item redemption, coins bonus or token reward. Actual completion cadence remains unmeasured; longer chains may lower realized hourly earnings.",
+    "Personal maximum in both revisions: 100 x 20 = 2000 vault/day. No global weekly budget exists for this flow; multi-account exposure remains linear in eligible UUID count. No new stacking or faster repeat path is introduced.",
+    "Tools/materials are session-bound temporary visuals and inventory markers, not exportable ordinary items. Cancellation, teleport/logout/reload must clean temporary supplies and release actor leases without accepting an unfinished order.",
+    "Existing EconomyShopGUI SELL remains an alternative flow until independently disabled. Planned SELL-to-contract transition and contract budgets are unchanged. These materials have no SELL or contract redemption path.",
+    "Read-only 168h ledger 2026-10-17: 12785 records/69170 operations/28 players, crossing-window records excluded. Vault minted 75426869.86869642, burned 4675559.949999997; tokens minted 54, burned 21. These aggregate totals are not representative side-job income; top-5 source view does not isolate Origin.",
+    "No prices, currency rates, speed buffs, XP or permanent entitlement changed. Disposable income and accumulation targets are intentionally not estimated from an incomplete top-source ledger."
+  ],
+  "participants": [
+    5,
+    20,
+    50
+  ],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "flows": [
+        {
+          "id": "origin_side_jobs_comparable_orders",
+          "kind": "mint",
+          "source": "ArcOrigin OriginSideJobRewardPolicy / OriginSideJobRewards; live plugins/ARC/modules/origin-side-job-rewards.yml",
+          "basis": "Same completed orders and shared cap; changed physical stages do not create extra rewards",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "20",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              10,
+              40,
+              100
+            ],
+            "player_daily_cap": {
+              "value": "2000",
+              "unit": "major"
+            }
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "20",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              10,
+              40,
+              100
+            ],
+            "player_daily_cap": {
+              "value": "2000",
+              "unit": "major"
+            }
+          }
+        }
+      ]
+    },
+    "tokens": {
+      "minor_per_unit": 100,
+      "flows": [
+        {
+          "id": "origin_side_jobs_tokens",
+          "kind": "mint",
+          "source": "ArcOrigin side-job reward contract",
+          "basis": "No token reward before or after",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              10,
+              40,
+              100
+            ]
+          },
+          "after": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              10,
+              40,
+              100
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

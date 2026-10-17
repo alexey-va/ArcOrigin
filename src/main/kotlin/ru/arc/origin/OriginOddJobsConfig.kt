@@ -41,7 +41,8 @@ internal data class OriginOddJobsConfig(
     val text: ConfigSection,
     val rewardPolicy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy(),
     val yardAnimalIds: List<Int> = listOf(371, 422, 423),
-    val yardFeedingAnimalId: Int = 371,
+    val yardFeedingAnimalId: Int = 422,
+    val yardEscortAnimalId: Int = 371,
 ) {
     fun venue(kind: OriginOddJobKind) = venues.first { it.kind == kind }
     fun line(key: String, vararg values: Pair<String, Any>): String = values.fold(rewardPolicy.limits(text.string(key))) { line, (name, value) ->
@@ -67,7 +68,8 @@ internal data class OriginOddJobsConfig(
             source.integer("jobs.auction.handoff-npc-id"), UUID.fromString(source.string("jobs.auction.handoff-npc-uuid")),
             source.string("jobs.auction.handoff-name"), source.section("text"), rewardPolicy,
             source.stringList("jobs.mountyard.animal-ids").map(String::toInt).also { require(it.isNotEmpty()) },
-            source.integer("jobs.mountyard.feeding-animal-id", 371),
+            source.integer("jobs.mountyard.feeding-animal-id", 422),
+            source.integer("jobs.mountyard.escort-animal-id", 371),
         )
     }
 }
@@ -88,10 +90,10 @@ internal data class OriginOddJobStation(val point: Location, val block: Block, v
 internal fun originOddJobStation(stage: OriginOddJobStage): OriginOddJobStationId? = when (stage) {
     OriginOddJobStage.YARD_HAY -> OriginOddJobStationId.HAY
     OriginOddJobStage.YARD_FEED -> OriginOddJobStationId.FEED
-    OriginOddJobStage.YARD_WELL -> OriginOddJobStationId.WELL
-    OriginOddJobStage.YARD_WATER -> OriginOddJobStationId.WATER
+    OriginOddJobStage.YARD_BUCKET -> OriginOddJobStationId.WELL
+    OriginOddJobStage.YARD_WELL -> OriginOddJobStationId.WATER
     OriginOddJobStage.YARD_BRUSH -> OriginOddJobStationId.BRUSH
-    OriginOddJobStage.YARD_TACK -> OriginOddJobStationId.SADDLE_RACK
+    OriginOddJobStage.YARD_TACK, OriginOddJobStage.YARD_LEAD_RACK -> OriginOddJobStationId.SADDLE_RACK
     OriginOddJobStage.FORGE_BLANK -> OriginOddJobStationId.BLANK
     OriginOddJobStage.FORGE_HEAT, OriginOddJobStage.FORGE_HEATING -> OriginOddJobStationId.FIRE
     OriginOddJobStage.FORGE_INSPECT, OriginOddJobStage.FORGE_PLACE, OriginOddJobStage.FORGE_HAMMER -> OriginOddJobStationId.ANVIL
@@ -105,7 +107,8 @@ internal fun originOddJobStation(stage: OriginOddJobStage): OriginOddJobStationI
 internal fun originOddJobRequiredStations(kind: OriginOddJobKind): Set<OriginOddJobStationId> = when (kind) {
     OriginOddJobKind.MOUNTYARD -> setOf(OriginOddJobStationId.HAY, OriginOddJobStationId.FEED, OriginOddJobStationId.WATER,
         OriginOddJobStationId.WELL, OriginOddJobStationId.BRUSH, OriginOddJobStationId.SADDLE_RACK)
-    OriginOddJobKind.FORGE -> setOf(OriginOddJobStationId.BLANK, OriginOddJobStationId.FIRE, OriginOddJobStationId.ANVIL, OriginOddJobStationId.QUENCH)
+    OriginOddJobKind.FORGE -> setOf(OriginOddJobStationId.BLANK, OriginOddJobStationId.FIRE, OriginOddJobStationId.ANVIL,
+        OriginOddJobStationId.QUENCH, OriginOddJobStationId.ORE_STOCK, OriginOddJobStationId.ENGRAVING)
     OriginOddJobKind.FORGE_HAUL -> setOf(OriginOddJobStationId.ORE_STOCK, OriginOddJobStationId.BLANK)
     OriginOddJobKind.FORGE_ENGRAVE -> setOf(OriginOddJobStationId.BLANK, OriginOddJobStationId.ENGRAVING)
     OriginOddJobKind.AUCTION -> emptySet()
@@ -134,7 +137,7 @@ internal fun originOddJobStations(plan: OriginScenePlan, world: World): Map<Orig
     yard.anchors["water-source"]?.let { around(OriginOddJobStationId.WELL, it, setOf(Material.BARREL), 0, 1.02) }
     yard.anchors["brush-source"]?.let { around(OriginOddJobStationId.BRUSH, it, setOf(Material.BARREL), 0, 1.02) }
     yard.anchors["saddle-source"]?.let { around(OriginOddJobStationId.SADDLE_RACK, it, setOf(Material.BARREL), 0, 1.02) }
-    val feed = yard.anchors.getValue("feed-floor")
+    val feed = yard.anchors["job-feed-floor"] ?: OriginScenePoint(48.5, 70.05, -134.5)
     val feedX = floor(feed.x).toInt()
     val feedZ = floor(feed.z).toInt()
     if (world.isChunkLoaded(feedX shr 4, feedZ shr 4)) {
@@ -175,6 +178,11 @@ internal fun OriginOddJobVariant.key(): String = name.lowercase(Locale.ROOT).rep
 internal fun originOddJobClock(millis: Long): String = (millis.coerceAtLeast(0) / 1_000).let { "%d:%02d".format(it / 60, it % 60) }
 internal fun originOddJobGuide(config: OriginOddJobsConfig, job: OriginOddJobSession, now: Long): String {
     val key = when (job.stage) {
+        OriginOddJobStage.FORGE_BLANK -> when (job.variant) {
+            OriginOddJobVariant.FORGE_REPAIR -> "forge-repair-stock"
+            OriginOddJobVariant.FORGE_PAIR -> "forge-pair-stock"
+            else -> "forge-blank"
+        }
         OriginOddJobStage.FORGE_HEATING -> when {
             now - job.stageStartedAt >= originOddJobHeatReady(job) -> "forge-heat-ready"
             else -> "forge-heating"
@@ -187,10 +195,11 @@ internal fun originOddJobGuide(config: OriginOddJobsConfig, job: OriginOddJobSes
         else -> job.stage.name.lowercase(Locale.ROOT).replace('_', '-')
     }
     val f = job.forge; val y = job.yard
-    return config.line("guide.$key", "name" to config.venue(job.kind).name,
+    return config.line("guide.$key", "name" to config.venue(job.employer).name,
         "strikes" to (f?.remainingStrikes ?: 0), "animal" to (y?.animalName ?: ""),
         "product" to (f?.product?.title ?: "Заготовка"), "metal" to (f?.metal?.title ?: job.engraving?.metal?.title ?: ""),
-        "cargo" to (job.haul?.cargo?.title ?: ""), "loads" to (job.haul?.loads ?: 0), "delivered" to (job.haul?.delivered ?: 0),
+        "cargo" to (job.haul?.cargo?.title ?: ""), "loads" to (job.haul?.loads ?: 0), "loaded" to (job.haul?.loaded ?: 0),
+        "delivered" to (job.haul?.delivered ?: 0),
         "word" to (job.engraving?.word ?: ""), "letters" to ((job.engraving?.strokes ?: 0) / 2),
         "percent" to (((now - job.stageStartedAt).coerceAtLeast(0) * 100 / originOddJobHeatReady(job)).coerceAtMost(100)),
         "brush" to (y?.brushStrokes ?: 0), "brush-total" to ODD_JOB_GROOM_STROKES,

@@ -22,6 +22,8 @@ import org.bukkit.Material
 import org.bukkit.block.BlockFace
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Villager
+import org.bukkit.entity.Horse
+import org.bukkit.entity.LivingEntity
 import org.bukkit.event.block.Action
 import org.bukkit.event.Event
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
@@ -187,16 +189,25 @@ class OriginOddJobsGameTest : StringSpec({
             f.payments.single().kind shouldBe OriginSideJobKind.FORGE
         }
     }
-    "Savva hauling releases its scene lease and submits one shared forge reward after three loads" {
+    "Savva hauling releases its scene lease only after loading pushing unloading and returning the cart" {
         failOnUnsupportedMockBukkitOperation {
             f.begin(351, OriginOddJobVariant.HAUL_COPPER)
             f.leases.single().actorIds shouldBe setOf(351)
             repeat(3) {
                 f.stroke(OriginOddJobStationId.ORE_STOCK)
                 f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("raw_copper")
+                f.strokeCart()
+                f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+            }
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_PUSH
+            f.pushCart()
+            repeat(3) {
+                f.strokeCart()
                 f.stroke(OriginOddJobStationId.BLANK)
                 f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
             }
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_RETURN_CART
+            f.pushCart(returning = true)
             f.payments shouldBe emptyList()
             f.clickNpc(351, sneaking = false)
             f.payments.single().kind shouldBe OriginSideJobKind.FORGE
@@ -270,25 +281,42 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.isWorking(f.player.uniqueId) shouldBe false
         }
     }
-    "all stable chores submit once and advance to the next assignment without visiting Senya" {
+    "stable care waits for the physical outcome and prepared horses require handing over before one payout" {
         for (variant in listOf(OriginOddJobVariant.YARD_WATER, OriginOddJobVariant.YARD_RATIONS,
             OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE)) {
             failOnUnsupportedMockBukkitOperation {
                 f.begin(440, variant)
                 val job = f.game.currentJob(f.player.uniqueId)!!
                 when (variant) {
-                    OriginOddJobVariant.YARD_WATER -> { f.stroke(OriginOddJobStationId.WELL); f.stroke(OriginOddJobStationId.WATER) }
-                    OriginOddJobVariant.YARD_RATIONS -> { f.stroke(OriginOddJobStationId.HAY); f.stroke(OriginOddJobStationId.FEED) }
+                    OriginOddJobVariant.YARD_WATER -> {
+                        f.stroke(OriginOddJobStationId.WELL); f.stroke(OriginOddJobStationId.WATER)
+                        f.clickNpc(job.yard!!.animalId, sneaking = false)
+                        f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_DRINKING
+                        f.payments.none { it.id == job.id } shouldBe true; f.game.tick(f.now)
+                    }
+                    OriginOddJobVariant.YARD_RATIONS -> {
+                        f.stroke(OriginOddJobStationId.HAY); f.stroke(OriginOddJobStationId.FEED)
+                        f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_EATING
+                        f.payments.none { it.id == job.id } shouldBe true; f.game.tick(f.now)
+                    }
                     OriginOddJobVariant.YARD_GROOM -> {
                         f.stroke(OriginOddJobStationId.BRUSH)
                         repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(job.yard!!.animalId, sneaking = false) }
                     }
-                    OriginOddJobVariant.YARD_SADDLE -> { f.stroke(OriginOddJobStationId.SADDLE_RACK); f.clickNpc(job.yard!!.animalId, sneaking = false) }
+                    OriginOddJobVariant.YARD_SADDLE -> {
+                        f.stroke(OriginOddJobStationId.SADDLE_RACK); f.clickNpc(job.yard!!.animalId, sneaking = false)
+                        f.game.tick(f.now); f.stroke(OriginOddJobStationId.BRUSH)
+                        repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(job.yard.animalId, sneaking = false) }
+                        f.stroke(OriginOddJobStationId.SADDLE_RACK); f.clickNpc(job.yard.animalId, sneaking = false)
+                        f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_DELIVER
+                        f.game.tick(f.now); f.clickNpc(440, sneaking = false)
+                        f.payments.none { it.id == job.id } shouldBe true; f.game.tick(f.now)
+                    }
                     else -> error("unexpected stable variant")
                 }
                 f.plain(f.player.bossBars.single().name()) shouldContain "Готово"
                 val employer = f.entity(440)
-                verify(exactly = 0) { f.glow.setEntityGlowingFor(employer, f.player, true) }
+                if (variant != OriginOddJobVariant.YARD_SADDLE) verify(exactly = 0) { f.glow.setEntityGlowingFor(employer, f.player, true) }
                 val screens = f.screens.size
                 f.game.tick(f.now); f.game.tick(f.now)
                 val payment = f.payments.single { it.id == job.id }
@@ -305,16 +333,21 @@ class OriginOddJobsGameTest : StringSpec({
             }
         }
     }
-    "well pickup puts one full bucket in hand and trough delivery advances without any timing puzzle" {
+    "empty bucket is filled at the actual cauldron and carried to the selected animal" {
         failOnUnsupportedMockBukkitOperation {
             f.player.inventory.setItem(0, org.bukkit.inventory.ItemStack(Material.DIAMOND, 7))
             f.begin(440, OriginOddJobVariant.YARD_WATER)
             val screens = f.screens.size
             f.stroke(OriginOddJobStationId.WELL)
-            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_WATER
-            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("water_bucket")
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_WELL
+            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("bucket")
             f.player.inventory.getItem(0)!!.amount shouldBe 7
             f.stroke(OriginOddJobStationId.WATER, elapsed = 30_000)
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_WATER
+            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("water_bucket")
+            f.clickNpc(f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId, sneaking = false)
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_DRINKING
+            f.game.tick(f.now)
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.RETURN
             f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
             f.payments shouldBe emptyList()
@@ -331,8 +364,8 @@ class OriginOddJobsGameTest : StringSpec({
             f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("hay_block")
             f.player.inventory.getItem(9)!!.amount shouldBe 1
             f.stroke(OriginOddJobStationId.FEED)
-            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.RETURN
-            verify { f.visuals.place(f.player, any(), f.stations.getValue(OriginOddJobStationId.FEED).point, OriginJobProp.HAY) }
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_EATING
+            verify { f.yard.sync(f.player, match { it.stage == OriginOddJobStage.YARD_EATING }, any(), any()) }
             f.game.close()
             f.player.inventory.contents.filterNotNull().filter { it.type == Material.DIAMOND }.sumOf { it.amount } shouldBe 45
         }
@@ -373,6 +406,79 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.close(); f.game.isWorking(f.player.uniqueId) shouldBe false
         }
     }
+    "missing empty stable bucket cannot be regenerated by using the cauldron" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(440, OriginOddJobVariant.YARD_WATER)
+            f.stroke(OriginOddJobStationId.WELL)
+            val request = f.game.currentJob(f.player.uniqueId)!!.id
+            f.player.inventory.clear()
+            f.game.tick(++f.now)
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            f.aim(OriginOddJobStationId.WATER)
+            f.game.work(f.player, false, f.stations.getValue(OriginOddJobStationId.WATER).block) shouldBe false
+            f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+            f.payments.none { it.id == request } shouldBe true
+        }
+    }
+    "stable lead shows the care endpoint and only the assigned animal accepts the rope" {
+        failOnUnsupportedMockBukkitOperation {
+            val endpoint = Location(f.world, 4.5, 70.0, 4.5)
+            every { f.yard.destination(any(), any()) } answers { endpoint.clone() }
+            f.begin(440, OriginOddJobVariant.YARD_SADDLE)
+            f.stroke(OriginOddJobStationId.SADDLE_RACK)
+            val job = f.game.currentJob(f.player.uniqueId)!!
+            f.clickNpc(422, sneaking = false)
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_LEAD
+            f.clickNpc(job.yard!!.animalId, sneaking = false)
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_LEAD_OUT
+            f.target shouldBe Location(f.world, 4.5, 70.2, 4.5)
+            val animal = f.entity(job.yard.animalId)
+            verify { f.glow.setEntityGlowingFor(animal, f.player, true) }
+        }
+    }
+    "death removes the stable service item and releases its actor without paying" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(440, OriginOddJobVariant.YARD_WATER)
+            f.stroke(OriginOddJobStationId.WELL)
+            val job = f.game.currentJob(f.player.uniqueId)!!
+            val collectedDrops = f.player.inventory.contents.filterNotNull().toMutableList()
+            f.game.onDeath(mockk<org.bukkit.event.entity.PlayerDeathEvent> {
+                every { entity } returns f.player
+                every { drops } returns collectedDrops
+            })
+            collectedDrops shouldBe emptyList()
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            verify { f.yard.clear(f.player.uniqueId, job.id, any()) }
+            f.payments shouldBe emptyList()
+        }
+    }
+    "teleport and reload terminate stable care and close the animal owner" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(440, OriginOddJobVariant.YARD_SADDLE)
+            val job = f.game.currentJob(f.player.uniqueId)!!
+            f.game.onTeleport(mockk<org.bukkit.event.player.PlayerTeleportEvent> { every { player } returns f.player })
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            verify { f.yard.clear(f.player.uniqueId, job.id, any()) }
+            f.game.close()
+            verify { f.yard.close() }
+            f.payments shouldBe emptyList()
+        }
+    }
+    "ambient generation revocation cleans the same stable request before releasing its lease" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(440, OriginOddJobVariant.YARD_SADDLE)
+            val job = f.game.currentJob(f.player.uniqueId)!!
+            val lease = f.leases.single()
+            f.worksiteRevocations.getValue(lease.token).invoke()
+            io.mockk.verifyOrder {
+                f.yard.revoke(f.player.uniqueId, job.id)
+                f.yard.clear(f.player.uniqueId, job.id, any())
+            }
+            f.released shouldBe listOf(lease)
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            f.payments shouldBe emptyList()
+        }
+    }
     "a disappeared carried token is cancelled and cannot be synthesized by rendering or clicking the next station" {
         failOnUnsupportedMockBukkitOperation {
             f.player.inventory.setItem(0, org.bukkit.inventory.ItemStack(Material.DIAMOND, 5))
@@ -402,11 +508,14 @@ class OriginOddJobsGameTest : StringSpec({
     }
 })
 
-private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
+internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     val paper = MockBukkitTestRuntime.open()
     private val itemFactory = paper.server.itemFactory
     val world = OddJobWorld().also { it.name = "rc_origin_spawn"; paper.server.addWorld(it); it.getChunkAt(0, 0) }
-    val player = paper.addPlayer("OddJobTest")
+    // The fixture has no native entity sight engine; block aiming is tested separately below.
+    val player = object : org.mockbukkit.mockbukkit.entity.PlayerMock(paper.server, "OddJobTest") {
+        override fun hasLineOfSight(other: Entity): Boolean = world.uid == other.world.uid
+    }.also(paper.server::addPlayer)
     val config = oddJobTestConfig()
     val yardCatalog = oddJobTestYardCatalog()
     val scheduler = TestTaskScheduler()
@@ -414,6 +523,17 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     var nextStatus = CompletableFuture.completedFuture(ready)
     val rewards = mockk<OriginSideJobRewards>(relaxed = true)
     val visuals = mockk<OriginOddJobVisuals>(relaxed = true)
+    val cartRoute = OriginForgeCartRoute(listOf(OriginWorkshopPoint(2.5, 70.0, 7.5),
+        OriginWorkshopPoint(7.5, 70.0, 7.5)), "test:cart", org.joml.Vector3f(3f), 0.5625)
+    val cartDisplays = mutableListOf<ru.arc.paper.display.PacketDisplay>()
+    var cartBlocksBeforeFailure: Int? = null
+    private val cartRenderer = mockk<ru.arc.paper.display.PaperPacketDisplays>(relaxed = true)
+    val forge = OriginOddJobForge(cartRoute, { org.bukkit.inventory.ItemStack(Material.MINECART) }, { cartRenderer },
+        collisionBoxes = { block -> when {
+            block.type.name.endsWith("_CARPET") -> listOf(org.bukkit.util.BoundingBox(0.0, 0.0, 0.0, 1.0, 0.0625, 1.0))
+            block.type.isSolid -> listOf(org.bukkit.util.BoundingBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0))
+            else -> emptyList()
+        } })
     var target: Location? = null
     var forgeWork: OriginForgeWork? = null
     val glow = mockk<ArcOriginViewerGlow>(relaxed = true)
@@ -424,18 +544,40 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     val earned = mutableMapOf<UUID, SideJobShiftEarnings>()
     val leases = mutableListOf<OriginSceneLease>()
     val released = mutableListOf<OriginSceneLease>()
+    val worksiteRevocations = mutableMapOf<UUID, () -> Unit>()
     var leaseValid = true
     var otherWork: String? = null
     var desiredVariant: OriginOddJobVariant? = null
     var now = 1_000L
     val registry = mockk<NPCRegistry>()
     val actors = mutableMapOf<Int, NPC>()
+    val yard = mockk<OriginOddJobMountyard>(relaxed = true)
     val stations: Map<OriginOddJobStationId, OriginOddJobStation>
     var resolvedStations: Map<OriginOddJobStationId, OriginOddJobStation> = emptyMap()
     var resolveAttempts = 0
     val game: OriginOddJobsGame
 
     init {
+        for (x in 0..10) for (z in 5..10) world.getBlockAt(x, 69, z).type = Material.STONE
+        fun track(display: ru.arc.paper.display.PacketDisplay) {
+            var valid = true
+            every { display.isValid } answers { valid }
+            every { display.remove() } answers { valid = false }
+            cartDisplays += display
+        }
+        every { cartRenderer.spawnItem(any(), any()) } answers { mockk<ru.arc.paper.display.PacketItemDisplay>(relaxed = true).also(::track) }
+        every { cartRenderer.spawnBlock(any(), any()) } answers {
+            cartBlocksBeforeFailure?.let { left ->
+                if (left == 0) error("simulated cargo display failure")
+                cartBlocksBeforeFailure = left - 1
+            }
+            mockk<ru.arc.paper.display.PacketBlockDisplay>(relaxed = true).also { display ->
+                var data = secondArg<org.bukkit.block.data.BlockData>()
+                every { display.blockData } answers { data }
+                every { display.blockData = any() } answers { data = firstArg() }
+                track(display)
+            }
+        }
         mockkStatic(CitizensAPI::class)
         mockkObject(OriginMenus, OriginServices)
         // MockBukkit 4.116.3's ItemMetaMock copy constructor omits itemModel.
@@ -473,12 +615,13 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
         every { visuals.forgeProfile(any(), any(), any(), any(), any()) } answers { forgeWork = arg(3) }
         every { visuals.forgeCarry(any(), any(), any(), any()) } answers { forgeWork = thirdArg() }
         for (id in listOf(440, 349, 351, 354, 365, 382) + config.yardAnimalIds) {
-            val entity = mockk<Villager>(relaxed = true) {
+            val entity: LivingEntity = (if (id in config.yardAnimalIds) mockk<Horse>(relaxed = true) else mockk<Villager>(relaxed = true)).apply {
                 every { world } returns this@OddJobsFixture.world
                 every { location } answers { Location(this@OddJobsFixture.world, 0.0, if (id == 382) 76.0 else 70.0, if (id == 382) 8.0 else 0.0) }
                 every { isValid } returns true
                 every { type } returns if (id in config.yardAnimalIds) org.bukkit.entity.EntityType.HORSE else org.bukkit.entity.EntityType.VILLAGER
                 every { height } returns 1.6
+                every { hasLineOfSight(any<Entity>()) } returns true
             }
             actors[id] = mockk<NPC> {
                 every { this@mockk.id } returns id
@@ -491,6 +634,26 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
                 every { this@mockk.entity } returns entity
             }
         }
+        every { yard.available() } returns true
+        every { yard.begin(any(), any(), any()) } returns true
+        every { yard.sync(any(), any(), any(), any()) } returns true
+        every { yard.contains(any()) } answers { firstArg<Int>() in config.yardAnimalIds }
+        every { yard.resolve(any()) } answers { actors[firstArg<Int>()]?.entity as? LivingEntity }
+        every { yard.target(any()) } answers {
+            val offer = firstArg<OriginOddJobOffer>()
+            val animalId = when (offer.variant) {
+                OriginOddJobVariant.YARD_RATIONS -> config.yardFeedingAnimalId
+                OriginOddJobVariant.YARD_SADDLE -> config.yardEscortAnimalId
+                else -> config.yardAnimalIds[Math.floorMod(offer.seed, config.yardAnimalIds.size)]
+            }
+            OriginYardWork(animalId, yardCatalog.animals.first { it.npcId == animalId }.name)
+        }
+        every { yard.tick(any(), any(), any()) } answers { when (secondArg<OriginOddJobSession>().stage) {
+            OriginOddJobStage.YARD_EATING, OriginOddJobStage.YARD_DRINKING, OriginOddJobStage.YARD_HANDED -> OriginYardTick.CARED
+            OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_DELIVER -> OriginYardTick.ARRIVED
+            else -> OriginYardTick.WAITING
+        } }
+        every { yard.clear(any(), any(), any()) } answers { thirdArg<() -> Unit>().invoke() }
         stations = OriginOddJobStationId.entries.mapIndexed { index, id ->
             val material = when (id) {
                 OriginOddJobStationId.HAY -> Material.HAY_BLOCK
@@ -506,15 +669,23 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
         }.toMap()
         game = OriginOddJobsGame(config, world.name, if (deferStations) emptyMap() else stations, rewards, visuals, LifecycleTaskScope(scheduler),
             acquire = { venue -> OriginSceneLease(UUID.randomUUID(), venue.scene!!, "work", venue.actorIds).also { leases += it } },
-            owns = { leaseValid && it !in released }, release = { released += it }, otherWork = { otherWork }, clock = { now },
+            owns = { leaseValid && it !in released }, release = { released += it; worksiteRevocations.remove(it.token) }, otherWork = { otherWork }, clock = { now },
             resolveStations = { resolveAttempts++; resolvedStations }, dispatch = { kind ->
-                (0..100).asSequence().map { OriginOddJobDispatch(kind, kotlin.random.Random(it)) }
-                    .first { desiredVariant == null || it.offers(OriginWorkShiftPhase.OPENING).first().variant == desiredVariant }
-            }, yardCatalog = yardCatalog)
+                run {
+                    val board = OriginOddJobDispatch(kind, kotlin.random.Random(7))
+                    repeat(36) {
+                        val shown = board.offers(OriginWorkShiftPhase.OPENING)
+                        if (desiredVariant == null || shown.first().variant == desiredVariant) return@run board
+                        board.accept(shown.first().id)
+                    }
+                    error("Requested test variant is outside this employer's catalog")
+                }
+            }, yardCatalog = yardCatalog, forge = forge, yard = yard,
+            onWorksiteRevoked = { lease, cleanup -> worksiteRevocations[lease.token] = cleanup; true })
     }
 
     fun npc(id: Int) = actors.getValue(id)
-    fun entity(id: Int) = npc(id).entity as Villager
+    fun entity(id: Int) = npc(id).entity as LivingEntity
     fun moveNpc(id: Int) { now += 300; player.teleport(entity(id).location) }
     fun clickNpc(id: Int, sneaking: Boolean = true) { moveNpc(id); player.isSneaking = sneaking; game.interact(player, id) shouldBe true }
     fun open(id: Int, flush: Boolean = true, sneaking: Boolean = true) { clickNpc(id, sneaking); if (flush) scheduler.executeImmediate() }
@@ -532,6 +703,36 @@ private class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     }
     fun pickupBlank() {
         stroke(OriginOddJobStationId.BLANK); stockClick(); scheduler.tick(); player.closeInventory()
+    }
+    fun strokeCart(elapsed: Long = 700) {
+        val job = game.currentJob(player.uniqueId)!!
+        val station = forge.station(player.uniqueId, job)!!
+        now += elapsed
+        val at = station.point.clone().add(0.0, -0.65, -2.2)
+        at.setDirection(station.point.clone().toVector().subtract(at.clone().add(0.0, player.eyeHeight, 0.0).toVector()))
+        player.teleport(at)
+        // A vanilla click passes through the packet cart and hits a different floor block behind it.
+        val eye = player.eyeLocation
+        val floorHit = eye.clone().add(eye.direction.multiply((69.999 - eye.y) / eye.direction.y)).block
+        (floorHit != station.block) shouldBe true
+        val event = PlayerInteractEvent(player, Action.RIGHT_CLICK_BLOCK, null, floorHit, BlockFace.UP, EquipmentSlot.HAND)
+        game.onBlock(event)
+        event.useInteractedBlock() shouldBe Event.Result.DENY
+        event.useItemInHand() shouldBe Event.Result.DENY
+    }
+    fun pushCart(returning: Boolean = false, step: Double = 0.1) {
+        val stage = if (returning) OriginOddJobStage.HAUL_RETURN_CART else OriginOddJobStage.HAUL_PUSH
+        val start = cartRoute.point(0.0, returning)
+        val direction = if (returning) -1.0 else 1.0
+        player.teleport(Location(world, start.x - direction, start.y, start.z))
+        scheduler.tick()
+        repeat(60) { tick ->
+            if (game.currentJob(player.uniqueId)?.stage != stage) return
+            now += 50
+            player.teleport(Location(world, start.x - direction + direction * (tick + 1) * step, start.y, start.z))
+            scheduler.tick()
+        }
+        (game.currentJob(player.uniqueId)?.stage != stage) shouldBe true
     }
     fun finishForge() {
         pickupBlank()
@@ -590,7 +791,7 @@ private class ModelPreservingItemMeta(source: ItemMeta) : ItemMetaMock(source) {
 }
 
 /** MockBukkit has no block ray tracer; the fixture supplies the observed occlusion result. */
-private class OddJobWorld : WorldMock() {
+internal class OddJobWorld : WorldMock() {
     var obstruction: RayTraceResult? = null
     override fun rayTraceBlocks(start: Location, direction: Vector, maxDistance: Double,
         fluidCollisionMode: FluidCollisionMode, ignorePassableBlocks: Boolean): RayTraceResult? = obstruction

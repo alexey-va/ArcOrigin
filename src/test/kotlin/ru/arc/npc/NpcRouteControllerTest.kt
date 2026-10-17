@@ -5,6 +5,9 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
+import net.citizensnpcs.api.ai.Navigator
+import net.citizensnpcs.api.ai.PathStrategy
 import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.block.Block
@@ -12,6 +15,22 @@ import org.bukkit.util.BoundingBox
 import org.bukkit.util.Vector
 
 class NpcRouteControllerTest : FreeSpec({
+    "a stale owner leaves the replacement native route running while its own route is stopped" {
+        val owned = mockk<PathStrategy>()
+        val replacement = mockk<PathStrategy>()
+        val navigator = mockk<Navigator>(relaxed = true)
+        every { navigator.pathStrategy } returns replacement
+        canResumeOwnedNpcRoute(navigator, owned) shouldBe false
+        stopOwnedNpcRoute(navigator, owned)
+        verify(exactly = 0) { navigator.cancelNavigation() }
+        every { navigator.pathStrategy } returns owned
+        canResumeOwnedNpcRoute(navigator, owned) shouldBe true
+        stopOwnedNpcRoute(navigator, owned)
+        verify(exactly = 1) { navigator.cancelNavigation() }
+        every { navigator.pathStrategy } returns null
+        canResumeOwnedNpcRoute(navigator, owned) shouldBe true
+    }
+
     "heading turns through the shortest wrapped angle" {
         turnNpcYawToward(170f, -170f, 5f) shouldBe 175f
         turnNpcYawToward(-170f, 170f, 5f) shouldBe -175f
