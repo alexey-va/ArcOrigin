@@ -24,9 +24,11 @@ object BrewerySubCommand : OriginCommandHandler {
     }
 
     override fun tabComplete(sender: CommandSender, args: Array<String>): List<String> =
-        when (args.size) {
+        if (sender !is Player) emptyList() else when (args.size) {
             1 -> listOf("order").originTabComplete(args[0])
-            2 -> BreweryTableDialogs.Menu.entries.map { it.id }.originTabComplete(args[1])
+            2 -> if (args[0].equals("order", ignoreCase = true)) {
+                BreweryTableDialogs.Menu.entries.map { it.id }.originTabComplete(args[1])
+            } else emptyList()
             else -> emptyList()
         }
 }

@@ -85,10 +85,14 @@ object OriginPortalsSubCommand : OriginCommandHandler {
     }
 
     override fun tabComplete(sender: CommandSender, args: Array<String>): List<String> =
-        when (args.size) {
-            1 -> listOf("enter", "move").originTabComplete(args[0])
+        if (sender !is Player) emptyList() else when (args.size) {
+            1 -> buildList {
+                add("enter")
+                if (sender.hasPermission(ADMIN_PERMISSION)) add("move")
+            }.originTabComplete(args[0])
             2 -> when {
-                args[0].equals("move", ignoreCase = true) -> OriginPortalId.entries.map { it.key }.originTabComplete(args[1])
+                args[0].equals("move", ignoreCase = true) && sender.hasPermission(ADMIN_PERMISSION) ->
+                    OriginPortalId.entries.map { it.key }.originTabComplete(args[1])
                 args[0].equals("enter", ignoreCase = true) -> listOf(OriginPortalId.SLIMEFUN.key).originTabComplete(args[1])
                 else -> emptyList()
             }
