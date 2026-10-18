@@ -7,14 +7,27 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
+import net.kyori.adventure.text.Component
 import org.bukkit.Location
 import org.bukkit.World
+import org.bukkit.entity.Player
+import org.bukkit.event.player.PlayerMoveEvent
+import org.bukkit.event.player.PlayerQuitEvent
 import ru.arc.config.ConfigManager
+import ru.arc.core.Tasks
+import ru.arc.core.TestTaskScheduler
+import ru.arc.origin.api.ArcOriginConfiguration
+import ru.arc.origin.api.ArcOriginTransfers
 import ru.arc.origin.commands.OriginPortalsSubCommand
+import ru.arc.util.TextUtils
 import java.nio.file.Files
 import java.util.UUID
 
 class OriginPortalsModuleTest : FreeSpec({
+    beforeSpec { Tasks.install(TestTaskScheduler()) }
+    afterSpec { Tasks.reset() }
     afterTest { ConfigManager.clear() }
 
     "bundled Origin portals keep the requested anchors and route ownership" {
@@ -24,6 +37,15 @@ class OriginPortalsModuleTest : FreeSpec({
             config.enabled shouldBe true
             config.verticalOffset shouldBe 5.0
             config.anchors.map { it.id } shouldContainExactly OriginPortalId.entries
+            config.anchors.filter { it.id.central }.forEach {
+                it.entryWidth shouldBe 4.0
+                it.entryHeight shouldBe 7.0
+                it.entryDepth shouldBe 0.65
+            }
+            config.anchors.filterNot { it.id.central }.forEach {
+                it.entryWidth shouldBe it.width
+                it.entryHeight shouldBe it.height
+            }
 
             val survival = config.anchors.first { it.id == OriginPortalId.SURVIVAL }
             survival.x shouldBe 9.5
@@ -140,7 +162,9 @@ class OriginPortalsModuleTest : FreeSpec({
             yaw = 90f,
             width = 12.0,
             height = 16.8,
-            entryDepth = 2.0,
+            entryDepth = 0.65,
+            entryWidth = 4.0,
+            entryHeight = 7.0,
             command = "test",
             label = "Тест",
             verticalOffset = 5.0,
@@ -156,9 +180,10 @@ class OriginPortalsModuleTest : FreeSpec({
         everyWorldName(world, "origin")
 
         anchor.contains(center).shouldBeTrue()
-        anchor.contains(Location(world, 2.1, 0.0, 0.0)).shouldBeFalse()
-        anchor.contains(Location(world, 0.0, 0.0, 6.1)).shouldBeFalse()
-        anchor.contains(Location(world, 0.0, 8.41, 0.0)).shouldBeFalse()
+        anchor.contains(Location(world, 0.66, 0.0, 0.0)).shouldBeFalse()
+        anchor.contains(Location(world, 0.0, 0.0, 2.01)).shouldBeFalse()
+        anchor.contains(Location(world, 0.0, 3.51, 0.0)).shouldBeFalse()
+        anchor.copy(width = 1.0, height = 1.0).contains(Location(world, 0.0, 2.0, 1.5)).shouldBeTrue()
         val hologram = anchor.labelLocation(world)
         hologram.x shouldBe 3.0
         hologram.y shouldBe 5.75
@@ -169,6 +194,207 @@ class OriginPortalsModuleTest : FreeSpec({
         sides.map { it.x } shouldContainExactly listOf(3.01, 2.99)
         sides.all { kotlin.math.abs(it.z - 1.0) < 1e-9 }.shouldBeTrue()
         sides.map { it.yaw } shouldContainExactly listOf(270f, 90f)
+    }
+
+    "legacy central portals gain narrow entries without moving or resizing their visuals" {
+        val directory = Files.createTempDirectory("arc-origin-portals-legacy-entry")
+        try {
+            val file = Files.createDirectories(directory.resolve("modules")).resolve("origin-spawn.yml")
+            Files.writeString(file, """
+                origin-portals:
+                  entry-depth: 2.0
+                  anchors:
+                    mining:
+                      x: 9.629465564911508
+                      y: 73.99180809447066
+                      z: 9.622195228279365
+                      yaw: -47.099945068359375
+                      width: 12.0
+                      height: 16.8
+                      entry-depth: 2.0
+                      vertical-offset: 4.5
+                      operator-note: keep-me
+                    survival:
+                      entry:
+                        width: 3.25
+                custom-section:
+                  enabled: true
+            """.trimIndent())
+            val beforeMerge = OriginPortalsConfig.load(directory, mergeDefaults = false)
+            val merged = OriginPortalsConfig.load(directory)
+            val mining = merged.anchors.first { it.id == OriginPortalId.MINING }
+            val previousMining = beforeMerge.anchors.first { it.id == OriginPortalId.MINING }
+            mining.entryWidth shouldBe previousMining.entryWidth
+            mining.entryHeight shouldBe previousMining.entryHeight
+            mining.entryDepth shouldBe previousMining.entryDepth
+            mining.x shouldBe 9.629465564911508
+            mining.y shouldBe 73.99180809447066
+            mining.z shouldBe 9.622195228279365
+            mining.yaw shouldBe -47.099945068359375f
+            mining.width shouldBe 12.0
+            mining.height shouldBe 16.8
+            mining.verticalOffset shouldBe 4.5
+            mining.entryWidth shouldBe 4.0
+            mining.entryHeight shouldBe 7.0
+            mining.entryDepth shouldBe 0.65
+            merged.anchors.first { it.id == OriginPortalId.SURVIVAL }.entryWidth shouldBe 3.25
+            val saved = ConfigManager.ofModule(directory, "origin-spawn.yml")
+            saved.real("origin-portals.anchors.mining.entry-depth") shouldBe 2.0
+            saved.real("origin-portals.anchors.mining.entry.depth") shouldBe 0.65
+            saved.string("origin-portals.anchors.mining.operator-note") shouldBe "keep-me"
+            saved.bool("custom-section.enabled").shouldBeTrue()
+            val firstMerge = Files.readString(file)
+            ConfigManager.clear()
+            OriginPortalsConfig.load(directory)
+            Files.readString(file) shouldBe firstMerge
+
+            val world = mockk<World>()
+            everyWorldName(world, mining.worldName)
+            mining.contains(Location(world, 5.80179257107766, 71.02442408821369, 13.348162913883998)).shouldBeFalse()
+            mining.contains(Location(world, 5.542, 69.5, 13.413)).shouldBeFalse()
+            mining.contains(Location(world, mining.x, 71.0, mining.z)).shouldBeTrue()
+            mining.contains(Location(world, mining.x, 70.4, mining.z)).shouldBeFalse()
+            mining.copy(enabled = false).contains(mining.center(world)).shouldBeFalse()
+            everyWorldName(world, "another-world")
+            mining.contains(mining.center(world)).shouldBeFalse()
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    "invalid entry dimensions fall back safely without rewriting explicit operator values" {
+        val directory = Files.createTempDirectory("arc-origin-portals-invalid-entry")
+        try {
+            OriginPortalsConfig.load(directory)
+            val source = ConfigManager.ofModule(directory, "origin-spawn.yml")
+            source.setString("origin-portals.anchors.mining.entry.width", "NaN")
+            source.setDouble("origin-portals.anchors.mining.entry.height", -4.0)
+            source.setString("origin-portals.anchors.mining.entry.depth", "wide")
+            source.setDouble("origin-portals.anchors.gallery_exit.entry-depth", 1.25)
+            source.saveStrict()
+            ConfigManager.clear()
+            val config = OriginPortalsConfig.load(directory)
+            val mining = config.anchors.first { it.id == OriginPortalId.MINING }
+            mining.entryWidth shouldBe 4.0
+            mining.entryHeight shouldBe 7.0
+            mining.entryDepth shouldBe 0.65
+            config.anchors.first { it.id == OriginPortalId.GALLERY_EXIT }.entryDepth shouldBe 1.25
+            ConfigManager.ofModule(directory, "origin-spawn.yml")
+                .string("origin-portals.anchors.mining.entry.depth") shouldBe "wide"
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    "walking into a portal reports its name before dispatch and stays quiet until reentry" {
+        val directory = Files.createTempDirectory("arc-origin-portals-entry-message")
+        val player = mockk<Player>()
+        every { player.uniqueId } returns UUID.randomUUID()
+        try {
+            val config = OriginPortalsConfig.load(directory)
+            val anchor = config.anchors.first { it.id == OriginPortalId.MINING }
+            val world = mockk<World>()
+            everyWorldName(world, anchor.worldName)
+            var bypass = false
+            every { player.hasPermission("arc.origin.portals.bypass") } answers { bypass }
+            val effects = mutableListOf<String>()
+            every { player.sendMessage(any<Component>()) } answers {
+                effects += TextUtils.plain(firstArg<Component>())
+            }
+            every { player.performCommand(any()) } answers { effects += firstArg<String>(); false }
+            val outside = anchor.center(world).add(20.0, 0.0, 0.0)
+            val center = anchor.center(world)
+            fun move(from: Location, to: Location) = OriginPortalsModule.handleMove(PlayerMoveEvent(player, from, to), config)
+            move(center, center)
+            effects shouldContainExactly emptyList()
+            move(outside, center)
+            move(outside, center)
+            move(center, center.clone().apply { yaw += 20f })
+            effects shouldContainExactly listOf("Вы вошли в портал «Мир добычи».", anchor.command)
+            move(center, outside)
+            move(outside, center)
+            effects shouldContainExactly listOf(
+                "Вы вошли в портал «Мир добычи».", anchor.command,
+                "Вы вошли в портал «Мир добычи».", anchor.command,
+            )
+            bypass = true
+            effects.clear()
+            move(center, outside)
+            move(outside, center)
+            effects shouldContainExactly emptyList()
+        } finally {
+            OriginPortalsModule.onQuit(PlayerQuitEvent(player, Component.empty(), PlayerQuitEvent.QuitReason.DISCONNECTED))
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    "entry message is configurable and treats portal labels as literal text" {
+        val directory = Files.createTempDirectory("arc-origin-portals-entry-message-config")
+        val player = mockk<Player>(relaxed = true)
+        every { player.uniqueId } returns UUID.randomUUID()
+        try {
+            OriginPortalsConfig.load(directory)
+            val source = ConfigManager.ofModule(directory, "origin-spawn.yml")
+            source.setString("origin-portals.messages.entered", "<yellow>Вход: <portal>")
+            source.setString("origin-portals.anchors.mining.hologram.text", "Мир <red>добычи")
+            source.saveStrict()
+            val world = mockk<World>()
+            everyWorldName(world, "rc_origin_spawn")
+            val messages = mutableListOf<String>()
+            every { player.sendMessage(any<Component>()) } answers { messages += TextUtils.plain(firstArg<Component>()) }
+            fun enter() {
+                val config = OriginPortalsConfig.load(directory)
+                val anchor = config.anchors.first { it.id == OriginPortalId.MINING }
+                OriginPortalsModule.onQuit(PlayerQuitEvent(player, Component.empty(), PlayerQuitEvent.QuitReason.DISCONNECTED))
+                OriginPortalsModule.handleMove(
+                    PlayerMoveEvent(player, anchor.center(world).add(20.0, 0.0, 0.0), anchor.center(world)), config,
+                )
+            }
+            enter()
+            messages shouldContainExactly listOf("Вход: Мир <red>добычи")
+            source.setString("origin-portals.anchors.mining.hologram.text", "")
+            enter()
+            messages shouldContainExactly listOf("Вход: Мир <red>добычи", "Вход: Мир добычи")
+            source.setString("origin-portals.messages.entered", "")
+            enter()
+            messages.size shouldBe 2
+        } finally {
+            OriginPortalsModule.onQuit(PlayerQuitEvent(player, Component.empty(), PlayerQuitEvent.QuitReason.DISCONNECTED))
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    "walking into Slimefun sends the entry notice before an unavailable transfer" {
+        val directory = Files.createTempDirectory("arc-origin-portals-entry-transfer")
+        val player = mockk<Player>(relaxed = true)
+        every { player.uniqueId } returns UUID.randomUUID()
+        mockkObject(OriginServices)
+        try {
+            OriginPortalsConfig.load(directory)
+            val source = ConfigManager.ofModule(directory, "origin-spawn.yml")
+            source.setBoolean("origin-portals.anchors.slimefun.enabled", true)
+            source.setString("origin-portals.anchors.slimefun.hologram.text", "")
+            val config = OriginPortalsConfig.load(directory)
+            val anchor = config.anchors.first { it.id == OriginPortalId.SLIMEFUN }
+            val world = mockk<World>()
+            everyWorldName(world, anchor.worldName)
+            val effects = mutableListOf<String>()
+            every { player.sendMessage(any<Component>()) } answers { effects += TextUtils.plain(firstArg<Component>()) }
+            val configuration = mockk<ArcOriginConfiguration>()
+            every { configuration.serverName() } returns "spawn"
+            every { OriginServices.configuration } returns configuration
+            val transfers = mockk<ArcOriginTransfers>()
+            every { OriginServices.transfers } returns transfers
+            every { transfers.sendPlayerToServer(player, "slimefun") } answers { effects += "transfer"; false }
+            val event = PlayerMoveEvent(player, anchor.center(world).add(20.0, 0.0, 0.0), anchor.center(world))
+            OriginPortalsModule.handleMove(event, config)
+            OriginPortalsModule.handleMove(event, config)
+            effects shouldContainExactly listOf("Вы вошли в портал «Slimefun».", "transfer")
+        } finally {
+            OriginPortalsModule.onQuit(PlayerQuitEvent(player, Component.empty(), PlayerQuitEvent.QuitReason.DISCONNECTED))
+            unmockkObject(OriginServices)
+            directory.toFile().deleteRecursively()
+        }
     }
 
     "Slimefun entry volume stays at floor-level while the gate display is raised" {

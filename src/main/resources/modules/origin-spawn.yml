@@ -61,7 +61,11 @@ regenerative-breaking:
 origin-portals:
   enabled: true
   vertical-offset: 5.0
+  # Legacy half-depth for portals without an entry.depth override.
   entry-depth: 2.0
+  messages:
+    # Sent once on entry, before the command or server-transfer request; blank disables it.
+    entered: '<#e6fff3>Вы вошли в портал «<#92bed8><portal><#e6fff3>».'
   items:
     origin: origin_gate_portals:origin_portal
     astral: origin_gate_portals:astral_portal
@@ -91,6 +95,12 @@ origin-portals:
       yaw: 270.0
       width: 12.0
       height: 16.8
+      # Trigger dimensions are independent of the decorative model above.
+      # Width/height are full sizes about the anchor; depth extends to each side.
+      entry:
+        width: 4.0
+        height: 7.0
+        depth: 0.65
       style: origin
       hologram:
         text: Новые биомы
@@ -109,6 +119,10 @@ origin-portals:
       yaw: 225.0
       width: 12.0
       height: 16.8
+      entry:
+        width: 4.0
+        height: 7.0
+        depth: 0.65
       style: astral
       hologram:
         text: Мир добычи
@@ -127,6 +141,10 @@ origin-portals:
       yaw: 315.0
       width: 12.0
       height: 16.8
+      entry:
+        width: 4.0
+        height: 7.0
+        depth: 0.65
       style: void
       hologram:
         text: Ванильные биомы

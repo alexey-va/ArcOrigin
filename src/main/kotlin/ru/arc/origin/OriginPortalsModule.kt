@@ -16,6 +16,7 @@ import org.bukkit.entity.TextDisplay
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.TextColor
 import net.kyori.adventure.text.format.TextDecoration
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder
 import org.joml.Matrix4f
 import ru.arc.origin.api.ArcOriginPortalVisuals
 import ru.arc.config.Config
@@ -231,6 +232,8 @@ internal data class OriginPortalAnchor(
     val transferDistance: Double = 8.0,
     /** Fraction of model height to offset for transparent pixels below the visible image. */
     val visibleBottomInsetRatio: Double = 0.0,
+    val entryWidth: Double = width,
+    val entryHeight: Double = height,
 ) {
     fun center(world: org.bukkit.World): Location = Location(world, x, y, z, yaw, 0f)
 
@@ -274,11 +277,11 @@ internal data class OriginPortalAnchor(
         val insideHeight =
             if (id.feetAnchored) {
                 // Coordinate subtraction can put the exact top a few ulps above height.
-                verticalPosition in -1e-7..(height + 1e-7)
+                verticalPosition in -1e-7..(entryHeight + 1e-7)
             } else {
-                abs(verticalPosition) <= height / 2.0
+                abs(verticalPosition) <= entryHeight / 2.0
             }
-        return abs(side) <= width / 2.0 && abs(depth) <= entryDepth && insideHeight
+        return abs(side) <= entryWidth / 2.0 && abs(depth) <= entryDepth && insideHeight
     }
 }
 
@@ -303,6 +306,7 @@ internal class OriginPortalsConfig private constructor(
     val reducedParticleDistance: Double,
     val itemIds: Map<OriginPortalStyle, String>,
     val anchors: List<OriginPortalAnchor>,
+    val enteredMessage: String,
 ) {
     fun persistFeet(id: OriginPortalId, location: Location) =
         persistFeet(id, location.x, location.y, location.z, location.yaw)
@@ -372,6 +376,10 @@ internal class OriginPortalsConfig private constructor(
                 reducedParticleDistance = source.real("$root.particles.reduced-distance", 40.0).coerceIn(1.0, 64.0),
                 itemIds = itemIds,
                 anchors = anchors,
+                enteredMessage = source.string(
+                    "$root.messages.entered",
+                    "<#e6fff3>Вы вошли в портал «<#92bed8><portal><#e6fff3>».",
+                ),
             )
         }
 
@@ -402,6 +410,8 @@ internal class OriginPortalsConfig private constructor(
                 id.defaultPulseAmplitude ?: globalPulseAmplitude.toDouble(),
             ).finite(id.defaultPulseAmplitude ?: globalPulseAmplitude.toDouble()).toFloat().coerceIn(0.0f, 0.1f)
             val defaultVerticalOffset = id.defaultVerticalOffset ?: verticalOffset
+            val legacyEntryDepth = source.real("$path.entry-depth", source.real("$root.entry-depth", 2.0))
+                .finite(2.0).coerceIn(0.5, 6.0)
             return OriginPortalAnchor(
                 id = id,
                 enabled = source.bool("$path.enabled", id.defaultEnabled),
@@ -412,7 +422,7 @@ internal class OriginPortalsConfig private constructor(
                 yaw = source.real("$path.yaw", id.defaultYaw.toDouble()).finite(id.defaultYaw.toDouble()).toFloat(),
                 width = width,
                 height = height,
-                entryDepth = source.real("$path.entry-depth", source.real("$root.entry-depth", 2.0)).finite(2.0).coerceIn(0.5, 6.0),
+                entryDepth = entryDimension(source, "$path.entry.depth", if (id.central) 0.65 else legacyEntryDepth, 0.1..6.0),
                 command = source.string("$path.command", id.defaultCommand).trim().ifEmpty { id.defaultCommand },
                 label = source.string("$path.hologram.text", source.string("$path.label", id.defaultLabel)).trim(),
                 verticalOffset = source.real("$path.vertical-offset", defaultVerticalOffset).finite(defaultVerticalOffset).coerceIn(0.5, 12.0),
@@ -440,7 +450,17 @@ internal class OriginPortalsConfig private constructor(
                     "$path.visible-bottom-inset-ratio",
                     id.defaultVisibleBottomInsetRatio,
                 ).finite(id.defaultVisibleBottomInsetRatio).coerceIn(0.0, 0.5),
+                entryWidth = entryDimension(source, "$path.entry.width", if (id.central) 4.0 else width, 0.1..12.0),
+                entryHeight = entryDimension(source, "$path.entry.height", if (id.central) 7.0 else height, 0.1..20.0),
             )
+        }
+
+        private fun entryDimension(source: Config, path: String, fallback: Double, range: ClosedFloatingPointRange<Double>): Double {
+            val raw = source.stringOrNull(path) ?: return fallback
+            val value = raw.toDoubleOrNull()
+            if (value != null && value.isFinite() && value in range) return value
+            warn("Invalid Origin portal entry setting {}={}; expected {}..{}. Using {}.", path, raw, range.start, range.endInclusive, fallback)
+            return fallback
         }
 
         private fun Double.finite(fallback: Double): Double = takeIf(Double::isFinite) ?: fallback
@@ -632,7 +652,11 @@ object OriginPortalsModule : PluginModule, Listener {
 
     @EventHandler(ignoreCancelled = true)
     fun onMove(event: PlayerMoveEvent) {
-        val current = config?.takeIf { it.enabled }?.anchors?.nearestContaining(event.to)
+        handleMove(event, config)
+    }
+
+    internal fun handleMove(event: PlayerMoveEvent, settings: OriginPortalsConfig?) {
+        val current = settings?.takeIf { it.enabled }?.anchors?.nearestContaining(event.to)
         if (current == null) {
             inside.remove(event.player.uniqueId)
             return
@@ -641,9 +665,15 @@ object OriginPortalsModule : PluginModule, Listener {
             inside.remove(event.player.uniqueId)
             return
         }
-        val previous = config?.anchors?.nearestContaining(event.from)
+        val previous = settings.anchors.nearestContaining(event.from)
         if (previous?.id == current.id || inside[event.player.uniqueId] == current.id) return
         inside[event.player.uniqueId] = current.id
+        if (settings.enteredMessage.isNotBlank()) {
+            event.player.sendMessage(TextUtils.mm(
+                settings.enteredMessage,
+                Placeholder.unparsed("portal", current.label.ifBlank { current.id.defaultLabel }),
+            ))
+        }
         if (current.id.destinationServer != null) {
             beginTransfer(event.player, current)
         } else {
