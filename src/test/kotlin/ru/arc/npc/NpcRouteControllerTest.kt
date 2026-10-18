@@ -4,17 +4,123 @@ import io.kotest.core.spec.style.FreeSpec
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.mockk.every
+import io.mockk.clearMocks
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import io.mockk.verify
 import net.citizensnpcs.api.ai.Navigator
 import net.citizensnpcs.api.ai.PathStrategy
+import net.citizensnpcs.api.CitizensAPI
+import net.citizensnpcs.api.npc.NPC
+import net.citizensnpcs.api.npc.NPCRegistry
+import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.block.Block
+import org.bukkit.entity.Horse
 import org.bukkit.util.BoundingBox
 import org.bukkit.util.Vector
+import ru.arc.core.Tasks
+import ru.arc.core.TestTaskScheduler
 
 class NpcRouteControllerTest : FreeSpec({
+    "stable restart walks from the real horse beside a barrel without snapping or teleporting" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        val ground = routeTestBlock(Material.DIRT, false, 1.0)
+        val barrel = routeTestBlock(Material.BARREL, false, 1.0)
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
+            when {
+                firstArg<Int>() == 54 && thirdArg<Int>() == -135 && secondArg<Int>() in 70..71 -> barrel
+                secondArg<Int>() == 69 -> ground
+                else -> air
+            }
+        }
+        val profile = NpcRouteProfile("yard-field", 69, NpcRouteBounds(52, 54, -138, -134),
+            snapRadius = 0, maxVisited = 32, maximumStepHeight = 1.0, maximumSurfaceDrop = 0.5,
+            surfaceSearchRange = 2, allowedSupportMaterials = setOf(Material.DIRT))
+        val actual = Vector(53.10509043988335, 70.0, -135.9491693339353)
+        val body = NpcRouteFootprint(0.7, 0.7, 0.0, 1.6)
+        val surface = { cell: NpcRouteCell -> resolveSurfaceY(world, profile, cell) }
+        val clear = { from: Vector, to: Vector -> isNpcRouteSegmentClear(world, profile, from, to, body) }
+        clear(actual, actual) shouldBe true
+        val rounded = Vector(53.5, 70.0, -135.5)
+        clear(rounded, rounded) shouldBe false
+        npcRouteWalkingStart(actual, profile, surface, clear) shouldBe NpcRouteCell(53, -137)
+        npcRouteWalkingStart(Vector(53.7, 70.0, -134.5), profile, surface, clear) shouldBe null
+        npcRouteWalkingStart(actual, profile, surface) { from, to ->
+            isNpcRouteSegmentClear(world, profile, from, to, body, setOf(NpcRouteCell(53, -136)))
+        } shouldBe null
+
+        val horse = mockk<Horse>(relaxed = true) {
+            every { this@mockk.world } returns world
+            every { location } answers { actual.toLocation(world) }
+            every { boundingBox } returns BoundingBox(actual.x - 0.7, actual.y, actual.z - 0.7,
+                actual.x + 0.7, actual.y + 1.6, actual.z + 0.7)
+        }
+        val strategy = mockk<PathStrategy>()
+        val navigator = mockk<Navigator>(relaxed = true) {
+            every { isNavigating } returns false
+            every { pathStrategy } returns strategy
+        }
+        val npc = mockk<NPC> {
+            every { id } returns 422
+            every { isSpawned } returns true
+            every { entity } returns horse
+            every { this@mockk.navigator } returns navigator
+        }
+        val events = mutableListOf<NpcRouteEvent>()
+        val registry = mockk<NPCRegistry> { every { getById(any()) } returns null }
+        mockkStatic(CitizensAPI::class)
+        try {
+            // Admission is tested here; the separate route-motion tests own the native tick adapter.
+            every { CitizensAPI.getNPCRegistry() } returns registry
+            Tasks.withScheduler(TestTaskScheduler()) {
+                CitizensNpcRouteController(events::add).use { routes ->
+                    routes.navigate(npc, Location(world, 53.5, 70.0, -137.5), profile) shouldBe true
+                    events.map { it.phase } shouldBe listOf("STARTED")
+                    verify(exactly = 0) { horse.teleport(any<Location>()) }
+                    // Goal admission is still exact: the unsafe rounded cell is not a substitute endpoint.
+                    routes.navigate(npc, rounded.toLocation(world), profile) shouldBe false
+                    events.last().reason shouldBe "no-level-route"
+                    verify(exactly = 0) { horse.teleport(any<Location>()) }
+                }
+            }
+        } finally {
+            unmockkStatic(CitizensAPI::class)
+            // These geometry reads are not interaction assertions; do not retain their recorder history.
+            clearMocks(world, air, ground, barrel, air.collisionShape, ground.collisionShape, barrel.collisionShape,
+                horse, navigator, strategy, npc, registry, answers = false)
+        }
+    }
+
+    "walking start rejects a blocked connector even when its actual body and nearby endpoints are clear" {
+        val world = mockk<World>()
+        val air = routeTestBlock(Material.AIR, true)
+        val ground = routeTestBlock(Material.DIRT, false, 1.0)
+        val post = routeTestBlock(Material.OAK_FENCE, false, 1.5)
+        every { post.collisionShape } returns mockk {
+            every { boundingBoxes } returns listOf(BoundingBox(0.0, 0.0, 0.4, 0.2, 1.5, 0.6))
+        }
+        every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
+            when {
+                firstArg<Int>() == 53 && secondArg<Int>() == 70 && thirdArg<Int>() == -137 -> post
+                secondArg<Int>() == 69 -> ground
+                else -> air
+            }
+        }
+        val profile = NpcRouteProfile("corner", 70, NpcRouteBounds(52, 53, -137, -136), snapRadius = 0)
+        val body = NpcRouteFootprint(0.7, 0.7, 0.0, 1.6)
+        val actual = Vector(52.1, 70.0, -136.9)
+        val candidate = Vector(52.5, 70.0, -135.5)
+        val clear = { from: Vector, to: Vector -> isNpcRouteSegmentClear(world, profile, from, to, body) }
+        clear(actual, actual) shouldBe true
+        clear(candidate, candidate) shouldBe true
+        clear(actual, candidate) shouldBe false
+        npcRouteWalkingStart(actual, profile, { resolveSurfaceY(world, profile, it) }, clear) shouldBe null
+    }
+
     "a stale owner leaves the replacement native route running while its own route is stopped" {
         val owned = mockk<PathStrategy>()
         val replacement = mockk<PathStrategy>()

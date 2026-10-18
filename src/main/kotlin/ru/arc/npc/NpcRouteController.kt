@@ -384,6 +384,28 @@ internal fun isNpcRouteActualYAllowed(actualY: Double, surfaceY: Double, profile
     return actualY >= lower - 1.0e-6 && actualY <= upper + 1.0e-6
 }
 
+private fun isNpcRouteStartYAllowed(actualY: Double, surfaceY: Double, profile: NpcRouteProfile): Boolean =
+    if (profile.surfaceSearchRange == 0 && profile.allowedSupportMaterials.isEmpty()) abs(actualY - surfaceY) <= 0.25
+    else isNpcRouteActualYAllowed(actualY, surfaceY, profile)
+
+/** A safe off-centre body can walk into the grid even when its cell centre clips a corner. */
+internal fun npcRouteWalkingStart(
+    actual: Vector,
+    profile: NpcRouteProfile,
+    surfaceY: (NpcRouteCell) -> Double?,
+    canTraverse: (Vector, Vector) -> Boolean,
+): NpcRouteCell? {
+    val current = NpcRouteCell(floor(actual.x).toInt(), floor(actual.z).toInt())
+    val surface = surfaceY(current) ?: return null
+    if (!profile.allows(current) || !isNpcRouteStartYAllowed(actual.y, surface, profile) || !canTraverse(actual, actual)) return null
+    return (-1..1).flatMap { dx -> (-1..1).map { dz -> NpcRouteCell(current.x + dx, current.z + dz) } }
+        .filter(profile::allows)
+        .sortedWith(compareBy<NpcRouteCell>(
+            { (it.x + 0.5 - actual.x) * (it.x + 0.5 - actual.x) + (it.z + 0.5 - actual.z) * (it.z + 0.5 - actual.z) },
+            { it.x }, { it.z }))
+        .firstOrNull { cell -> surfaceY(cell)?.let { y -> canTraverse(actual, Vector(cell.x + 0.5, y, cell.z + 0.5)) } == true }
+}
+
 /** Supplies scene-specific occupied cells without coupling the router to a furniture plugin. */
 internal fun interface NpcRouteObstacleSource {
     fun blockedCells(world: World, profile: NpcRouteProfile): Set<NpcRouteCell>
@@ -734,7 +756,15 @@ internal class CitizensNpcRouteController(
             }
         }
         val starts = candidates(actual.blockX, actual.blockZ, profile, blocked, surfaceY, footprintClear)
-        val start = starts.firstOrNull()
+        val currentCell = NpcRouteCell(actual.blockX, actual.blockZ)
+        val canTraverse: (Vector, Vector) -> Boolean = { from, to ->
+            isNpcRouteSegmentClear(world, profile, from, to, footprint, active[npc.id]?.blocked ?: blocked)
+        }
+        // Start admission is independent of endpoint snapping: it must preserve the actual body and
+        // validate the whole connector, never recover a clear off-centre position by teleporting it.
+        val walkingStart = if (starts.firstOrNull() == currentCell) null
+            else npcRouteWalkingStart(actual.toVector(), profile, surfaceY, canTraverse)
+        val start = walkingStart ?: starts.firstOrNull()
         if (start == null) {
             event("PATH_UNAVAILABLE", profile, npc, destination, reason = "no-safe-endpoint")
             return false
@@ -798,30 +828,20 @@ internal class CitizensNpcRouteController(
             }
             surfaceYs[cell] = surface
         }
-        val currentCell = NpcRouteCell(actual.blockX, actual.blockZ)
         val currentSurfaceY = surfaceY(currentCell)
-        val currentYAllowed = currentSurfaceY?.let { surface ->
-            if (profile.surfaceSearchRange == 0 && profile.allowedSupportMaterials.isEmpty()) {
-                abs(actual.y - surface) <= 0.25
-            } else {
-                isNpcRouteActualYAllowed(actual.y, surface, profile)
-            }
-        } == true
-        if (
-            currentCell != start ||
-            !currentYAllowed
-        ) {
+        val currentYAllowed = currentSurfaceY?.let { isNpcRouteStartYAllowed(actual.y, it, profile) } == true
+        if (walkingStart == null && (currentCell != start || !currentYAllowed)) {
             val recovered = Location(world, start.x + 0.5, surfaceYs.getValue(start), start.z + 0.5, actual.yaw, 0f)
             npc.entity.teleport(recovered)
             event("RECOVERED", profile, npc, destination, path.size, "off-floor-start", actual)
         }
-        val canTraverse: (Vector, Vector) -> Boolean = { from, to ->
-            isNpcRouteSegmentClear(world, profile, from, to, footprint, active[npc.id]?.blocked ?: blocked)
-        }
         val gridPoints = path.map { Vector(it.x + 0.5, surfaceYs.getValue(it), it.z + 0.5) }.toMutableList()
         // Continue from the real position instead of walking back to the start-cell center on every leg.
         val routeStart = npc.entity.location.toVector()
-        if (gridPoints.size > 1 && canTraverse(routeStart, gridPoints[1])) gridPoints[0] = routeStart
+        if (walkingStart != null) {
+            gridPoints.add(0, routeStart)
+            legEnds.indices.forEach { legEnds[it] = legEnds[it] + 1 }
+        } else if (gridPoints.size > 1 && canTraverse(routeStart, gridPoints[1])) gridPoints[0] = routeStart
         val shortcutPoints = mutableListOf(gridPoints.first())
         var legStart = 0
         val curveBudget = minOf(profile.cornerSmoothingLead, profile.pathShortcutMaximumDeviation)
