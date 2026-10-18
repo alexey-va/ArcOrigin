@@ -50,6 +50,34 @@ class OriginOddJobVisualsTest : StringSpec({
         abs(pose.center.y + carried.maxOf { it.center.y + it.size.y / 2.0 } - 1.4) shouldBeLessThan 1e-6
     }
 
+    "stable destination is a hollow horse-size glowing footprint with stable private handles" {
+        val pieces = originOddJobDestinationPieces()
+        pieces.size shouldBe 4
+        pieces.all { it.size.y <= 0.071f && it.center.y == 0.0 } shouldBe true
+        pieces.none { abs(it.center.x) < it.size.x / 2 && abs(it.center.z) < it.size.z / 2 } shouldBe true
+        (pieces.maxOf { it.center.x + it.size.x / 2 } > 1.18) shouldBe true
+        (pieces.minOf { it.center.z - it.size.z / 2 } < -1.58) shouldBe true
+        failOnUnsupportedMockBukkitOperation {
+            val player = oddJobCarrier(paper)
+            val harness = OddJobDisplayHarness()
+            val visuals = OriginOddJobVisuals { harness.owner }
+            val request = UUID.randomUUID()
+            val at = player.location.clone().add(0.0, 0.05, 4.0)
+            visuals.destination(player, request, at, "Развязка")
+            visuals.destination(player, request, at, "Развязка")
+            harness.blocks.size shouldBe 4
+            harness.texts.size shouldBe 1
+            harness.blocks.forEach { display ->
+                verify { display.isVisibleByDefault = false }
+                verify { display.isGlowing = true }
+                verify { display.showTo(player) }
+            }
+            visuals.target(player, request, null, "")
+            harness.blocks.forEach { display -> verify(exactly = 1) { display.remove() } }
+            visuals.close()
+        }
+    }
+
     "forge visibly bends around a stable crown and quenching preserves the complete open shoe" {
         val stages = listOf(OriginJobProp.FORGE_BLANK, OriginJobProp.FORGE_HEATED,
             OriginJobProp.FORGE_SHAPED_1, OriginJobProp.FORGE_SHAPED_2, OriginJobProp.FORGE_HORSESHOE)

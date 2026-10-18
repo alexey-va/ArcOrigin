@@ -28,6 +28,8 @@ internal data class OriginOddJobVenue(
     val actorIds: Set<Int>,
 )
 
+internal data class OriginYardRider(val npcId: Int, val npcUuid: UUID, val name: String)
+
 internal data class OriginOddJobsConfig(
     val enabled: Boolean,
     val lifetimeMillis: Long,
@@ -40,9 +42,14 @@ internal data class OriginOddJobsConfig(
     val handoffName: String,
     val text: ConfigSection,
     val rewardPolicy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy(),
-    val yardAnimalIds: List<Int> = listOf(371, 422, 423),
+    val yardAnimalIds: List<Int> = listOf(422, 423),
     val yardFeedingAnimalId: Int = 422,
-    val yardEscortAnimalId: Int = 371,
+    val yardRider: OriginYardRider? = null,
+    val yardRideAnchorIds: List<String> = emptyList(),
+    val yardDeliveryAnchorIds: List<String> = emptyList(),
+    val yardGateAnchorIds: List<String> = emptyList(),
+    val yardFeedingMillis: Long = 5_000,
+    val yardRouteTimeoutMillis: Long = 60_000,
 ) {
     fun venue(kind: OriginOddJobKind) = venues.first { it.kind == kind }
     fun line(key: String, vararg values: Pair<String, Any>): String = values.fold(rewardPolicy.limits(text.string(key))) { line, (name, value) ->
@@ -69,7 +76,15 @@ internal data class OriginOddJobsConfig(
             source.string("jobs.auction.handoff-name"), source.section("text"), rewardPolicy,
             source.stringList("jobs.mountyard.animal-ids").map(String::toInt).also { require(it.isNotEmpty()) },
             source.integer("jobs.mountyard.feeding-animal-id", 422),
-            source.integer("jobs.mountyard.escort-animal-id", 371),
+            source.integer("jobs.mountyard.rider-npc-id", -1).takeIf { it >= 0 }?.let { id ->
+                OriginYardRider(id, UUID.fromString(source.string("jobs.mountyard.rider-npc-uuid")),
+                    source.string("jobs.mountyard.rider-name", "Всадник"))
+            },
+            source.stringList("jobs.mountyard.ride-anchor-ids"),
+            source.stringList("jobs.mountyard.delivery-anchor-ids"),
+            source.stringList("jobs.mountyard.stall-gate-anchor-ids"),
+            source.integer("jobs.mountyard.feeding-seconds", 5).coerceIn(1, 30) * 1_000L,
+            source.integer("jobs.mountyard.route-timeout-seconds", 60).coerceIn(15, 180) * 1_000L,
         )
     }
 }
@@ -197,6 +212,7 @@ internal fun originOddJobGuide(config: OriginOddJobsConfig, job: OriginOddJobSes
     val f = job.forge; val y = job.yard
     return config.line("guide.$key", "name" to config.venue(job.employer).name,
         "strikes" to (f?.remainingStrikes ?: 0), "animal" to (y?.animalName ?: ""),
+        "rider" to (config.yardRider?.name ?: "Всадник"),
         "product" to (f?.product?.title ?: "Заготовка"), "metal" to (f?.metal?.title ?: job.engraving?.metal?.title ?: ""),
         "cargo" to (job.haul?.cargo?.title ?: ""), "loads" to (job.haul?.loads ?: 0), "loaded" to (job.haul?.loaded ?: 0),
         "delivered" to (job.haul?.delivered ?: 0),

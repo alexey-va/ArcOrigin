@@ -118,10 +118,9 @@ internal class OriginOddJobSupplies(private val text: (String) -> String = { it 
         OriginOddJobStage.YARD_WATER -> "water_bucket"
         OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_DELIVER -> "lead"
         OriginOddJobStage.YARD_GROOM -> "brush"
-        OriginOddJobStage.YARD_TACK -> if (job.variant == OriginOddJobVariant.YARD_SADDLE) "brush" else null
+        OriginOddJobStage.YARD_TACK -> "brush"
         OriginOddJobStage.YARD_SADDLE -> "saddle"
-        OriginOddJobStage.YARD_UNTIE_FIRST, OriginOddJobStage.YARD_UNTIE_SECOND ->
-            if (job.variant == OriginOddJobVariant.YARD_GROOM) "brush" else "lead"
+        OriginOddJobStage.YARD_UNTIE_FIRST, OriginOddJobStage.YARD_UNTIE_SECOND -> "lead"
         else -> null
     }
 

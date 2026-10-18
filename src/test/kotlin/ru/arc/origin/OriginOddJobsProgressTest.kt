@@ -9,6 +9,19 @@ private fun offer(variant: OriginOddJobVariant, seed: Int = 8, urgent: Boolean =
 private fun OriginOddJobStep.reason() = (this as OriginOddJobStep.Rejected).reason
 
 class OriginOddJobsProgressTest : StringSpec({
+    "a busy rider allows water for a free horse even after water left this variant bag" {
+        val board = OriginOddJobDispatch(OriginOddJobKind.MOUNTYARD, Random(4))
+        for (variant in listOf(OriginOddJobVariant.YARD_RATIONS, OriginOddJobVariant.YARD_WATER)) {
+            val offer = board.offers(OriginWorkShiftPhase.OPENING).first { it.variant == variant }
+            board.accept(offer.id) shouldBe offer
+        }
+        val selected = board.nextAvailable(OriginWorkShiftPhase.OPENING) { it.variant == OriginOddJobVariant.YARD_WATER }!!
+        selected.variant shouldBe OriginOddJobVariant.YARD_WATER
+        board.offers(OriginWorkShiftPhase.CLOSING).count { it.id == selected.id } shouldBe 1
+        board.accept(selected.id) shouldBe selected
+        board.nextAvailable(OriginWorkShiftPhase.OPENING) { false } shouldBe null
+        board.offers(OriginWorkShiftPhase.OPENING).all { it.variant.isYardPreparation() } shouldBe true
+    }
     "the first forge assignment always teaches a raw blank before repair variants" {
         repeat(20) { seed ->
             val dispatch = OriginOddJobDispatch(OriginOddJobKind.FORGE, Random(seed))
@@ -54,15 +67,15 @@ class OriginOddJobsProgressTest : StringSpec({
         auction.map { it.variant }.distinct().size shouldBe 2
         auction.map { it.urgent } shouldBe listOf(false, true)
     }
-    "water and feed wait for the animal and saddling requires leading grooming and handoff in order" {
+    "feeding and rider handoff finish the order immediately while water waits for its care" {
         val chains = mapOf(
             OriginOddJobVariant.YARD_WATER to listOf(OriginOddJobAction.WATER, OriginOddJobAction.WATER,
                 OriginOddJobAction.WATER, OriginOddJobAction.CARE_DONE),
-            OriginOddJobVariant.YARD_RATIONS to listOf(OriginOddJobAction.HAY, OriginOddJobAction.FEED, OriginOddJobAction.CARE_DONE),
+            OriginOddJobVariant.YARD_RATIONS to listOf(OriginOddJobAction.HAY, OriginOddJobAction.FEED),
             OriginOddJobVariant.YARD_SADDLE to listOf(OriginOddJobAction.TACK, OriginOddJobAction.LEAD, OriginOddJobAction.ARRIVE,
                 OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.BRUSH, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM,
                 OriginOddJobAction.TACK, OriginOddJobAction.SADDLE, OriginOddJobAction.UNTIE, OriginOddJobAction.UNTIE, OriginOddJobAction.ARRIVE,
-                OriginOddJobAction.HANDOFF, OriginOddJobAction.CARE_DONE),
+                OriginOddJobAction.HANDOFF),
         )
         for ((variant, actions) in chains) {
             val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
@@ -94,6 +107,10 @@ class OriginOddJobsProgressTest : StringSpec({
             jobs.act(id, OriginOddJobAction.GROOM, 30_000L * (index + 1))
             jobs.current(id)!!.yard!!.brushStrokes shouldBe index + 1
         }
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_TACK
+        jobs.act(id, OriginOddJobAction.UNTIE, 90_000).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.TACK, 90_000)
+        jobs.act(id, OriginOddJobAction.SADDLE, 90_000)
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_UNTIE_FIRST
         jobs.act(id, OriginOddJobAction.ARRIVE, 90_001).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
         jobs.act(id, OriginOddJobAction.UNTIE, 90_002)
@@ -101,7 +118,7 @@ class OriginOddJobsProgressTest : StringSpec({
         jobs.act(id, OriginOddJobAction.ARRIVE, 90_003).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
         jobs.act(id, OriginOddJobAction.UNTIE, 90_004)
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_DELIVER
-        listOf(OriginOddJobAction.ARRIVE, OriginOddJobAction.HANDOFF, OriginOddJobAction.CARE_DONE).forEach { jobs.act(id, it, 90_005) }
+        listOf(OriginOddJobAction.ARRIVE, OriginOddJobAction.HANDOFF).forEach { jobs.act(id, it, 90_005) }
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
         jobs.current(id)!!.yard!!.animalId shouldBe 423
         jobs.current(id)!!.quality shouldBe 100

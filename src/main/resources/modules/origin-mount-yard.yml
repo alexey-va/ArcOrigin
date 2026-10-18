@@ -16,17 +16,6 @@ interaction:
   reaction-damage: 2.0
 
 animals:
-  "371":
-    name: Ветер
-    entity-type: HORSE
-    npc-uuid: 73ac6c29-6b4a-4d4b-8303-cc9b9da20d1f
-    friendly-lines:
-      - "Ветер доверчиво тянется к ладони."
-      - "Хороший конь. Ветер довольно переступает копытом."
-    warning-lines:
-      - "Ветер дёргает ушами: хватит щекотать."
-      - "Ещё одна ладонь — и Ветер начнёт сердиться."
-    annoyed-sound: ENTITY_HORSE_ANGRY
   "413":
     name: Иней
     entity-type: HORSE

@@ -813,10 +813,9 @@ scenes:
     audience-range: 72.0
     retry-seconds: 3
     max-concurrent-cycles: 7
-    actor-ids: ["370", "371", "412", "413", "414", "415", "422", "423", "369", "440", "441", "442", "443", "444", "445", "446"]
+    actor-ids: ["370", "412", "413", "414", "415", "422", "423", "369", "440", "441", "442", "443", "444", "445", "446", "461"]
     actors:
       370: {"home": "56.0612,70.0,-141.8403,-85.6,0", "denied-denizen-flags": []}
-      371: {"home": "63.6,70.0,-119.7132,57.0,-43.4", "denied-denizen-flags": []}
       412: {"home": "43.5,68,-109.5,-90,0", "denied-denizen-flags": []}
       413: {"home": "43.5,68,-109.5,-90,0", "denied-denizen-flags": []}
       414: {"home": "73.5,68,-104.5,-90,0", "denied-denizen-flags": []}
@@ -825,20 +824,18 @@ scenes:
       423: {"home": "72.5,70.0,-134.5,-180,0", "denied-denizen-flags": []}
       369: {"home": "54.6336,70,-119.518,180,0", "denied-denizen-flags": []}
       440: {"home": "57.5,70,-133.5,180,0", "denied-denizen-flags": []}
+      461: {"home": "57.5,69,-111.5,-90,0", "denied-denizen-flags": []}
       441: {"home": "66.5,70,-141.5,-90,0", "denied-denizen-flags": []}
       442: {"home": "69.5,70,-141.5,180,0", "denied-denizen-flags": []}
       443: {"home": "52.5,70,-121.5,90,0", "denied-denizen-flags": []}
       444: {"home": "57.5,70,-125.5,180,0", "denied-denizen-flags": []}
       445: {"home": "45.5,70,-141.5,-90,0", "denied-denizen-flags": []}
       446: {"home": "73.5,70,-141.5,90,0", "denied-denizen-flags": []}
-    anchor-ids: ["tack-table", "wind-approach", "buran-approach", "ryzhik-approach", "wind-graze", "wind-turn", "buran-graze", "buran-turn", "ryzhik-graze", "ryzhik-turn", "iney-turn", "bay-turn", "yard-center", "saddler-stand", "saddle-rack-stand", "helper-hay", "helper-barrels", "water-source", "job-feed-floor", "job-feed-approach", "job-care-pad", "job-tie-first", "job-tie-second", "job-handoff", "brush-source", "saddle-source", "helper-feed", "feed-floor", "hay-source", "cat-nap", "cat-watch", "dog-patrol", "dog-watch", "goat-hay", "goat-turn", "llama-turn", "llama-watch", "donkey-graze", "packing-crates", "packing-stand", "packing-target", "caravan-helper", "caravan-person-mid", "caravan-animal-mid", "caravan-person-front", "caravan-animal-front", "home-369", "home-440", "home-441", "home-442", "home-443", "home-444", "home-445", "home-446", "helper-water", "water-trough", "caravan-person-exit", "caravan-animal-exit", "home-371", "home-422", "home-423", "home-415", "caravan-person-corner", "caravan-animal-corner", "home-412", "home-413", "home-414", "iney-field-point-0", "iney-field-point-1", "iney-field-point-2", "iney-field-point-3", "iney-field-point-4", "iney-field-point-5", "iney-field-point-6", "iney-field-point-7", "bay-field-point-0", "bay-field-point-1", "bay-field-point-2", "bay-field-point-3", "bay-field-point-4", "bay-field-point-5", "bay-field-point-6", "bay-field-point-7", "bay-field-point-8"]
+    anchor-ids: ["tack-table", "buran-approach", "ryzhik-approach", "buran-graze", "buran-turn", "ryzhik-graze", "ryzhik-turn", "iney-turn", "bay-turn", "yard-center", "saddler-stand", "saddle-rack-stand", "helper-hay", "helper-barrels", "water-source", "job-feed-floor", "job-feed-approach", "job-care-pad", "job-tie-first", "job-tie-second", "job-handoff", "brush-source", "saddle-source", "helper-feed", "feed-floor", "hay-source", "cat-nap", "cat-watch", "dog-patrol", "dog-watch", "goat-hay", "goat-turn", "llama-turn", "llama-watch", "donkey-graze", "packing-crates", "packing-stand", "packing-target", "caravan-helper", "caravan-person-mid", "caravan-animal-mid", "caravan-person-front", "caravan-animal-front", "home-369", "home-440", "home-441", "home-442", "home-443", "home-444", "home-445", "home-446", "helper-water", "water-trough", "caravan-person-exit", "caravan-animal-exit", "home-422", "home-423", "home-415", "caravan-person-corner", "caravan-animal-corner", "home-412", "home-413", "home-414", "iney-field-point-0", "iney-field-point-1", "iney-field-point-2", "iney-field-point-3", "iney-field-point-4", "iney-field-point-5", "iney-field-point-6", "iney-field-point-7", "bay-field-point-0", "bay-field-point-1", "bay-field-point-2", "bay-field-point-3", "bay-field-point-4", "bay-field-point-5", "bay-field-point-6", "bay-field-point-7", "bay-field-point-8", "job-rider-home", "job-stall-422-exit", "job-stall-423-exit", "job-stall-422-gate-1", "job-stall-422-gate-2", "job-stall-422-gate-3", "job-stall-423-gate-1", "job-stall-423-gate-2", "job-stall-423-gate-3", "job-delivery-0", "job-delivery-1", "job-delivery-2", "job-delivery-3", "job-ride-0", "job-ride-1", "job-ride-2", "job-ride-3", "job-ride-4", "job-ride-5", "job-ride-6", "job-ride-7"]
     anchors:
       tack-table: "60.5,70.0,-122.5"
-      wind-approach: "62.5,70.0,-121.5"
       buran-approach: "49.5,70.0,-136.5"
       ryzhik-approach: "70.5,70.0,-134.5"
-      wind-graze: "62.5,70,-121.5,0,0"
-      wind-turn: "61.5,70,-119.5,0,0"
       buran-graze: "47.5,70,-134.5,0,0"
       buran-turn: "48.5,70,-135.5,0,0"
       ryzhik-graze: "71.5,70,-134.5,0,0"
@@ -856,7 +853,28 @@ scenes:
       job-care-pad: "60.5,70,-126.5,180,0"
       job-tie-first: "56.06,71.4,-127.5,-90,0"
       job-tie-second: "63.94,71.4,-127.5,90,0"
-      job-handoff: "59.5,70,-133.5,90,0"
+      job-handoff: "59.5,69,-111.5,90,0"
+      job-rider-home: "57.5,69,-111.5,-90,0"
+      job-stall-422-exit: "52.5,70,-135.5,-90,0"
+      job-stall-423-exit: "72.5,70,-138.5,180,0"
+      job-stall-422-gate-1: "50.5,70,-136.5"
+      job-stall-422-gate-2: "50.5,70,-135.5"
+      job-stall-422-gate-3: "50.5,70,-134.5"
+      job-stall-423-gate-1: "72.5,70,-136.5"
+      job-stall-423-gate-2: "71.5,70,-136.5"
+      job-stall-423-gate-3: "73.5,70,-136.5"
+      job-delivery-0: "60.5,70,-119.5"
+      job-delivery-1: "58.5,70,-117.5"
+      job-delivery-2: "58.5,69.5,-115.5"
+      job-delivery-3: "58.5,69,-113.5"
+      job-ride-0: "58.5,69,-109.5"
+      job-ride-1: "54.5,69,-109.5"
+      job-ride-2: "50.5,69,-109.5"
+      job-ride-3: "48.5,69,-110.5"
+      job-ride-4: "49.5,69,-113.5"
+      job-ride-5: "52.5,69,-113.5"
+      job-ride-6: "55.5,69,-113.5"
+      job-ride-7: "58.5,69,-113.5"
       brush-source: "55.5,70,-133.5"
       saddle-source: "65.5,70,-133.5"
       helper-feed: "61.5,70,-121.5,-90,0"
@@ -891,7 +909,6 @@ scenes:
       water-trough: "57.5,70.9,-121.5"
       caravan-person-exit: "65.5,70,-143.5,0,0"
       caravan-animal-exit: "65.5,70,-141.5,0,0"
-      home-371: "63.6,70.0,-119.7132,57.0,-43.4"
       home-422: "47.5,70.0,-136.5,-90,0"
       home-423: "72.5,70.0,-134.5,-180,0"
       home-415: "73.5,68,-104.5,-90,0"
@@ -917,9 +934,10 @@ scenes:
       bay-field-point-6: "79.5,68,-125.5,-90,0"
       bay-field-point-7: "77.5,69,-117.5,-90,0"
       bay-field-point-8: "76.5,69,-109.5,-90,0"
-    route-profile-ids: ["yard", "north", "caravan", "west-pen", "east-pen", "front-yard", "iney-field", "bay-field"]
+    route-profile-ids: ["yard", "north", "caravan", "west-pen", "east-pen", "front-yard", "iney-field", "bay-field", "yard-field"]
     route-profiles:
       yard: {"floor-y": 70, "min-block": "43,-147", "max-block": "76,-116", "forbidden-areas": [], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 3, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
+      yard-field: {"floor-y": 69, "min-block": "46,-143", "max-block": "74,-107", "forbidden-areas": [], "preferred-areas": ["58,-141,62,-117"], "max-visited": 4096, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 50, "speed-modifier": 0.58, "distance-margin": 0.35, "path-distance-margin": 0.3, "off-floor-tolerance": 1.0, "maximum-step-height": 1.0, "maximum-surface-drop": 0.5, "surface-search-range": 2, "allowed-support-materials": ["FARMLAND", "DIRT", "COARSE_DIRT", "ROOTED_DIRT", "PACKED_MUD", "MUD_BRICKS", "MUD_BRICK_SLAB", "GRASS_BLOCK", "MOSS_BLOCK", "GREEN_CONCRETE_POWDER", "SPRUCE_PLANKS"]}
       north: {"floor-y": 69, "min-block": "48,-121", "max-block": "63,-98", "forbidden-areas": [], "preferred-areas": ["50,-115,58,-100"], "max-visited": 1024, "snap-radius": 3, "poll-ticks": 2, "stall-polls": 30, "speed-modifier": 0.52, "distance-margin": 0.7, "path-distance-margin": 0.55, "maximum-step-height": 0.125}
       caravan: {"floor-y": 70, "min-block": "43,-147", "max-block": "76,-116", "forbidden-areas": ["66,-140,76,-125", "62,-134,76,-125", "43,-140,57,-123"], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 3, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
       west-pen: {"floor-y": 70, "min-block": "47,-137", "max-block": "48,-134", "forbidden-areas": [], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
@@ -927,26 +945,8 @@ scenes:
       front-yard: {"floor-y": 70, "min-block": "55,-122", "max-block": "64,-116", "forbidden-areas": [], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
       iney-field: {"floor-y": 69, "min-block": "37,-127", "max-block": "49,-108", "forbidden-areas": [], "preferred-areas": [], "max-visited": 1024, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 50, "speed-modifier": 0.42, "distance-margin": 0.22, "path-distance-margin": 0.2, "maximum-step-height": 1.0, "maximum-surface-drop": 0.0625, "surface-search-range": 2, "allowed-support-materials": ["FARMLAND"]}
       bay-field: {"floor-y": 69, "min-block": "71,-129", "max-block": "89,-103", "forbidden-areas": [], "preferred-areas": [], "max-visited": 1024, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 50, "speed-modifier": 0.42, "distance-margin": 0.22, "path-distance-margin": 0.2, "maximum-step-height": 1.0, "maximum-surface-drop": 0.0625, "surface-search-range": 2, "allowed-support-materials": ["FARMLAND"]}
-    cycle-ids: ["groom-wind", "inspect-buran", "inspect-ryzhik", "wind-paddock", "buran-paddock", "ryzhik-paddock", "iney-patrol", "bay-patrol", "saddler-work", "caravan-preparation", "helper-hay", "helper-water", "cat-round", "dog-round", "goat-round", "llama-round", "donkey-rest", "cat-and-dog"]
+    cycle-ids: ["inspect-buran", "inspect-ryzhik", "buran-paddock", "ryzhik-paddock", "iney-patrol", "bay-patrol", "saddler-work", "caravan-preparation", "cat-round", "dog-round", "goat-round", "llama-round", "donkey-rest", "cat-and-dog"]
     cycles:
-      groom-wind:
-        actor-ids: ["370", "371"]
-        initial-delay-seconds: 8
-        cooldown-min-seconds: 48
-        cooldown-max-seconds: 70
-        step-ids: ["table", "brush", "horse", "face", "groom", "wool", "hearts", "line", "carrot", "feed", "home"]
-        steps:
-          table: {"type": "MOVE", "actor-id": 370, "anchor": "tack-table", "route-profile": "yard", "timeout-ticks": 220}
-          brush: {"type": "EQUIP", "actor-id": 370, "material": "BRUSH"}
-          horse: {"type": "MOVE", "actor-id": 370, "anchor": "wind-approach", "route-profile": "yard", "timeout-ticks": 220}
-          face: {"type": "LOOK_AT_ACTOR", "actor-id": 370, "target-actor-id": 371}
-          groom: {"type": "SWING", "actor-id": 370, "repetitions": 5, "period-ticks": 12}
-          wool: {"type": "SOUND", "actor-id": 371, "sound": "BLOCK_WOOL_STEP", "volume": 0.34, "pitch": 1.25}
-          hearts: {"type": "PARTICLE", "actor-id": 371, "particle": "HEART", "count": 3}
-          line: {"type": "SPEECH", "actor-id": 370, "text": "Спокойно, Ветер. Гриву расчешем — и гулять."}
-          carrot: {"type": "EQUIP", "actor-id": 370, "material": "CARROT"}
-          feed: {"type": "SOUND", "actor-id": 371, "sound": "ENTITY_HORSE_EAT", "volume": 0.46, "pitch": 1.0}
-          home: {"type": "MOVE", "actor-id": 370, "anchor": "yard-center", "route-profile": "yard", "timeout-ticks": 260}
       inspect-buran:
         actor-ids: ["370", "422"]
         initial-delay-seconds: 20
@@ -975,20 +975,6 @@ scenes:
           hearts: {"type": "PARTICLE", "actor-id": 423, "particle": "HAPPY_VILLAGER", "count": 5}
           line: {"type": "SPEECH", "actor-id": 370, "text": "Рыжик, подпруга ровно. Не хитри на повороте."}
           home: {"type": "MOVE", "actor-id": 370, "anchor": "yard-center", "route-profile": "yard", "timeout-ticks": 260}
-      wind-paddock:
-        actor-ids: ["371"]
-        initial-delay-seconds: 12
-        cooldown-min-seconds: 16
-        cooldown-max-seconds: 30
-        step-ids: ["graze", "graze-pose", "pause", "stand-pose", "turn", "breathe", "home"]
-        steps:
-          graze: {"type": "MOVE", "actor-id": 371, "anchor": "wind-graze", "route-profile": "front-yard", "timeout-ticks": 260}
-          graze-pose: {"type": "POSE", "actor-id": 371, "state": "HORSE_GRAZE"}
-          pause: {"type": "WAIT", "ticks": 170}
-          stand-pose: {"type": "POSE", "actor-id": 371, "state": "STAND"}
-          turn: {"type": "MOVE", "actor-id": 371, "anchor": "wind-turn", "route-profile": "front-yard", "timeout-ticks": 220}
-          breathe: {"type": "SOUND", "actor-id": 371, "sound": "ENTITY_HORSE_BREATHE", "volume": 0.3, "pitch": 1.08}
-          home: {"type": "MOVE", "actor-id": 371, "anchor": "home-371", "route-profile": "front-yard", "timeout-ticks": 260}
       buran-paddock:
         actor-ids: ["422"]
         initial-delay-seconds: 24
@@ -1230,67 +1216,6 @@ scenes:
           unload-work-0: {"type": "SWING", "actor-id": 441, "repetitions": 3, "period-ticks": 13}
           unload-0-pad: {"type": "REMOVE_DISPLAY", "key": "cargo-pad"}
           finish: {"type": "SPEECH", "actor-id": 441, "text": "Отдыхай, Репей. До следующего выхода всё уложено."}
-      helper-hay:
-        actor-ids: ["440", "371"]
-        initial-delay-seconds: 10
-        cooldown-min-seconds: 25
-        cooldown-max-seconds: 45
-        step-ids: ["source", "look", "take", "hands", "carry-bale", "carry-binding", "deliver", "call", "animal", "put-look", "put", "serve-bale", "serve-binding", "graze", "eat", "meal", "eaten-bale", "eaten-binding", "last-bites", "clean-bale", "clean-binding", "stand"]
-        steps:
-          source: {"type": "MOVE", "actor-id": 440, "anchor": "helper-hay", "route-profile": "yard", "timeout-ticks": 500}
-          look: {"type": "LOOK_AT_ANCHOR", "actor-id": 440, "anchor": "hay-source"}
-          take: {"type": "SWING", "actor-id": 440, "repetitions": 4, "period-ticks": 12}
-          hands: {"type": "EQUIP", "actor-id": 440, "material": "AIR"}
-          carry-bale: {"type": "BLOCK_DISPLAY", "key": "hay-bale", "material": "HAY_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.5400,0.4500,0.4200", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.0000,0.8500,0.5500"}
-          carry-binding: {"type": "BLOCK_DISPLAY", "key": "hay-binding", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "scale": "0.0800,0.4800,0.4400", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.0000,0.8400,0.5500"}
-          deliver: {"type": "MOVE", "actor-id": 440, "anchor": "helper-feed", "route-profile": "yard", "timeout-ticks": 500}
-          call: {"type": "SPEECH", "actor-id": 440, "text": "Ветер, свежее сено. Только не всё разом!"}
-          animal: {"type": "MOVE", "actor-id": 371, "anchor": "wind-approach", "route-profile": "yard", "timeout-ticks": 500}
-          put-look: {"type": "LOOK_AT_ANCHOR", "actor-id": 440, "anchor": "feed-floor"}
-          put: {"type": "SWING", "actor-id": 440, "repetitions": 3, "period-ticks": 12}
-          serve-bale: {"type": "BLOCK_DISPLAY", "key": "hay-bale", "material": "HAY_BLOCK", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.0300,0.0000", "scale": "0.5400,0.4500,0.4200", "interpolation-ticks": 5, "anchor": "feed-floor"}
-          serve-binding: {"type": "BLOCK_DISPLAY", "key": "hay-binding", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.0200,0.0000", "scale": "0.0800,0.4800,0.4400", "interpolation-ticks": 5, "anchor": "feed-floor"}
-          graze: {"type": "POSE", "actor-id": 371, "state": "HORSE_GRAZE"}
-          eat: {"type": "SOUND", "actor-id": 371, "sound": "ENTITY_HORSE_EAT", "volume": 0.32, "pitch": 1.0}
-          meal: {"type": "WAIT", "ticks": 150}
-          eaten-bale: {"type": "BLOCK_DISPLAY", "key": "hay-bale", "material": "HAY_BLOCK", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.0100,0.0000", "scale": "0.1620,0.1350,0.1260", "interpolation-ticks": 5, "anchor": "feed-floor"}
-          eaten-binding: {"type": "BLOCK_DISPLAY", "key": "hay-binding", "material": "BROWN_TERRACOTTA", "origin": "BOTTOM_CENTER", "offset": "0.0000,0.0070,0.0000", "scale": "0.0240,0.1440,0.1320", "interpolation-ticks": 5, "anchor": "feed-floor"}
-          last-bites: {"type": "WAIT", "ticks": 100}
-          clean-bale: {"type": "REMOVE_DISPLAY", "key": "hay-bale"}
-          clean-binding: {"type": "REMOVE_DISPLAY", "key": "hay-binding"}
-          stand: {"type": "POSE", "actor-id": 371, "state": "STAND"}
-      helper-water:
-        actor-ids: ["440"]
-        initial-delay-seconds: 42
-        cooldown-min-seconds: 45
-        cooldown-max-seconds: 65
-        step-ids: ["barrels", "fill", "hands", "bucket-base", "bucket-front", "bucket-back", "bucket-left", "bucket-right", "bucket-water", "bucket-handle", "deliver", "face-trough", "pour", "splash", "drops", "line", "wait", "empty-water", "back", "put-base", "put-front", "put-back", "put-left", "put-right", "put-handle"]
-        steps:
-          barrels: {"type": "MOVE", "actor-id": 440, "anchor": "helper-barrels", "route-profile": "yard", "timeout-ticks": 500}
-          fill: {"type": "SOUND", "actor-id": 440, "sound": "ITEM_BUCKET_FILL", "volume": 0.32, "pitch": 1.0}
-          hands: {"type": "EQUIP", "actor-id": 440, "material": "AIR"}
-          bucket-base: {"type": "BLOCK_DISPLAY", "key": "bucket-base", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.2600,0.0400,0.2600", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.3800,0.6000,0.2000"}
-          bucket-front: {"type": "BLOCK_DISPLAY", "key": "bucket-front", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.2600,0.2300,0.0300", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.3800,0.6400,0.0800"}
-          bucket-back: {"type": "BLOCK_DISPLAY", "key": "bucket-back", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.2600,0.2300,0.0300", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.3800,0.6400,0.3200"}
-          bucket-left: {"type": "BLOCK_DISPLAY", "key": "bucket-left", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.0300,0.2300,0.2600", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.2600,0.6400,0.2000"}
-          bucket-right: {"type": "BLOCK_DISPLAY", "key": "bucket-right", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.0300,0.2300,0.2600", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.5000,0.6400,0.2000"}
-          bucket-water: {"type": "BLOCK_DISPLAY", "key": "bucket-water", "material": "LIGHT_BLUE_STAINED_GLASS", "origin": "BOTTOM_CENTER", "scale": "0.2000,0.0250,0.2000", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.3800,0.8200,0.2000"}
-          bucket-handle: {"type": "BLOCK_DISPLAY", "key": "bucket-handle", "material": "IRON_BLOCK", "origin": "BOTTOM_CENTER", "scale": "0.0250,0.0250,0.2800", "interpolation-ticks": 5, "follow-actor-id": 440, "follow-offset": "0.3800,1.0200,0.2000"}
-          deliver: {"type": "MOVE", "actor-id": 440, "anchor": "helper-water", "route-profile": "yard", "timeout-ticks": 500}
-          face-trough: {"type": "LOOK_AT_SURFACE", "actor-id": 440, "surface": "water-trough"}
-          pour: {"type": "SWING", "actor-id": 440, "repetitions": 5, "period-ticks": 16}
-          splash: {"type": "SOUND", "actor-id": 440, "sound": "ITEM_BUCKET_EMPTY", "volume": 0.32, "pitch": 1.0}
-          drops: {"type": "PARTICLE", "anchor": "water-trough", "particle": "SPLASH", "count": 12}
-          line: {"type": "SPEECH", "actor-id": 440, "text": "Вода свежая. Теперь можно и мне передохнуть."}
-          wait: {"type": "WAIT", "ticks": 60}
-          empty-water: {"type": "REMOVE_DISPLAY", "key": "bucket-water"}
-          back: {"type": "MOVE", "actor-id": 440, "anchor": "helper-barrels", "route-profile": "yard", "timeout-ticks": 500}
-          put-base: {"type": "REMOVE_DISPLAY", "key": "bucket-base"}
-          put-front: {"type": "REMOVE_DISPLAY", "key": "bucket-front"}
-          put-back: {"type": "REMOVE_DISPLAY", "key": "bucket-back"}
-          put-left: {"type": "REMOVE_DISPLAY", "key": "bucket-left"}
-          put-right: {"type": "REMOVE_DISPLAY", "key": "bucket-right"}
-          put-handle: {"type": "REMOVE_DISPLAY", "key": "bucket-handle"}
       cat-round:
         actor-ids: ["443"]
         initial-delay-seconds: 5

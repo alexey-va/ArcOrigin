@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "title": "Stable continuous work and rider handoff 2026-10-18",
+  "assumptions": [
+    "Live policy read 2026-10-18T15:03:13Z: 20 Vault per completed order, shared 100 orders per UUID per UTC day, reward policy SHA256 51473a9539fcd0aeb7cf8e3109ad756c6396b8a361ab6e65faadb99c893aae87. No monetary value, currency conversion, quota or payout journal change.",
+    "Before: player waits through horse approach and 5-second hay eating. After: accepted hay placement completes the order immediately; eating and return retain an animal-only lease. New care orders always include both ties, 3 brushes, saddle, untie and outdoor rider handoff; background ride is unpaid.",
+    "Low/base/high sensitivity assumptions, not measured: participants 5/20/50, active hours per day 0.25/1/2. Before capacity 40/40/50 orders/hour ->10/40/100 orders/day. After capacity 44/44/55 orders/hour ->11/44/100 orders/day after unchanged cap. The 10 percent cadence increase is an explicit sensitivity, not a prediction; longer care can offset hay wait removal.",
+    "At matched order counts, before/after amounts are identical. Maximum remains 2000 Vault per UUID/day; no global weekly budget exists. Multiple eligible accounts still scale linearly; no new per-action reward or permanent tool redemption is introduced.",
+    "Independent player tasks cannot claim eating/riding horses. Background work retains actor ownership until cleanup and does not award a second order; actual-player leases remain exclusive. Reload/logout/timeout must cancel or finish owned visuals and return horses without duplicate acceptance.",
+    "Fresh 168-hour network ledger 2026-10-18: coverage12866 records67171 operations31 players. Per-currency Vault mint73356775.70266916 burn4134028.45; tokens mint65 burn21. Vault includes admin mint67001499 and concentrated shop sales, so aggregate income/activity buckets are not an ordinary-player hourly baseline. Top-source audit does not isolate Origin job cadence.",
+    "EconomyShopGUI SELL is currently active (shop_sell income5746253.95 in this window). Planned SELL-to-contract transition is future scope and unchanged. Temporary hay/water/lead/brush/saddle are work markers with no SELL/contract redemption. No new item, XP, token or entitlement reward.",
+    "No accumulation price or progression cost changes; disposable income cannot be inferred reliably from this mixed ledger. New sensitivity adds20/80/0 Vault per player-day in low/base/high; actual cadence requires behavioral measurement after activation."
+  ],
+  "participants": [
+    5,
+    20,
+    50
+  ],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "flows": [
+        {
+          "id": "origin_side_jobs_cadence_sensitivity",
+          "kind": "mint",
+          "source": "ArcOrigin OriginSideJobRewardPolicy / OriginSideJobRewards; live plugins/ARC/modules/origin-side-job-rewards.yml",
+          "basis": "Explicit 10 percent order cadence sensitivity, unchanged 100-order daily cap; actual cadence unmeasured",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "20",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              10,
+              40,
+              100
+            ],
+            "player_daily_cap": {
+              "value": "2000",
+              "unit": "major"
+            }
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "20",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              11,
+              44,
+              100
+            ],
+            "player_daily_cap": {
+              "value": "2000",
+              "unit": "major"
+            }
+          }
+        }
+      ]
+    },
+    "tokens": {
+      "minor_per_unit": 100,
+      "flows": [
+        {
+          "id": "origin_side_jobs_tokens",
+          "kind": "mint",
+          "source": "ArcOrigin side-job reward contract",
+          "basis": "No token reward before or after",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              10,
+              40,
+              100
+            ]
+          },
+          "after": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              11,
+              44,
+              100
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

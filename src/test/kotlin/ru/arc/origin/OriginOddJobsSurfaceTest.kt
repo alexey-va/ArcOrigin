@@ -39,7 +39,7 @@ class OriginOddJobsSurfaceTest : StringSpec({
         val config = oddJobTestConfig()
         val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(),
             OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_WATER, 8, false), 0,
-            yardTarget = OriginYardWork(371, "Ветер"))!!
+            yardTarget = OriginYardWork(422, "Буран"))!!
         for (stage in OriginOddJobStage.entries.filter { it.name.startsWith("YARD_") }) {
             val current = job.copy(stage = stage)
             originOddJobChoices(config, current) shouldBe emptyList()
@@ -48,7 +48,7 @@ class OriginOddJobsSurfaceTest : StringSpec({
             guide.contains("порци", ignoreCase = true) shouldBe false
             guide.contains("остановить", ignoreCase = true) shouldBe false
         }
-        originOddJobGuide(config, job.copy(stage = OriginOddJobStage.YARD_WATER), 45_000) shouldContain "Ветер"
+        originOddJobGuide(config, job.copy(stage = OriginOddJobStage.YARD_WATER), 45_000) shouldContain "Буран"
     }
     "all employers share a readable shift confirmation with only the explicit accept action" {
         val config = oddJobTestConfig()

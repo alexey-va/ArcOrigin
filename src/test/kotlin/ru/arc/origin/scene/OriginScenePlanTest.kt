@@ -33,7 +33,7 @@ class OriginScenePlanTest : FreeSpec({
                 "furnace-check",
             )
         plan.scene("mount-yard").cycles.map(OriginSceneCycle::id) shouldContainAll
-            listOf("groom-wind", "inspect-buran", "inspect-ryzhik", "wind-paddock", "buran-paddock", "ryzhik-paddock")
+            listOf("inspect-buran", "inspect-ryzhik", "buran-paddock", "ryzhik-paddock")
     }
 
     "every cycle references declared actors anchors and route profiles" {
@@ -368,12 +368,14 @@ class OriginScenePlanTest : FreeSpec({
         val scene = OriginScenePlan.load(Files.createTempDirectory("origin-scenes-mount-test")).scene("mount-yard")
         val animalCycles = scene.cycles.filter { it.id.endsWith("-paddock") }
 
-        animalCycles.size shouldBe 3
-        animalCycles.flatMap(OriginSceneCycle::actorIds).toSet() shouldBe setOf(371, 422, 423)
+        animalCycles.size shouldBe 2
+        animalCycles.flatMap(OriginSceneCycle::actorIds).toSet() shouldBe setOf(422, 423)
+        scene.actors.containsKey(371) shouldBe false
+        scene.cycles.none { 440 in it.actorIds } shouldBe true
         scene.maxConcurrentCycles shouldBe 7
         scene.actors.keys.containsAll((440..446).toList()) shouldBe true
         scene.cycles.map(OriginSceneCycle::id).toSet().containsAll(
-            setOf("saddler-work", "caravan-preparation", "helper-hay", "helper-water", "cat-and-dog"),
+            setOf("saddler-work", "caravan-preparation", "cat-and-dog"),
         ) shouldBe true
     }
 

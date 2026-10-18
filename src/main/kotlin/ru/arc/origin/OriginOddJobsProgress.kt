@@ -20,6 +20,7 @@ internal enum class OriginOddJobVariant(val kind: OriginOddJobKind) {
     ENGRAVE_RUS(OriginOddJobKind.FORGE_ENGRAVE), ENGRAVE_HOME(OriginOddJobKind.FORGE_ENGRAVE), ENGRAVE_CAT(OriginOddJobKind.FORGE_ENGRAVE),
     AUCTION_DISPATCH(OriginOddJobKind.AUCTION), AUCTION_AMEND(OriginOddJobKind.AUCTION), AUCTION_GROUP(OriginOddJobKind.AUCTION),
 }
+internal fun OriginOddJobVariant.isYardPreparation(): Boolean = this == OriginOddJobVariant.YARD_GROOM || this == OriginOddJobVariant.YARD_SADDLE
 internal data class OriginOddJobOffer(val id: UUID, val variant: OriginOddJobVariant, val seed: Int, val urgent: Boolean) {
     val kind: OriginOddJobKind get() = variant.kind
 }
@@ -52,12 +53,21 @@ internal class OriginOddJobDispatch(private val kind: OriginOddJobKind, private 
             return bag
         }
         val candidates = if (kind == OriginOddJobKind.FORGE) families.take(2).map { bagFor(it).first() }
-            else bagFor(kind).take(2)
+            else if (kind == OriginOddJobKind.MOUNTYARD) bagFor(kind) else bagFor(kind).take(2)
         shown = candidates.mapIndexed { index, variant ->
             OriginOddJobOffer(UUID.randomUUID(), variant, random.nextInt(1, 10_000),
                 kind == OriginOddJobKind.AUCTION && phase == OriginWorkShiftPhase.RUSH && index == 1)
         }
         return shown
+    }
+    /** A rider's background trip must not idle a worker while another stall horse can drink. */
+    fun nextAvailable(phase: OriginWorkShiftPhase, available: (OriginOddJobOffer) -> Boolean): OriginOddJobOffer? {
+        offers(phase).firstOrNull(available)?.let { return it }
+        if (kind != OriginOddJobKind.MOUNTYARD || shown.any { it.variant == OriginOddJobVariant.YARD_WATER }) return null
+        val water = OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_WATER, random.nextInt(1, 10_000), false)
+        if (!available(water)) return null
+        shown = shown + water
+        return water
     }
     fun accept(id: UUID): OriginOddJobOffer? = shown.firstOrNull { it.id == id }?.also {
         families = families.filterNot { family -> family == it.kind }
@@ -168,7 +178,7 @@ internal fun originOddJobProgress(job: OriginOddJobSession, now: Long): Float = 
     OriginOddJobStage.YARD_HANDOFF, OriginOddJobStage.YARD_HANDED -> 0.95f
     OriginOddJobStage.YARD_FEED, OriginOddJobStage.YARD_WATER -> 0.5f
     OriginOddJobStage.YARD_SADDLE -> 0.75f
-    OriginOddJobStage.YARD_GROOM -> 0.4f + (if (job.variant == OriginOddJobVariant.YARD_SADDLE) 0.2f else 0.3f) *
+    OriginOddJobStage.YARD_GROOM -> 0.4f + 0.2f *
         requireNotNull(job.yard).brushStrokes / ODD_JOB_GROOM_STROKES
     OriginOddJobStage.AUCTION_VERIFY, OriginOddJobStage.AUCTION_DOCUMENT -> 0.3f
     OriginOddJobStage.AUCTION_PACK -> 0.45f
@@ -221,7 +231,7 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
             else -> OriginOddJobStage.AUCTION_ITEM
         }
         return OriginOddJobSession(UUID.randomUUID(), offer.kind, stage, now, minOf(hardStopAt, Math.addExact(now, lifetimeMillis)), now, offer,
-            yard = if (offer.kind == OriginOddJobKind.MOUNTYARD) yardTarget ?: OriginYardWork(371, "Ветер") else null,
+            yard = if (offer.kind == OriginOddJobKind.MOUNTYARD) yardTarget ?: OriginYardWork(422, "Буран") else null,
             forge = if (offer.kind == OriginOddJobKind.FORGE) OriginForgeWork(target, shape, when (offer.variant) {
                 OriginOddJobVariant.FORGE_HOOK -> OriginForgeProduct.HOOK
                 OriginOddJobVariant.FORGE_HINGE -> OriginForgeProduct.HINGE
@@ -249,7 +259,7 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
         val yard = job.yard; val forge = job.forge
         when (job.stage) {
             OriginOddJobStage.YARD_HAY -> if (action == OriginOddJobAction.HAY) next(OriginOddJobStage.YARD_FEED) else wrong()
-            OriginOddJobStage.YARD_FEED -> if (action == OriginOddJobAction.FEED) next(OriginOddJobStage.YARD_EATING) else wrong()
+            OriginOddJobStage.YARD_FEED -> if (action == OriginOddJobAction.FEED) next(OriginOddJobStage.RETURN) else wrong()
             OriginOddJobStage.YARD_BUCKET -> if (action == OriginOddJobAction.WATER) next(OriginOddJobStage.YARD_WELL) else wrong()
             OriginOddJobStage.YARD_EATING, OriginOddJobStage.YARD_DRINKING, OriginOddJobStage.YARD_HANDED ->
                 if (action == OriginOddJobAction.CARE_DONE) next(OriginOddJobStage.RETURN) else wrong()
@@ -263,12 +273,11 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
             OriginOddJobStage.YARD_UNTIE_FIRST -> if (action == OriginOddJobAction.UNTIE) next(OriginOddJobStage.YARD_UNTIE_SECOND) else wrong()
             OriginOddJobStage.YARD_UNTIE_SECOND -> if (action == OriginOddJobAction.UNTIE) next(OriginOddJobStage.YARD_DELIVER) else wrong()
             OriginOddJobStage.YARD_DELIVER -> if (action == OriginOddJobAction.ARRIVE) next(OriginOddJobStage.YARD_HANDOFF) else wrong()
-            OriginOddJobStage.YARD_HANDOFF -> if (action == OriginOddJobAction.HANDOFF) next(OriginOddJobStage.YARD_HANDED) else wrong()
+            OriginOddJobStage.YARD_HANDOFF -> if (action == OriginOddJobAction.HANDOFF) next(OriginOddJobStage.RETURN) else wrong()
             OriginOddJobStage.YARD_BRUSH -> if (action == OriginOddJobAction.BRUSH) next(OriginOddJobStage.YARD_GROOM) else wrong()
             OriginOddJobStage.YARD_GROOM -> if (action != OriginOddJobAction.GROOM) wrong() else {
                 val work = requireNotNull(yard).copy(brushStrokes = yard.brushStrokes + 1)
-                if (work.brushStrokes == ODD_JOB_GROOM_STROKES) next(
-                    if (job.variant == OriginOddJobVariant.YARD_SADDLE) OriginOddJobStage.YARD_TACK else OriginOddJobStage.YARD_UNTIE_FIRST, job.copy(yard = work))
+                if (work.brushStrokes == ODD_JOB_GROOM_STROKES) next(OriginOddJobStage.YARD_TACK, job.copy(yard = work))
                 else changed(job.copy(yard = work))
             }
             OriginOddJobStage.YARD_TACK -> if (action == OriginOddJobAction.TACK) next(OriginOddJobStage.YARD_SADDLE) else wrong()

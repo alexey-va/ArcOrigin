@@ -219,7 +219,7 @@ private class OriginSceneService(
         val scene = plan.scenes.firstOrNull { it.id == sceneId } ?: return null
         if (!scene.actors.keys.containsAll(actorIds)) return null
         val overlapping = active.values.filter { running -> running.cycle.actorIds.any(actorIds::contains) }
-        if (overlapping.any { it.manual }) return null
+        // Manual scene starts still belong to NPCs; every NPC cycle yields to player work.
         overlapping.forEach { interruptCycle(it, "player-work", OriginSceneRecoveryPolicy.KEEP_CURRENT_POSITION) }
         if (actorIds.any { id -> npc(id)?.let { available(it, scene) } != true }) return null
         return coordinator.tryAcquire(sceneId, "player-work", actorIds, System.currentTimeMillis(), ignoreDue = true)

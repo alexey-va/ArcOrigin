@@ -138,6 +138,15 @@ internal fun originOddJobTargetPieces(): List<OriginWorkshopWorkpiecePiece> = bu
     }
 }
 
+/** A hollow horse-size footprint leaves the approach and the animal unobscured. */
+internal fun originOddJobDestinationPieces(): List<OriginWorkshopWorkpiecePiece> = buildList {
+    val halfWidth = 1.15; val halfLength = 1.55; val thickness = 0.07f
+    for (side in listOf(-1, 1)) {
+        add(oddJobPiece(Material.YELLOW_CONCRETE, 0.0, 0.0, side * halfLength, 2.37f, thickness, thickness))
+        add(oddJobPiece(Material.YELLOW_CONCRETE, side * halfWidth, 0.0, 0.0, thickness, thickness, 3.03f))
+    }
+}
+
 /** Hang vertically from the bottom of the authored chain, with the same material and silhouette. */
 internal fun originOddJobHangingPieces(pieces: List<OriginWorkshopWorkpiecePiece>): List<OriginWorkshopWorkpiecePiece> {
     val maxX = pieces.maxOf { it.center.x + it.size.x / 2.0 }
@@ -179,6 +188,7 @@ internal class OriginOddJobVisuals(
         var label: PacketTextDisplay? = null
         var targetLocation: Location? = null
         var targetOutline = true
+        var groundTarget = false
     }
 
     private var owner: PaperPacketDisplays? = null
@@ -236,26 +246,33 @@ internal class OriginOddJobVisuals(
     }
 
     /** A single personal next-action cue, separate from the game's forgiving interaction hit area. */
-    fun target(player: Player, requestId: UUID, location: Location?, caption: String, outline: Boolean = true) {
+    fun target(player: Player, requestId: UUID, location: Location?, caption: String, outline: Boolean = true) =
+        target(player, requestId, location, caption, outline, ground = false)
+
+    fun destination(player: Player, requestId: UUID, location: Location, caption: String) =
+        target(player, requestId, location, caption, outline = true, ground = true)
+
+    private fun target(player: Player, requestId: UUID, location: Location?, caption: String, outline: Boolean, ground: Boolean) {
         if (location == null) {
             owned[player.uniqueId]?.takeIf { it.requestId == requestId }?.let(::removeTarget)
             return
         }
         change(player, requestId) { state ->
             require(location.world?.uid == state.worldId) { "odd-job target must stay in its player's world" }
-            if (state.targetLocation == location && state.targetOutline == outline) {
+            if (state.targetLocation == location && state.targetOutline == outline && state.groundTarget == ground) {
                 state.label?.text(Component.text(caption, TextColor.color(0xe8dfd2)))
                 return@change
             }
             removeTarget(state)
             val renderer = renderer()
-            state.target = if (outline) OriginWorkshopProp(renderer, location, originOddJobTargetPieces(), privateViewer = player,
+            state.target = if (outline) OriginWorkshopProp(renderer, location,
+                if (ground) originOddJobDestinationPieces() else originOddJobTargetPieces(), privateViewer = player,
                 onSpawn = { display -> state.handles += display; display.isVisibleByDefault = false }).also {
-                it.place(location, Quaternionf())
+                it.place(location, if (ground) Quaternionf().rotationY(-Math.toRadians(location.yaw.toDouble()).toFloat()) else Quaternionf())
                 it.glow(Color.fromRGB(239, 195, 113))
                 it.pieces.forEach { piece -> piece.display?.brightness = Display.Brightness(15, 15) }
             } else null
-            state.label = renderer.spawnText(location.clone().add(0.0, if (outline) 0.95 else 0.42, 0.0),
+            state.label = renderer.spawnText(location.clone().add(0.0, if (ground) 1.55 else if (outline) 0.95 else 0.42, 0.0),
                 Component.text(caption, TextColor.color(0xe8dfd2))).also { label ->
                 state.handles += label
                 label.isVisibleByDefault = false
@@ -271,6 +288,7 @@ internal class OriginOddJobVisuals(
             }
             state.targetLocation = location.clone()
             state.targetOutline = outline
+            state.groundTarget = ground
         }
     }
 

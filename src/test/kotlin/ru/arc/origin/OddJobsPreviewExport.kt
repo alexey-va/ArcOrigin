@@ -26,6 +26,8 @@ internal object OddJobsPreviewExport {
             state("new-horseshoe", "Своя наковальня · выкованная подкова", originOddJobPropPieces(OriginJobProp.FORGE_HORSESHOE)),
             state("new-cooled", "Закалка · готовая подкова", originOddJobPropPieces(OriginJobProp.FORGE_COOLED)),
             state("target-outline", "Подсветка · полный контур блока", originOddJobTargetPieces()),
+            state("yard-destination", "Развязка · открытая площадка для лошади", originOddJobDestinationPieces()) + mapOf(
+                "worldContact" to listOf(ORIGIN_YARD_CARE_PAD.x, ORIGIN_YARD_CARE_PAD.y + 0.05, ORIGIN_YARD_CARE_PAD.z)),
             state("repair-cold", "Ремонт · укороченная левая ветвь", originOddJobForgePieces(damaged, false)),
             state("repair-hot", "Ремонт · та же форма после нагрева", originOddJobForgePieces(damaged, true)),
             state("repaired-hot", "Ремонт · восстановленная ветвь", originOddJobForgePieces(repaired, true)),

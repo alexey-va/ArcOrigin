@@ -28,7 +28,7 @@ class OriginMountYardAnimalsAdapterTest {
     @Test
     fun `native click adapter uses stable NPC identity across entity respawns`() {
         val owned = loadAnimalsConfig()
-        val animal = owned.animals.first { it.npcId == 371 }
+        val animal = owned.animals.first { it.npcId == 422 }
         val world = mockk<World>(relaxed = true)
         every { world.name } returns owned.world
         every { world.uid } returns UUID.randomUUID()
@@ -85,7 +85,7 @@ class OriginMountYardAnimalsAdapterTest {
     @Test
     fun `synthetic reaction cancels an observed over-cap damage event`() {
         val owned = loadAnimalsConfig()
-        val animal = owned.animals.first { it.npcId == 371 }
+        val animal = owned.animals.first { it.npcId == 422 }
         val world = mockk<World>(relaxed = true)
         every { world.name } returns owned.world
         every { world.uid } returns UUID.randomUUID()
@@ -130,7 +130,7 @@ class OriginMountYardAnimalsAdapterTest {
     @Test
     fun `synthetic reaction keeps safe normal damage unchanged`() {
         val owned = loadAnimalsConfig()
-        val animal = owned.animals.first { it.npcId == 371 }
+        val animal = owned.animals.first { it.npcId == 422 }
         val world = mockk<World>(relaxed = true)
         every { world.name } returns owned.world
         every { world.uid } returns UUID.randomUUID()
