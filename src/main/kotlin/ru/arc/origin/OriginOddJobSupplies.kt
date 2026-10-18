@@ -58,15 +58,14 @@ internal class OriginOddJobSupplies(private val text: (String) -> String = { it 
     fun has(player: Player, job: OriginOddJobSession): Boolean = slot(player, job) >= 0
     fun hasSpace(player: Player): Boolean = emptySlot(player) >= 0
     fun requiresWorkpiece(job: OriginOddJobSession): Boolean = yardItem(job) != null ||
-        job.stage in setOf(OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.HAUL_DELIVER, OriginOddJobStage.ENGRAVE_PLACE) ||
+        job.stage in setOf(OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.ENGRAVE_PLACE) ||
         job.kind == OriginOddJobKind.FORGE_ENGRAVE && job.stage == OriginOddJobStage.RETURN ||
         job.kind == OriginOddJobKind.FORGE && job.stage in setOf(
             OriginOddJobStage.FORGE_HEAT, OriginOddJobStage.FORGE_PLACE, OriginOddJobStage.FORGE_QUENCH, OriginOddJobStage.RETURN)
 
     fun canTransfer(player: Player, job: OriginOddJobSession): Boolean = when (job.stage) {
-        OriginOddJobStage.HAUL_PICKUP, OriginOddJobStage.HAUL_UNLOAD,
-        OriginOddJobStage.ENGRAVE_BLANK, OriginOddJobStage.ENGRAVE_COLLECT -> hasSpace(player)
-        OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.HAUL_DELIVER, OriginOddJobStage.ENGRAVE_PLACE -> has(player, job)
+        OriginOddJobStage.HAUL_PICKUP, OriginOddJobStage.ENGRAVE_BLANK, OriginOddJobStage.ENGRAVE_COLLECT -> hasSpace(player)
+        OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.ENGRAVE_PLACE -> has(player, job)
         OriginOddJobStage.YARD_HAY, OriginOddJobStage.YARD_BUCKET, OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_LEAD_RACK -> hasSpace(player)
         OriginOddJobStage.YARD_TACK -> has(player, job) || hasSpace(player)
         OriginOddJobStage.YARD_FEED, OriginOddJobStage.YARD_WELL, OriginOddJobStage.YARD_WATER, OriginOddJobStage.YARD_GROOM,
@@ -84,9 +83,9 @@ internal class OriginOddJobSupplies(private val text: (String) -> String = { it 
             return putInHand(player, job, item(player, job, text("mountyard.items.$model"), model))
         }
         if (job.kind == OriginOddJobKind.FORGE_HAUL) {
-            if (job.stage !in setOf(OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.HAUL_DELIVER)) { clear(player, closeStock = false); return true }
+            if (job.stage != OriginOddJobStage.HAUL_LOAD) { clear(player, closeStock = false); return true }
             val cargo = requireNotNull(job.haul).cargo
-            return putInHand(player, job, item(player, job, "Тяжёлый груз · ${cargo.title}", cargo.itemModel))
+            return putInHand(player, job, item(player, job, "Груз для тележки · ${cargo.title}", cargo.itemModel))
         }
         if (job.kind == OriginOddJobKind.FORGE_ENGRAVE) {
             if (job.stage !in setOf(OriginOddJobStage.ENGRAVE_PLACE, OriginOddJobStage.RETURN)) { clear(player, closeStock = false); return true }

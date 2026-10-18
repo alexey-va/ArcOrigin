@@ -114,7 +114,8 @@ internal fun originOddJobStation(stage: OriginOddJobStage): OriginOddJobStationI
     OriginOddJobStage.FORGE_INSPECT, OriginOddJobStage.FORGE_PLACE, OriginOddJobStage.FORGE_HAMMER -> OriginOddJobStationId.ANVIL
     OriginOddJobStage.FORGE_QUENCH -> OriginOddJobStationId.QUENCH
     OriginOddJobStage.HAUL_PICKUP -> OriginOddJobStationId.ORE_STOCK
-    OriginOddJobStage.HAUL_DELIVER, OriginOddJobStage.ENGRAVE_BLANK -> OriginOddJobStationId.BLANK
+    OriginOddJobStage.HAUL_PUSH, OriginOddJobStage.HAUL_UNLOAD -> OriginOddJobStationId.BLANK
+    OriginOddJobStage.ENGRAVE_BLANK -> OriginOddJobStationId.BLANK
     OriginOddJobStage.ENGRAVE_PLACE, OriginOddJobStage.ENGRAVE_CARVE, OriginOddJobStage.ENGRAVE_COLLECT -> OriginOddJobStationId.ENGRAVING
     else -> null
 }
@@ -176,8 +177,8 @@ internal fun originOddJobStations(plan: OriginScenePlan, world: World): Map<Orig
     }
     forge.propSurfaces["player-work-surface"]?.let { surface(OriginOddJobStationId.ANVIL, it) }
     forge.propSurfaces["apprentice-work-surface"]?.let { surface(OriginOddJobStationId.ENGRAVING, it) }
-    around(OriginOddJobStationId.ORE_STOCK, forge.anchors.getValue("ore-cart"),
-        setOf(Material.CHEST, Material.TRAPPED_CHEST, Material.BARREL), 2, 0.9)
+    around(OriginOddJobStationId.ORE_STOCK, forge.anchors.getValue("job-haul-stock"),
+        setOf(Material.CHEST, Material.TRAPPED_CHEST, Material.BARREL), 0, 0.9)
     around(OriginOddJobStationId.QUENCH, forge.anchors.getValue("quench-cauldron"), setOf(Material.WATER_CAULDRON), 2, 0.9)
 }
 
@@ -214,8 +215,7 @@ internal fun originOddJobGuide(config: OriginOddJobsConfig, job: OriginOddJobSes
         "strikes" to (f?.remainingStrikes ?: 0), "animal" to (y?.animalName ?: ""),
         "rider" to (config.yardRider?.name ?: "Всадник"),
         "product" to (f?.product?.title ?: "Заготовка"), "metal" to (f?.metal?.title ?: job.engraving?.metal?.title ?: ""),
-        "cargo" to (job.haul?.cargo?.title ?: ""), "loads" to (job.haul?.loads ?: 0), "loaded" to (job.haul?.loaded ?: 0),
-        "delivered" to (job.haul?.delivered ?: 0),
+        "cargo" to (job.haul?.cargo?.title ?: ""),
         "word" to (job.engraving?.word ?: ""), "letters" to ((job.engraving?.strokes ?: 0) / 2),
         "percent" to (((now - job.stageStartedAt).coerceAtLeast(0) * 100 / originOddJobHeatReady(job)).coerceAtMost(100)),
         "brush" to (y?.brushStrokes ?: 0), "brush-total" to ODD_JOB_GROOM_STROKES,

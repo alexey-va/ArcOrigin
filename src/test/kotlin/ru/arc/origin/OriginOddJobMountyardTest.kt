@@ -14,6 +14,8 @@ import io.mockk.verifyOrder
 import net.citizensnpcs.api.CitizensAPI
 import net.citizensnpcs.api.npc.NPC
 import net.citizensnpcs.api.npc.NPCRegistry
+import net.citizensnpcs.api.npc.SimpleMetadataStore
+import net.citizensnpcs.api.util.MemoryDataKey
 import net.citizensnpcs.trait.Controllable
 import org.bukkit.Location
 import org.bukkit.Material
@@ -103,12 +105,12 @@ class OriginOddJobMountyardTest : StringSpec({
     "handoff mounts the separate rider and keeps the lease through the ride dismount and both returns" {
         YardFixture().use { f ->
             f.prepareDelivery()
-            f.location = Location(f.world, 59.5, 70.0, -133.5)
+            f.location = Location(f.world, 67.5, 70.0, -122.5)
             f.sync(OriginOddJobStage.YARD_HANDOFF)
             f.sync(OriginOddJobStage.RETURN)
             f.controllableEnabled shouldBe true
             verify(exactly = 1) { f.horse.addPassenger(f.riderEntity) }
-            verify { f.routes.navigate(f.actor, match { it.z == -133.5 }, any(), match { it.single().z == -119.5 }, any(), true, any()) }
+            verify { f.routes.navigate(f.actor, match { it.x == 67.5 && it.z == -122.5 }, any(), match { it.single().z == -119.5 }, any(), true, any()) }
             var released = 0
             f.yard.clear(f.player.uniqueId, f.job.id) { released++ }
             f.yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_GROOM, 0, false)) shouldBe null
@@ -131,7 +133,7 @@ class OriginOddJobMountyardTest : StringSpec({
         for (initial in listOf<Boolean?>(null, false, true)) {
             YardFixture(initialControllable = initial).use { f ->
                 f.prepareDelivery()
-                f.location = Location(f.world, 59.5, 70.0, -133.5)
+                f.location = Location(f.world, 67.5, 70.0, -122.5)
                 f.sync(OriginOddJobStage.YARD_HANDOFF)
                 f.sync(OriginOddJobStage.RETURN)
                 f.controllableEnabled shouldBe true
@@ -228,33 +230,93 @@ class OriginOddJobMountyardTest : StringSpec({
             f.gateOpen shouldBe true
         }
     }
-    "leading uses the route controller pauses behind the player and never accepts a failed route" {
+    "native lead follows the holder without direction distance or route gates and arrives from the real horse position" {
         YardFixture().use { f ->
-            f.location = Location(f.world, 63.5, 70.0, -119.5)
-            val lead = f.job.copy(stage = OriginOddJobStage.YARD_LEAD_OUT)
-            f.yard.sync(f.player, lead, f.stations, 0) shouldBe true
-            f.playerLocation = f.location.clone().add(0.0, 0.0, 1.0)
-            f.yard.tick(f.player, lead, 1) shouldBe OriginYardTick.WAITING
+            val lead = f.sync(OriginOddJobStage.YARD_LEAD_OUT)
+            f.nativeAi shouldBe true
+            f.nativeAware shouldBe true
+            f.metadata.get<Boolean>(NPC.Metadata.USE_MINECRAFT_AI) shouldBe true
+            f.metadata.get<Boolean>(NPC.Metadata.LEASH_PROTECTED) shouldBe false
+            f.leashHolder shouldBe f.player
+            for (at in listOf(f.home.clone().add(0.0, 0.0, 2.0), Location(f.world, 63.0, 70.0, -128.0))) {
+                f.playerLocation = at
+                f.yard.tick(f.player, lead, 1) shouldBe OriginYardTick.WAITING
+            }
+            f.location = ORIGIN_YARD_CARE_PAD.inWorld(f.world)
+            f.yard.tick(f.player, lead, 2) shouldBe OriginYardTick.ARRIVED
             verify(exactly = 0) { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) }
-            f.playerLocation = Location(f.world, 61.5, 70.0, -122.5)
-            f.yard.tick(f.player, lead, 2) shouldBe OriginYardTick.WAITING
-            verify(exactly = 1) { f.routes.navigate(f.actor, match { it.x == 60.5 && it.z == -126.5 }, match { it.snapRadius == 0 }, any(), any(), true, any()) }
-            verify { f.horse.setLeashHolder(f.player) }
-            f.arrive(success = false)
-            f.yard.tick(f.player, lead, 3) shouldBe OriginYardTick.FAILED
             verify(exactly = 0) { f.horse.teleport(any<Location>()) }
         }
     }
-    "east stall leading first follows its gate exit even when it points away from the care pad" {
+    "a broken native lead waits for an explicit re-grab and never remotely reattaches" {
         YardFixture().use { f ->
             val lead = f.sync(OriginOddJobStage.YARD_LEAD_OUT)
-            f.playerLocation = Location(f.world, 72.5, 70.0, -138.5)
-            f.yard.tick(f.player, lead, 1) shouldBe OriginYardTick.WAITING
-            verify { f.routes.navigate(f.actor, any(), any(), match { it.first().z == -138.5 }, any(), true, any()) }
-            f.location = f.playerLocation.clone()
-            f.playerLocation = Location(f.world, 70.5, 70.0, -137.5)
-            f.yard.tick(f.player, lead, 2) shouldBe OriginYardTick.WAITING
+            f.leashHolder = null
+            repeat(3) { f.yard.tick(f.player, lead, it.toLong()) shouldBe OriginYardTick.WAITING }
+            verify(exactly = 1) { f.horse.setLeashHolder(f.player) }
+            f.yard.toggleWorkerLead(f.player, lead) shouldBe true
+            f.leashHolder shouldBe f.player
+            verify(exactly = 2) { f.horse.setLeashHolder(f.player) }
+            f.location = Location(f.world, 72.5, 70.0, -138.5)
+            f.yard.tick(f.player, lead, 4) shouldBe OriginYardTick.WAITING
             f.yard.waitingForGate(f.player.uniqueId, lead) shouldBe false
+        }
+    }
+    "native lead restores metadata presence persistence and AI before care or revocation" {
+        for (persistent in listOf<Boolean?>(null, false, true)) {
+            YardFixture().use { f ->
+                if (persistent == true) {
+                    f.metadata.setPersistent(NPC.Metadata.USE_MINECRAFT_AI, false)
+                    f.metadata.setPersistent(NPC.Metadata.LEASH_PROTECTED, true)
+                } else if (persistent == false) {
+                    f.metadata.set(NPC.Metadata.USE_MINECRAFT_AI, false)
+                    f.metadata.set(NPC.Metadata.LEASH_PROTECTED, true)
+                }
+                f.sync(OriginOddJobStage.YARD_LEAD_OUT)
+                if (persistent == true) f.yard.revoke(f.player.uniqueId, f.job.id)
+                else {
+                    f.location = ORIGIN_YARD_CARE_PAD.inWorld(f.world)
+                    f.sync(OriginOddJobStage.YARD_TIE_FIRST)
+                    verifyOrder { f.horse.setAI(false); anyConstructed<OriginSceneResources>().hold(f.actor) }
+                }
+                f.nativeAi shouldBe false
+                f.nativeAware shouldBe false
+                f.leashHolder shouldBe null
+                val saved = MemoryDataKey().also(f.metadata::saveTo)
+                for ((key, value) in listOf(NPC.Metadata.USE_MINECRAFT_AI to false, NPC.Metadata.LEASH_PROTECTED to true)) {
+                    f.metadata.has(key) shouldBe (persistent != null)
+                    if (persistent != null) f.metadata.get<Boolean>(key) shouldBe value
+                    saved.keyExists(key.key) shouldBe (persistent == true)
+                }
+            }
+        }
+    }
+    "native lead cleanup restores the same NPC metadata after despawn without mutating a replacement" {
+        YardFixture().use { f ->
+            f.metadata.setPersistent(NPC.Metadata.LEASH_PROTECTED, true)
+            f.sync(OriginOddJobStage.YARD_LEAD_OUT)
+            val replacement = mockk<Horse>(relaxed = true) {
+                every { world } returns f.world
+                every { isValid } returns true
+                every { type } returns EntityType.HORSE
+            }
+            every { f.actor.entity } returns replacement
+            f.yard.revoke(f.player.uniqueId, f.job.id)
+            f.metadata.has(NPC.Metadata.USE_MINECRAFT_AI) shouldBe false
+            f.metadata.get<Boolean>(NPC.Metadata.LEASH_PROTECTED) shouldBe true
+            verify(exactly = 0) { replacement.setAI(any()) }
+            verify(exactly = 0) { replacement.isAware = any() }
+        }
+    }
+    "native lead cleanup cannot reset another lease or NPC identity" {
+        for (leaseLost in listOf(true, false)) YardFixture().use { f ->
+            f.sync(OriginOddJobStage.YARD_LEAD_OUT)
+            if (leaseLost) f.leaseValid = false else every { f.actor.uniqueId } returns UUID.randomUUID()
+            f.yard.revoke(f.player.uniqueId, f.job.id)
+            f.nativeAi shouldBe true
+            f.metadata.get<Boolean>(NPC.Metadata.USE_MINECRAFT_AI) shouldBe true
+            f.metadata.get<Boolean>(NPC.Metadata.LEASH_PROTECTED) shouldBe false
+            verify(exactly = 0) { f.horse.setAI(false) }
         }
     }
     "native saddle restoration precedes bounded home recovery and the lease stays held until arrival" {
@@ -422,7 +484,7 @@ class OriginOddJobMountyardTest : StringSpec({
             f.playerLocation = Location(f.world, 60.5, 70.0, -128.5)
             f.yard.tick(f.player, deliver, 1) shouldBe OriginYardTick.WAITING
             verify { f.horse.setLeashHolder(f.player) }
-            f.location = Location(f.world, 59.5, 70.0, -133.5)
+            f.location = Location(f.world, 67.5, 70.0, -122.5)
             f.playerLocation = f.location.clone().add(-1.0, 0.0, 0.0)
             f.arrive()
             f.yard.tick(f.player, deliver, 2) shouldBe OriginYardTick.ARRIVED
@@ -448,7 +510,7 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         every { isOpen = any() } answers { gateOpen = firstArg() }
     }
     var passengerVehicle: Entity? = null
-    val riderHome = Location(world, 59.5, 70.0, -131.5)
+    val riderHome = Location(world, 67.5, 70.0, -120.5)
     var riderLocation = riderHome.clone()
     val riderEntity = mockk<LivingEntity>(relaxed = true) {
         every { world } returns this@YardFixture.world
@@ -466,6 +528,10 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
     }
     var playerLocation = home.clone().add(-1.0, 0.0, 0.0)
     val equipment = mockk<EntityEquipment>(relaxed = true) { every { getItem(EquipmentSlot.SADDLE) } returns ItemStack(Material.AIR) }
+    var nativeAi = false
+    var nativeAware = false
+    var leashHolder: Entity? = null
+    val metadata = SimpleMetadataStore()
     var movementSpeed = 0.2
     private val movementAttribute = mockk<AttributeInstance> {
         every { baseValue } answers { movementSpeed }
@@ -480,9 +546,14 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         every { getAttribute(Attribute.MOVEMENT_SPEED) } returns movementAttribute
         every { passengers } answers { if (passengerVehicle != null) listOf(riderEntity) else emptyList() }
         every { addPassenger(riderEntity) } answers { passengerVehicle = this@mockk; true }
-        every { isLeashed } returns false
+        every { hasAI() } answers { nativeAi }
+        every { setAI(any()) } answers { nativeAi = firstArg() }
+        every { isAware } answers { nativeAware }
+        every { isAware = any() } answers { nativeAware = firstArg() }
+        every { isLeashed } answers { this@YardFixture.leashHolder != null }
+        every { leashHolder } answers { requireNotNull(this@YardFixture.leashHolder) }
         every { height } returns 1.6
-        every { setLeashHolder(any()) } returns true
+        every { setLeashHolder(any()) } answers { this@YardFixture.leashHolder = firstArg(); true }
     }
     val player = mockk<Player>(relaxed = true) {
         every { uniqueId } returns UUID.randomUUID()
@@ -501,6 +572,7 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         every { uniqueId } returns catalog.animals.first { it.npcId == id }.npcUuid
         every { isSpawned } returns true
         every { entity } returns horse
+        every { data() } returns metadata
         every { getTraitNullable(Controllable::class.java) } answers { if (controllablePresent) controllable else null }
         every { getOrAddTrait(Controllable::class.java) } answers { controllablePresent = true; controllable }
         every { removeTrait(Controllable::class.java) } answers { controllablePresent = false }
@@ -583,7 +655,7 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
             mapOf(id to OriginSceneActor(id, OriginScenePoint(home.x, home.y, home.z), emptySet()),
                 otherId to OriginSceneActor(otherId, otherHome, emptySet())),
             mapOf("job-rider-home" to OriginScenePoint(riderHome.x, riderHome.y, riderHome.z),
-                "job-handoff" to OriginScenePoint(59.5, 70.0, -133.5),
+                "job-handoff" to OriginScenePoint(67.5, 70.0, -122.5),
                 "job-ride-turn" to OriginScenePoint(59.5, 70.0, -119.5),
                 "job-stall-$id-exit" to if (id == 422) OriginScenePoint(52.5, 70.0, -136.5) else OriginScenePoint(72.5, 70.0, -138.5),
                 "job-stall-423-gate-1" to OriginScenePoint(72.0, 70.0, -137.0)), emptyMap(), emptyMap(), emptyList())

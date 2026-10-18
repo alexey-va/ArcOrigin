@@ -2,6 +2,7 @@ package ru.arc.origin
 
 import net.citizensnpcs.api.CitizensAPI
 import net.citizensnpcs.api.npc.NPC
+import net.citizensnpcs.api.util.MemoryDataKey
 import net.citizensnpcs.trait.Controllable
 import org.bukkit.Location
 import org.bukkit.Material
@@ -34,12 +35,6 @@ import java.util.UUID
 internal enum class OriginYardTick { WAITING, ARRIVED, CARED, FAILED }
 private enum class OriginYardRecovery { AFTERCARE, RIDER, HORSE }
 
-/** A worker has to walk ahead, stay near the animal and wait when it falls behind. */
-internal fun originYardCanLead(horse: Location, player: Location, destination: Location): Boolean =
-    horse.world?.uid == player.world?.uid && horse.world?.uid == destination.world?.uid &&
-        horse.distanceSquared(player) <= 25.0 &&
-        (player.distanceSquared(destination) <= 6.25 || player.distance(destination) + 0.4 < horse.distance(destination))
-
 /** Native care and validated movement share the ambient actor lease held by the caller. */
 internal class OriginOddJobMountyard(
     private val worldName: String,
@@ -61,6 +56,8 @@ internal class OriginOddJobMountyard(
     private val clock: () -> Long = System::currentTimeMillis,
 ) : AutoCloseable {
     private data class RideControls(val trait: Controllable, val wasEnabled: Boolean?, val movementSpeed: Double?)
+    private data class LeadMetadata(val key: NPC.Metadata, val value: Any?, val persistent: Boolean)
+    private data class NativeLead(val ai: Boolean, val aware: Boolean, val metadata: List<LeadMetadata>)
 
     private class Care(
         val requestId: UUID, val actor: NPC, val entity: AbstractHorse, val home: Location,
@@ -70,7 +67,6 @@ internal class OriginOddJobMountyard(
         var stage: OriginOddJobStage? = null
         var destination: Location? = null
         var routeStarted = false
-        var paused = false
         var careStartedAt: Long? = null
         var lastSoundAt = 0L
         var prop: OriginWorkshopProp? = null
@@ -78,7 +74,8 @@ internal class OriginOddJobMountyard(
         var tiePosition: Location? = null
         var saddle: ItemStack? = null
         var saddleChanged = false
-        var leashed = false
+        var leashHolder: UUID? = null
+        var nativeLead: NativeLead? = null
         var release: (() -> Unit)? = null
         var recoveryDeadline = 0L
         var cleanupAttempts = 0
@@ -139,6 +136,25 @@ internal class OriginOddJobMountyard(
             ?.let(::nextClosedGate)?.let { Location(it.world, it.blockX + 0.5, it.blockY + 0.5, it.blockZ + 0.5) }
 
     fun waitingForGate(playerId: UUID, job: OriginOddJobSession): Boolean = gateTarget(playerId, job) != null
+
+    fun workerLeading(playerId: UUID, npcId: Int): Boolean = active[playerId]?.let {
+        it.actor.id == npcId && it.nativeLead != null && owns(it)
+    } == true
+
+    fun leadDetached(playerId: UUID, job: OriginOddJobSession): Boolean = active[playerId]?.let {
+        it.requestId == job.id && it.nativeLead != null && owns(it) &&
+            (!it.entity.isLeashed || it.entity.leashHolder.uniqueId != playerId)
+    } == true
+
+    /** Re-grabbing is a nearby interaction; a broken native leash is never reattached by the timer. */
+    fun toggleWorkerLead(player: Player, job: OriginOddJobSession): Boolean {
+        val care = active[player.uniqueId]?.takeIf { it.requestId == job.id && it.nativeLead != null && owns(it) } ?: return false
+        if (care.entity.isLeashed && care.entity.leashHolder.uniqueId == player.uniqueId) {
+            care.leashHolder = player.uniqueId
+            return leash(care, null)
+        }
+        return leash(care, player)
+    }
 
     fun begin(player: Player, job: OriginOddJobSession, ownsLease: () -> Boolean = { true }): Boolean {
         val id = requireNotNull(job.yard).animalId
@@ -204,8 +220,9 @@ internal class OriginOddJobMountyard(
         routes.consumeOutcome(care.actor)
         care.resources.clearMovementPose(care.actor)
         leash(care, null)
+        restoreNativeLead(care)
         val previousStage = care.stage
-        care.stage = stage; care.destination = null; care.routeStarted = false; care.paused = false; care.careStartedAt = null; care.via = emptyList()
+        care.stage = stage; care.destination = null; care.routeStarted = false; care.careStartedAt = null; care.via = emptyList()
         if (originYardTieMask(job.stage) != null) {
             if (job.stage == OriginOddJobStage.YARD_TIE_FIRST) {
                 care.leftStall = true
@@ -252,14 +269,14 @@ internal class OriginOddJobMountyard(
             }
             OriginOddJobStage.YARD_LEAD_OUT -> {
                 care.destination = point("job-care-pad", ORIGIN_YARD_CARE_PAD, care)
-                care.via = listOfNotNull(scene?.anchors?.get("job-stall-${care.actor.id}-exit")?.inWorld(care.entity.world))
+                if (!startNativeLead(care, player)) return false
             }
             OriginOddJobStage.YARD_DELIVER -> {
                 if (previousStage != OriginOddJobStage.YARD_UNTIE_SECOND || care.crossTies?.mask != 2) return false
                 releaseTies(care)
                 player.playSound(care.entity.location, Sound.BLOCK_WOOL_PLACE, 0.6f, 0.85f)
-                care.destination = point("job-handoff", OriginScenePoint(59.5, 70.0, -133.5), care)
-                care.via = deliveryAnchorIds.map { scene?.anchors?.get(it)?.inWorld(care.entity.world) ?: return false }
+                care.destination = point("job-handoff", OriginScenePoint(67.5, 70.0, -122.5), care)
+                if (!startNativeLead(care, player)) return false
             }
             OriginOddJobStage.YARD_HANDED -> {
                 if (previousStage != OriginOddJobStage.YARD_HANDOFF || !ownsRider(care)) return false
@@ -270,8 +287,7 @@ internal class OriginOddJobMountyard(
                 val previous = care.actor.getTraitNullable(Controllable::class.java)
                 val controls = previous ?: care.actor.getOrAddTrait(Controllable::class.java)
                 care.rideControls = RideControls(controls, previous?.isEnabled, care.entity.getAttribute(Attribute.MOVEMENT_SPEED)?.baseValue)
-                // Citizens 4238 requires this trait to simulate a horse carrying a PLAYER on the server.
-                // Controllable itself yields to the active navigator, so the validated route keeps control.
+                // Retain the mounted control snapshot independently of the temporary player lead.
                 controls.setEnabled(true)
                 care.mounted = care.entity.addPassenger(passenger)
                 if (!care.mounted) { restoreRideControls(care); return false }
@@ -307,34 +323,22 @@ internal class OriginOddJobMountyard(
         }
         val leading = job.stage in setOf(OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_DELIVER)
         if (leading) {
-            while (care.via.firstOrNull()?.let { care.entity.location.distanceSquared(it) <= 0.56 } == true) {
-                care.via = care.via.drop(1)
-                if (job.stage == OriginOddJobStage.YARD_LEAD_OUT) care.leftStall = true
-            }
+            if (!inStall(care.actor.id, care.entity)) care.leftStall = true
             if (job.stage == OriginOddJobStage.YARD_DELIVER) care.leftYard = true
-            val destination = care.via.firstOrNull() ?: requireNotNull(care.destination)
-            if (waitingForGate(player.uniqueId, job) || !originYardCanLead(care.entity.location, player.location, destination)) {
-                if (care.routeStarted && routes.isNavigating(care.actor)) {
-                    routes.stop(care.actor); routes.consumeOutcome(care.actor); care.paused = true
-                }
-                if (care.entity.location.distanceSquared(player.location) > 36.0) leash(care, null)
-                return OriginYardTick.WAITING
-            }
-            if (!leash(care, player)) return OriginYardTick.FAILED
-            if (!care.routeStarted || care.paused) {
-                if (!startRoute(care)) return OriginYardTick.FAILED
-                care.paused = false
-            }
+            if (care.nativeLead == null) return OriginYardTick.FAILED
+            if (!care.entity.isLeashed || care.entity.leashHolder.uniqueId != player.uniqueId) return OriginYardTick.WAITING
+            care.leashHolder = player.uniqueId
+            return if (care.entity.location.distanceSquared(requireNotNull(care.destination)) <= 1.0) OriginYardTick.ARRIVED
+                else OriginYardTick.WAITING
         }
-        return tickCare(care, now, leading)
+        return tickCare(care, now)
     }
 
-    private fun tickCare(care: Care, now: Long, leading: Boolean = false): OriginYardTick {
+    private fun tickCare(care: Care, now: Long): OriginYardTick {
         if (care.routeStarted && care.careStartedAt == null) {
             if (routes.isNavigating(care.actor)) return OriginYardTick.WAITING
             if (routes.consumeOutcome(care.actor)?.successful != true ||
                 care.entity.location.distanceSquared(requireNotNull(care.destination)) > 1.0) return OriginYardTick.FAILED
-            if (leading) return OriginYardTick.ARRIVED
             care.resources.setPose(care.actor, OriginScenePose.HORSE_GRAZE)
             care.careStartedAt = now
         }
@@ -364,13 +368,51 @@ internal class OriginOddJobMountyard(
 
     private fun leash(care: Care, player: Player?): Boolean {
         if (player == null) {
-            if (care.leashed && care.entity.isValid) care.entity.setLeashHolder(null)
-            care.leashed = false
+            if (care.entity.isValid && care.entity.isLeashed && care.entity.leashHolder.uniqueId == care.leashHolder)
+                care.entity.setLeashHolder(null)
+            care.leashHolder = null
             return true
         }
-        if (care.leashed && care.entity.isLeashed && care.entity.leashHolder.uniqueId == player.uniqueId) return true
-        care.leashed = care.entity.setLeashHolder(player)
-        return care.leashed
+        if (care.entity.isLeashed) return care.entity.leashHolder.uniqueId == player.uniqueId
+        return care.entity.setLeashHolder(player).also { if (it) care.leashHolder = player.uniqueId }
+    }
+
+    private fun startNativeLead(care: Care, player: Player): Boolean {
+        val saved = MemoryDataKey()
+        val data = care.actor.data()
+        data.saveTo(saved)
+        care.nativeLead = NativeLead(care.entity.hasAI(), care.entity.isAware,
+            listOf(NPC.Metadata.USE_MINECRAFT_AI, NPC.Metadata.LEASH_PROTECTED).map {
+                LeadMetadata(it, if (data.has(it)) data.get<Any>(it) else null, saved.keyExists(it.key))
+            })
+        // Citizens' protected-horse adapter otherwise removes the native leash and clears its goals.
+        data.set(NPC.Metadata.USE_MINECRAFT_AI, true)
+        data.set(NPC.Metadata.LEASH_PROTECTED, false)
+        care.entity.setAI(true)
+        care.entity.isAware = true
+        return leash(care, player)
+    }
+
+    private fun ownsPersistentActor(care: Care): Boolean = care.ownsLease() &&
+        CitizensAPI.getNPCRegistry().getById(care.actor.id) === care.actor &&
+        catalog.resolve(care.actor.id, care.actor.uniqueId) != null
+
+    private fun restoreNativeLead(care: Care) {
+        val original = care.nativeLead ?: return
+        if (ownsPersistentActor(care)) {
+            if (owns(care)) {
+                care.entity.pathfinder.stopPathfinding()
+                care.entity.setAI(original.ai)
+                care.entity.isAware = original.aware
+            }
+            val data = care.actor.data()
+            original.metadata.forEach {
+                if (it.value == null) data.remove(it.key)
+                else if (it.persistent) data.setPersistent(it.key, it.value)
+                else data.set(it.key, it.value)
+            }
+        }
+        care.nativeLead = null
     }
 
     /** Retains the ambient lease until the real animal is home or its bounded recovery has failed. */
@@ -399,8 +441,7 @@ internal class OriginOddJobMountyard(
     private fun restoreRideControls(care: Care) {
         val snapshot = care.rideControls ?: return
         // Traits belong to the persistent NPC, even after its current entity despawns or is replaced.
-        if (care.ownsLease() && CitizensAPI.getNPCRegistry().getById(care.actor.id) === care.actor &&
-            catalog.resolve(care.actor.id, care.actor.uniqueId) != null &&
+        if (ownsPersistentActor(care) &&
             care.actor.getTraitNullable(Controllable::class.java) === snapshot.trait) {
             if (owns(care)) snapshot.movementSpeed?.let { care.entity.getAttribute(Attribute.MOVEMENT_SPEED)?.baseValue = it }
             if (snapshot.wasEnabled == null) care.actor.removeTrait(Controllable::class.java)
@@ -414,6 +455,7 @@ internal class OriginOddJobMountyard(
             routes.stop(care.actor); routes.consumeOutcome(care.actor)
             care.prop?.remove(); care.prop = null
             leash(care, null)
+            restoreNativeLead(care)
             dismount(care)
             restoreSaddle(care)
             releaseTies(care)
@@ -569,6 +611,7 @@ internal class OriginOddJobMountyard(
             care.rider?.let { attempt("rider-route-owner") { routes.abandon(it) } }
         }
         attempt("ride-controls") { restoreRideControls(care) }
+        attempt("native-lead") { restoreNativeLead(care) }
         if (failed && !closed && ++care.cleanupAttempts < 3) {
             if (synchronous) finishRecovery(care, failure, synchronous = true)
             else tasks.runLater(4) { finishRecovery(care, failure) }

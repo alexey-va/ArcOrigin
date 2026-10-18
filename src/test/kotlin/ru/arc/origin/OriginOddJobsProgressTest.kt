@@ -166,31 +166,29 @@ class OriginOddJobsProgressTest : StringSpec({
             jobs.current(id)!!.stage shouldBe OriginOddJobStage.PAYOUT
         }
     }
-    "hauling loads then pushes then unloads and returns its empty cart before one forge reward" {
+    "hauling loads once attaches to the worker and pays only after delivery unloading" {
         val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
         jobs.begin(id, offer(OriginOddJobVariant.HAUL_COPPER), 0)
         jobs.current(id)!!.haul!!.cargo shouldBe OriginForgeCargo.COPPER
-        jobs.act(id, OriginOddJobAction.DELIVER, 1).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-        repeat(3) { index ->
-            jobs.act(id, OriginOddJobAction.PICKUP, index * 10_000L + 2)
-            jobs.act(id, OriginOddJobAction.PICKUP, index * 10_000L + 3).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-            jobs.act(id, OriginOddJobAction.DELIVER, index * 10_000L + 4).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-            jobs.act(id, OriginOddJobAction.LOAD, index * 10_000L + 5)
-            jobs.current(id)!!.haul!!.loaded shouldBe index + 1
-        }
+        jobs.act(id, OriginOddJobAction.CART_ARRIVE, 1).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.PICKUP, 2)
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.HAUL_LOAD
+        jobs.act(id, OriginOddJobAction.ATTACH_CART, 3).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.LOAD, 4)
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.HAUL_ATTACH
+        jobs.act(id, OriginOddJobAction.CART_ARRIVE, 5).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.ATTACH_CART, 6)
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.HAUL_PUSH
-        jobs.act(id, OriginOddJobAction.PICKUP, 30_000).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-        jobs.act(id, OriginOddJobAction.CART_ARRIVE, 30_001)
-        repeat(3) { index ->
-            jobs.act(id, OriginOddJobAction.DELIVER, 40_000L + index * 10_000).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-            jobs.act(id, OriginOddJobAction.PICKUP, 40_001L + index * 10_000)
-            jobs.act(id, OriginOddJobAction.DELIVER, 40_002L + index * 10_000)
-            jobs.current(id)!!.haul!!.delivered shouldBe index + 1
-        }
-        jobs.current(id)!!.stage shouldBe OriginOddJobStage.HAUL_RETURN_CART
-        jobs.act(id, OriginOddJobAction.RETURN, 70_000).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-        jobs.act(id, OriginOddJobAction.CART_ARRIVE, 70_001)
-        jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
+        jobs.act(id, OriginOddJobAction.UNLOAD, 7).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.CART_ARRIVE, 8)
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.HAUL_UNLOAD
+        jobs.act(id, OriginOddJobAction.RETURN, 9).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.UNLOAD, 10)
+        val done = jobs.current(id)!!
+        done.stage shouldBe OriginOddJobStage.PAYOUT
+        jobs.act(id, OriginOddJobAction.UNLOAD, 11).reason() shouldBe OriginOddJobRejection.PAYOUT_PENDING
+        jobs.finish(id, done.id) shouldBe done
+        jobs.finish(id, done.id) shouldBe null
         listOf(OriginOddJobKind.FORGE, OriginOddJobKind.FORGE_HAUL, OriginOddJobKind.FORGE_ENGRAVE)
             .map { it.rewardKind }.toSet() shouldBe setOf(OriginSideJobKind.FORGE)
     }

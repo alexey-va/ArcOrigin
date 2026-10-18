@@ -14,28 +14,20 @@ import org.joml.Vector3f
 import ru.arc.origin.scene.OriginScenePlan
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import java.nio.file.Files
-import java.util.UUID
 import kotlin.math.abs
 
 class OriginOddJobForgeTest : StringSpec({
-    "cart movement is paid by nearby forward walking and stops on pause remote movement teleport or obstruction" {
-        val route = OriginForgeCartRoute(listOf(OriginWorkshopPoint(0.0, 70.0, 0.0),
-            OriginWorkshopPoint(5.0, 70.0, 0.0)), "test:cart", Vector3f(3f), 0.5625)
-        val motion = OriginForgeCartMotion(route, false)
-        fun at(x: Double, z: Double = 0.0) = OriginWorkshopPoint(x, 70.0, z)
-        motion.step(at(-1.0)) shouldBe false
-        repeat(40) { motion.step(at(-1.0)) shouldBe false }
-        motion.distance shouldBe 0.0
-        motion.step(at(-0.5)) shouldBe true
-        abs(motion.distance - 0.32) shouldBeLessThan 1e-6
-        motion.step(at(-0.6)) shouldBe false
-        motion.step(at(-0.5)) { _, _ -> false } shouldBe false
-        motion.step(at(8.0)) shouldBe false
-        motion.step(at(8.1)) shouldBe false
-        motion.step(at(-0.86)) shouldBe false
-        motion.step(at(-0.76)) shouldBe true
-        abs(motion.distance - 0.42) shouldBeLessThan 1e-6
-        motion.arrived shouldBe false
+    "cart attachment follows the worker heading behind the player without a route projection" {
+        for (yaw in listOf(0.0, 90.0, 180.0, 270.0)) {
+            val pose = originForgeCartCarryPose(yaw)
+            val angle = Math.toRadians(yaw)
+            abs(pose.center.x - kotlin.math.sin(angle)) shouldBeLessThan 1e-6
+            abs(pose.center.z + kotlin.math.cos(angle)) shouldBeLessThan 1e-6
+            pose.center.y shouldBe 0.0
+            val forward = Vector3f((-kotlin.math.sin(angle)).toFloat(), 0f, kotlin.math.cos(angle).toFloat())
+            val back = Vector3f(pose.center.x.toFloat(), 0f, pose.center.z.toFloat())
+            abs(back.dot(forward).toDouble() + 1) shouldBeLessThan 1e-6
+        }
     }
 
     "a new repair order starts at stock and never resurrects an item on the anvil" {
@@ -87,30 +79,15 @@ class OriginOddJobForgeTest : StringSpec({
         } }
     }
 
-    "full cart route checks interior obstacles overhead collision support and carpet before admission" {
-        OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
-            f.forge.available(f.world) shouldBe true
-            val middle = f.world.getBlockAt(5, 70, 7)
-            middle.type = Material.STONE
-            f.forge.available(f.world) shouldBe false
-            middle.type = Material.GRAY_CARPET
-            f.forge.available(f.world) shouldBe true
-            val upper = f.world.getBlockAt(5, 71, 7)
-            upper.type = Material.STONE
-            f.forge.available(f.world) shouldBe false
-            upper.type = Material.AIR
-            f.world.getBlockAt(5, 69, 7).type = Material.AIR
-            f.forge.available(f.world) shouldBe false
-        } }
-    }
-
-    "production one tick timer follows ordinary walking and sprinting without outrunning the handles" {
+    "production timer reaches the chest by ordinary player movement and waits for unloading" {
         for (speed in listOf(0.22, 0.28)) OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
             f.begin(351, OriginOddJobVariant.HAUL_IRON)
-            repeat(3) { f.stroke(OriginOddJobStationId.ORE_STOCK); f.strokeCart() }
-            f.pushCart(step = speed)
+            f.stroke(OriginOddJobStationId.ORE_STOCK); f.strokeCart(); f.strokeCart()
+            f.dragCart(step = speed)
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_UNLOAD
             f.payments shouldBe emptyList()
+            f.stroke(OriginOddJobStationId.BLANK)
+            f.payments.size shouldBe 1
         } }
     }
 
@@ -130,7 +107,7 @@ class OriginOddJobForgeTest : StringSpec({
             wall.type = Material.STONE
             f.world.obstruction = org.bukkit.util.RayTraceResult(wall.location.toVector(), wall, org.bukkit.block.BlockFace.WEST)
             originOddJobAimed(f.player, station, 4.5, background, virtualTarget = true) shouldBe false
-            job.haul!!.loaded shouldBe 0
+            job.stage shouldBe OriginOddJobStage.HAUL_LOAD
         } }
     }
 
@@ -148,20 +125,31 @@ class OriginOddJobForgeTest : StringSpec({
         } }
     }
 
-    "loaded cart cannot finish from idle or delivery clicks and interruption removes all scene and service material" {
+    "attached cart cannot finish from idle or destination clicks and interruption clears its lease" {
         OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
             f.begin(349, OriginOddJobVariant.HAUL_IRON)
             f.leases.single().actorIds shouldBe setOf(349, 362, 351)
             val request = f.game.currentJob(f.player.uniqueId)!!.id
-            repeat(3) { f.stroke(OriginOddJobStationId.ORE_STOCK); f.strokeCart() }
-            repeat(80) { f.scheduler.tick() }
-            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_PUSH
-            f.game.work(f.player, false, f.stations.getValue(OriginOddJobStationId.BLANK).block) shouldBe false
-            f.payments shouldBe emptyList()
-            f.pushCart()
-            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_UNLOAD
+            f.stroke(OriginOddJobStationId.ORE_STOCK)
+            f.requireStage(OriginOddJobStage.HAUL_LOAD, "after picking up stationary cart cargo")
             f.strokeCart()
-            f.player.inventory.contents.filterNotNull().count { it.type == Material.STRUCTURE_VOID } shouldBe 1
+            f.requireStage(OriginOddJobStage.HAUL_ATTACH, "after loading stationary cart")
+            f.strokeCart()
+            f.requireStage(OriginOddJobStage.HAUL_PUSH, "after attaching stationary cart")
+            val destination = f.stations.getValue(OriginOddJobStationId.BLANK)
+            val destinationAt = destination.block.location.clone()
+            repeat(80) { tick ->
+                f.scheduler.tick()
+                f.requireStage(OriginOddJobStage.HAUL_PUSH, "stationary cart tick ${tick + 1}")
+            }
+            destination.block.location shouldBe destinationAt
+            destination.valid() shouldBe true
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_PUSH
+            f.stroke(OriginOddJobStationId.BLANK)
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_PUSH
+            @Suppress("UNNECESSARY_SAFE_CALL") // The closed MockBukkit view may omit its top inventory.
+            (f.player.openInventory.topInventory?.holder is OriginOddJobSupplies.Stock) shouldBe false
+            f.payments shouldBe emptyList()
             f.game.onTeleport(mockk<PlayerTeleportEvent> { every { player } returns f.player })
             f.game.isWorking(f.player.uniqueId) shouldBe false
             f.cartDisplays.none { it.isValid } shouldBe true
@@ -176,34 +164,18 @@ class OriginOddJobForgeTest : StringSpec({
         } }
     }
 
-    "source route reuses Savva's grounded cart and a complete round trip fits the order deadline" {
+    "job parking uses the requested ground point and Savva's measured item context" {
         OddJobsFixture().use {
-            val scene = OriginScenePlan.load(Files.createTempDirectory("forge-cart-route")).scene("forge")
-            val route = OriginForgeCartRoute.from(scene)
-            route.itemId shouldBe "elitecreatures:medieval_market_decoration_v1_cart_2"
-            route.lift shouldBe 0.5625
-            route.length shouldBe 13.0
-            for (returning in listOf(false, true)) {
-                val motion = OriginForgeCartMotion(route, returning)
-                // A player walks the authored route behind the handles, including both corners.
-                var previous = route.point(0.0, returning).let { p ->
-                    val (x, z) = route.direction(0.0, returning)
-                    OriginWorkshopPoint(p.x - x, p.y, p.z - z)
-                }
-                motion.step(previous)
-                var ticks = 0
-                var walked = -1.0
-                while (!motion.arrived && ticks++ < 600) {
-                    walked += 0.1
-                    previous = if (walked < 0) route.point(0.0, returning).let { p ->
-                        val (x, z) = route.direction(0.0, returning)
-                        OriginWorkshopPoint(p.x + x * walked, p.y, p.z + z * walked)
-                    } else route.point(walked, returning)
-                    motion.step(previous)
-                }
-                motion.arrived shouldBe true
-                (ticks * 50 < 30_000) shouldBe true
-            }
+            val scene = OriginScenePlan.load(Files.createTempDirectory("forge-cart-layout")).scene("forge")
+            val layout = OriginForgeCartLayout.from(scene)
+            layout.start shouldBe OriginWorkshopPoint(61.8, 69.0, 63.7)
+            layout.yaw shouldBe 90f
+            layout.itemId shouldBe "elitecreatures:medieval_market_decoration_v1_cart_2"
+            layout.lift shouldBe 0.5625
+            layout.scale shouldBe Vector3f(3f)
+            layout.context shouldBe org.bukkit.entity.ItemDisplay.ItemDisplayTransform.GROUND
+            val stock = scene.anchors.getValue("job-haul-stock")
+            listOf(stock.x, stock.y, stock.z) shouldBe listOf(65.0, 70.0, 61.0)
         }
     }
 })

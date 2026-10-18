@@ -135,6 +135,7 @@ class OriginOddJobsSurfaceTest : StringSpec({
                     Triple(83, 72, 79) to Material.IRON_CHAIN,
                     Triple(78, 70, 76) to Material.ANVIL,
                     Triple(82, 70, 76) to Material.WATER_CAULDRON,
+                    Triple(65, 70, 61) to Material.CHEST,
                     Triple(64, 70, 60) to Material.CHEST,
                     Triple(79, 70, 67) to Material.ANVIL,
                 )
@@ -155,6 +156,7 @@ class OriginOddJobsSurfaceTest : StringSpec({
                 stations.getValue(OriginOddJobStationId.HAY).point.y shouldBe 72.02
                 stations.getValue(OriginOddJobStationId.WATER).point shouldBe Location(world, 57.5, 70.9, -121.5)
                 stations.getValue(OriginOddJobStationId.FEED).point shouldBe Location(world, 48.5, 70.02, -134.5)
+                stations.getValue(OriginOddJobStationId.ORE_STOCK).point shouldBe Location(world, 65.5, 70.9, 61.5)
                 stations.getValue(OriginOddJobStationId.WELL).point shouldBe Location(world, 55.5, 71.02, -134.5)
                 stations.getValue(OriginOddJobStationId.BRUSH).point shouldBe Location(world, 55.5, 71.02, -133.5)
                 stations.getValue(OriginOddJobStationId.SADDLE_RACK).point shouldBe Location(world, 65.5, 71.02, -133.5)

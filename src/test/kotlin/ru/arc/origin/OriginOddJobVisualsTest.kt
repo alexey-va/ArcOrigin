@@ -12,6 +12,7 @@ import io.mockk.verifyOrder
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.block.data.BlockData
+import org.bukkit.entity.Display
 import org.bukkit.entity.Player
 import org.bukkit.util.Transformation
 import org.joml.Vector3f
@@ -74,6 +75,37 @@ class OriginOddJobVisualsTest : StringSpec({
             }
             visuals.target(player, request, null, "")
             harness.blocks.forEach { display -> verify(exactly = 1) { display.remove() } }
+            visuals.close()
+        }
+    }
+
+    "wall mounted action labels keep their plane outside both walls when the player turns" {
+        failOnUnsupportedMockBukkitOperation {
+            val player = oddJobCarrier(paper)
+            val harness = OddJobDisplayHarness()
+            val visuals = OriginOddJobVisuals { harness.owner }
+            val request = UUID.randomUUID()
+            for (yaw in listOf(-90f, 90f)) {
+                val anchor = Location(player.world, 56.06, 71.4, -127.5, yaw, 0f)
+                visuals.wallTarget(player, request, anchor, "Сними повод · ПКМ по кольцу")
+                val at = harness.textLocations.last()
+                at.yaw shouldBe yaw
+                at.pitch shouldBe 0f
+                abs(at.y - anchor.y - 0.42) shouldBeLessThan 1e-6
+                val outward = at.toVector().subtract(anchor.toVector()).setY(0)
+                abs(outward.dot(anchor.direction) - 0.035) shouldBeLessThan 1e-6
+                verify { harness.texts.last().billboard = Display.Billboard.FIXED }
+                val count = harness.texts.size
+                player.teleport(player.location.apply { this.yaw += 90f })
+                visuals.wallTarget(player, request, anchor, "Сними второй повод · ПКМ по кольцу")
+                visuals.tick()
+                harness.texts.size shouldBe count
+                harness.textLocations.last() shouldBe at
+            }
+            harness.blocks shouldBe emptyList()
+            visuals.destination(player, request, player.location, "Развязка")
+            harness.blocks.size shouldBe 4
+            verify { harness.texts.last().billboard = Display.Billboard.CENTER }
             visuals.close()
         }
     }
@@ -336,12 +368,14 @@ class OriginOddJobVisualsTest : StringSpec({
 private class OddJobDisplayHarness {
     val blocks = mutableListOf<PacketBlockDisplay>()
     val texts = mutableListOf<PacketTextDisplay>()
+    val textLocations = mutableListOf<Location>()
     val teleports = mutableListOf<Location>()
     val owner = mockk<PaperPacketDisplays>(relaxed = true)
 
     init {
         every { owner.spawnBlock(any(), any()) } answers { block(secondArg()) }
         every { owner.spawnText(any(), any()) } answers {
+            textLocations += firstArg<Location>().clone()
             mockk<PacketTextDisplay>(relaxed = true).also { display -> track(display); texts += display }
         }
     }

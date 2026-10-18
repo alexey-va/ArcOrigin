@@ -80,12 +80,12 @@ internal enum class OriginOddJobStage {
     YARD_HAY, YARD_FEED, YARD_EATING, YARD_BUCKET, YARD_WELL, YARD_WATER, YARD_DRINKING,
     YARD_BRUSH, YARD_GROOM, YARD_TACK, YARD_SADDLE, YARD_LEAD_RACK, YARD_LEAD, YARD_LEAD_OUT, YARD_TIE_FIRST, YARD_TIE_SECOND, YARD_UNTIE_FIRST, YARD_UNTIE_SECOND, YARD_DELIVER, YARD_HANDOFF, YARD_HANDED,
     FORGE_BLANK, FORGE_INSPECT, FORGE_HEAT, FORGE_HEATING, FORGE_PLACE, FORGE_HAMMER, FORGE_QUENCH,
-    HAUL_PICKUP, HAUL_LOAD, HAUL_PUSH, HAUL_UNLOAD, HAUL_DELIVER, HAUL_RETURN_CART,
+    HAUL_PICKUP, HAUL_LOAD, HAUL_ATTACH, HAUL_PUSH, HAUL_UNLOAD,
     ENGRAVE_BLANK, ENGRAVE_PLACE, ENGRAVE_CARVE, ENGRAVE_COLLECT,
     AUCTION_ITEM, AUCTION_INSPECT, AUCTION_VERIFY, AUCTION_DOCUMENT, AUCTION_PACK, AUCTION_LOAD, AUCTION_DELIVER, AUCTION_RECEIPT,
     RETURN, PAYOUT,
 }
-internal enum class OriginOddJobAction { HAY, FEED, WATER, BRUSH, GROOM, TACK, SADDLE, LEAD, ARRIVE, TIE, UNTIE, CARE_DONE, BLANK, HEAT, PLACE, HAMMER, QUENCH, PICKUP, LOAD, CART_ARRIVE, DELIVER, ENGRAVE, COLLECT, HANDOFF, RETURN }
+internal enum class OriginOddJobAction { HAY, FEED, WATER, BRUSH, GROOM, TACK, SADDLE, LEAD, ARRIVE, TIE, UNTIE, CARE_DONE, BLANK, HEAT, PLACE, HAMMER, QUENCH, PICKUP, LOAD, ATTACH_CART, CART_ARRIVE, UNLOAD, ENGRAVE, COLLECT, HANDOFF, RETURN }
 internal enum class OriginAuctionPacking { PADDED_BOX, PAPER_WRAP, SCABBARD }
 internal enum class OriginAuctionParcel(val packing: OriginAuctionPacking, val weight: Int) {
     VASE(OriginAuctionPacking.PADDED_BOX, 1), BOOK(OriginAuctionPacking.PAPER_WRAP, 2), BLADE(OriginAuctionPacking.SCABBARD, 3),
@@ -97,7 +97,7 @@ internal enum class OriginForgeMetal(val title: String, val itemModel: String) {
 internal enum class OriginForgeCargo(val title: String, val itemModel: String) {
     IRON("Железная руда", "raw_iron"), COPPER("Медная руда", "raw_copper"), COAL("Уголь", "coal")
 }
-internal data class OriginForgeHaul(val cargo: OriginForgeCargo, val delivered: Int = 0, val loads: Int = 3, val loaded: Int = 0)
+internal data class OriginForgeHaul(val cargo: OriginForgeCargo)
 internal data class OriginForgeEngraving(val word: String, val metal: OriginForgeMetal, val strokes: Int = 0) {
     val totalStrokes: Int get() = word.length * 2
 }
@@ -153,12 +153,11 @@ internal fun originOddJobProgress(job: OriginOddJobSession, now: Long): Float = 
     OriginOddJobStage.FORGE_PLACE -> 0.4f
     OriginOddJobStage.FORGE_HAMMER -> 0.45f + 0.35f * (job.progress.toFloat() / (job.progress + (job.forge?.remainingStrikes ?: 0)).coerceAtLeast(1))
     OriginOddJobStage.FORGE_QUENCH -> 0.85f
-    OriginOddJobStage.HAUL_PICKUP -> requireNotNull(job.haul).let { 0.25f * it.loaded / it.loads }
-    OriginOddJobStage.HAUL_LOAD -> requireNotNull(job.haul).let { 0.25f * (it.loaded + 0.5f) / it.loads }
-    OriginOddJobStage.HAUL_PUSH -> 0.3f
-    OriginOddJobStage.HAUL_UNLOAD -> requireNotNull(job.haul).let { 0.55f + 0.3f * it.delivered / it.loads }
-    OriginOddJobStage.HAUL_DELIVER -> requireNotNull(job.haul).let { 0.55f + 0.3f * (it.delivered + 0.5f) / it.loads }
-    OriginOddJobStage.HAUL_RETURN_CART -> 0.9f
+    OriginOddJobStage.HAUL_PICKUP -> 0f
+    OriginOddJobStage.HAUL_LOAD -> 0.15f
+    OriginOddJobStage.HAUL_ATTACH -> 0.3f
+    OriginOddJobStage.HAUL_PUSH -> 0.45f
+    OriginOddJobStage.HAUL_UNLOAD -> 0.9f
     OriginOddJobStage.ENGRAVE_BLANK -> 0f
     OriginOddJobStage.ENGRAVE_PLACE -> 0.15f
     OriginOddJobStage.ENGRAVE_CARVE -> requireNotNull(job.engraving).let { 0.25f + 0.6f * it.strokes / it.totalStrokes }
@@ -305,17 +304,10 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
             }
             OriginOddJobStage.FORGE_QUENCH -> if (action == OriginOddJobAction.QUENCH) next(OriginOddJobStage.RETURN) else wrong()
             OriginOddJobStage.HAUL_PICKUP -> if (action == OriginOddJobAction.PICKUP) next(OriginOddJobStage.HAUL_LOAD) else wrong()
-            OriginOddJobStage.HAUL_LOAD -> if (action != OriginOddJobAction.LOAD) wrong() else {
-                val work = requireNotNull(job.haul).let { it.copy(loaded = it.loaded + 1) }
-                next(if (work.loaded == work.loads) OriginOddJobStage.HAUL_PUSH else OriginOddJobStage.HAUL_PICKUP, job.copy(haul = work))
-            }
+            OriginOddJobStage.HAUL_LOAD -> if (action == OriginOddJobAction.LOAD) next(OriginOddJobStage.HAUL_ATTACH) else wrong()
+            OriginOddJobStage.HAUL_ATTACH -> if (action == OriginOddJobAction.ATTACH_CART) next(OriginOddJobStage.HAUL_PUSH) else wrong()
             OriginOddJobStage.HAUL_PUSH -> if (action == OriginOddJobAction.CART_ARRIVE) next(OriginOddJobStage.HAUL_UNLOAD) else wrong()
-            OriginOddJobStage.HAUL_UNLOAD -> if (action == OriginOddJobAction.PICKUP) next(OriginOddJobStage.HAUL_DELIVER) else wrong()
-            OriginOddJobStage.HAUL_DELIVER -> if (action != OriginOddJobAction.DELIVER) wrong() else {
-                val work = requireNotNull(job.haul).let { it.copy(delivered = it.delivered + 1) }
-                next(if (work.delivered == work.loads) OriginOddJobStage.HAUL_RETURN_CART else OriginOddJobStage.HAUL_UNLOAD, job.copy(haul = work))
-            }
-            OriginOddJobStage.HAUL_RETURN_CART -> if (action == OriginOddJobAction.CART_ARRIVE) next(OriginOddJobStage.RETURN) else wrong()
+            OriginOddJobStage.HAUL_UNLOAD -> if (action == OriginOddJobAction.UNLOAD) next(OriginOddJobStage.PAYOUT) else wrong()
             OriginOddJobStage.ENGRAVE_BLANK -> if (action == OriginOddJobAction.BLANK) next(OriginOddJobStage.ENGRAVE_PLACE) else wrong()
             OriginOddJobStage.ENGRAVE_PLACE -> if (action == OriginOddJobAction.PLACE) next(OriginOddJobStage.ENGRAVE_CARVE) else wrong()
             OriginOddJobStage.ENGRAVE_CARVE -> when {

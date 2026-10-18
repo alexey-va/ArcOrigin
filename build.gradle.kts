@@ -81,6 +81,8 @@ dependencies {
         exclude(group = "io.netty")
     }
     testImplementation("com.denizenscript:denizen:1.3.2-SNAPSHOT") { isTransitive = false }
+    // The API precedes citizens-main's duplicate API, whose relocated Adventure requires plugin bootstrap.
+    testImplementation("net.citizensnpcs:citizensapi:2.0.42-20260615.110519-11") { isTransitive = false }
     testImplementation("net.citizensnpcs:citizens-main:2.0.42-SNAPSHOT") {
         exclude(group = "*", module = "*")
     }

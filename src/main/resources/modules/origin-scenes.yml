@@ -58,7 +58,7 @@ scenes:
         home: "80.7,70.0,78.4458,65.1,0"
         denied-denizen-flags: [rc_origin_forge_service_busy]
 
-    anchor-ids: [master-anvil, master-anvil-stand, master-assistant-stand, ledger-desk, stock-stand, stock-chest, apprentice-stand, apprentice-anvil, ore-cart-stand, ore-cart, ore-chest-stand, ore-chest, dummy-stage, dummy, hammer-anvil, furnace-stand, furnace-fire, heat-chain, quench-stand, quench-cauldron, ore-load-stand, ore-load-cart, ore-route-entry, ore-route-turn, ore-passage, ore-park-stand, ore-park-cart, ore-unload-side, ore-return-side, ore-return-grip, ore-return-load]
+    anchor-ids: [master-anvil, master-anvil-stand, master-assistant-stand, ledger-desk, stock-stand, stock-chest, apprentice-stand, apprentice-anvil, ore-cart-stand, ore-cart, ore-chest-stand, ore-chest, dummy-stage, dummy, hammer-anvil, furnace-stand, furnace-fire, heat-chain, quench-stand, quench-cauldron, ore-load-stand, ore-load-cart, ore-route-entry, ore-route-turn, ore-passage, ore-park-stand, ore-park-cart, ore-unload-side, ore-return-side, ore-return-grip, ore-return-load, job-haul-cart, job-haul-stock]
     anchors:
       master-anvil: "76.5,70.65,69.5"
       master-anvil-stand: "76.5,70.0,70.5"
@@ -72,6 +72,8 @@ scenes:
       ore-cart: "64.5,70.5,60.5"
       ore-load-stand: "70.5,70.0,65.5,-90,0"
       ore-load-cart: "71.5,70.5625,65.5,90,0"
+      job-haul-cart: "61.8,69.0,63.7,90,0"
+      job-haul-stock: "65.0,70.0,61.0"
       ore-route-entry: "74.5,70.0,65.5"
       ore-route-turn: "74.5,70.0,69.5"
       ore-passage: "78.5,70.0,69.5"
@@ -824,7 +826,7 @@ scenes:
       423: {"home": "72.5,70.0,-134.5,-180,0", "denied-denizen-flags": []}
       369: {"home": "54.6336,70,-119.518,180,0", "denied-denizen-flags": []}
       440: {"home": "57.5,70,-133.5,180,0", "denied-denizen-flags": []}
-      461: {"home": "57.5,69,-111.5,-90,0", "denied-denizen-flags": []}
+      461: {"home": "67.5,70,-120.5,180,0", "denied-denizen-flags": []}
       441: {"home": "66.5,70,-141.5,-90,0", "denied-denizen-flags": []}
       442: {"home": "69.5,70,-141.5,180,0", "denied-denizen-flags": []}
       443: {"home": "52.5,70,-121.5,90,0", "denied-denizen-flags": []}
@@ -853,8 +855,8 @@ scenes:
       job-care-pad: "60.5,70,-126.5,180,0"
       job-tie-first: "56.06,71.4,-127.5,-90,0"
       job-tie-second: "63.94,71.4,-127.5,90,0"
-      job-handoff: "59.5,69,-111.5,90,0"
-      job-rider-home: "57.5,69,-111.5,-90,0"
+      job-handoff: "67.5,70,-122.5,0,0"
+      job-rider-home: "67.5,70,-120.5,180,0"
       job-stall-422-exit: "52.5,70,-135.5,-90,0"
       job-stall-423-exit: "72.5,70,-138.5,180,0"
       job-stall-422-gate-1: "50.5,70,-136.5"
@@ -864,9 +866,9 @@ scenes:
       job-stall-423-gate-2: "71.5,70,-136.5"
       job-stall-423-gate-3: "73.5,70,-136.5"
       job-delivery-0: "60.5,70,-119.5"
-      job-delivery-1: "58.5,70,-117.5"
-      job-delivery-2: "58.5,69.5,-115.5"
-      job-delivery-3: "58.5,69,-113.5"
+      job-delivery-1: "63.5,70,-121.5"
+      job-delivery-2: "65.5,70,-122.5"
+      job-delivery-3: "66.5,70,-122.5"
       job-ride-0: "58.5,69,-109.5"
       job-ride-1: "54.5,69,-109.5"
       job-ride-2: "50.5,69,-109.5"

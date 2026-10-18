@@ -22,6 +22,7 @@ import org.bukkit.event.Listener
 import org.bukkit.event.block.Action
 import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.entity.EntityUnleashEvent
+import org.bukkit.event.entity.PlayerLeashEntityEvent
 import org.bukkit.event.player.PlayerUnleashEntityEvent
 import org.bukkit.event.inventory.InventoryClickEvent
 import org.bukkit.event.inventory.InventoryCloseEvent
@@ -50,6 +51,8 @@ import ru.arc.origin.scene.OriginScenePlan
 import ru.arc.origin.scene.OriginSceneDefinition
 import java.util.UUID
 
+private const val ODD_JOB_ASSIGNMENT_TIMEOUT_MILLIS = 15_000L
+
 /** Three local work loops; ambient scenes own actors and the shared reward owner owns money. */
 object OriginOddJobsModule : PluginModule {
     override val name = "OriginOddJobs"
@@ -70,7 +73,7 @@ object OriginOddJobsModule : PluginModule {
             resolveStations = { originOddJobStations(plan, world) },
             yardCatalog = OriginMountYardAnimalsConfig.load(path, mergeDefaults = false).catalog,
             yardScene = plan.scene("mount-yard"),
-            forge = OriginOddJobForge(OriginForgeCartRoute.from(plan.scene("forge")))).also {
+            forge = OriginOddJobForge(OriginForgeCartLayout.from(plan.scene("forge")))).also {
             Bukkit.getPluginManager().registerEvents(it, ArcOriginPlugin.instance)
         }
         info("ORIGIN_ODD_JOBS phase=READY world={} stations={}", plan.world,
@@ -159,7 +162,8 @@ internal class OriginOddJobsGame(
     private val renderedCargo = mutableMapOf<UUID, OriginForgeCargo>()
     private val renderedEngraving = mutableMapOf<UUID, Pair<OriginForgeEngraving, Boolean>>()
     private data class Shift(val venue: OriginOddJobVenue, var score: OriginWorkShift, val dispatch: OriginOddJobDispatch,
-        var settling: Boolean = false)
+        var settling: Boolean = false, var assigningSince: Long? = null,
+        var assignmentFailure: String = "no-available-offer", val unavailableOffers: MutableSet<UUID> = mutableSetOf())
     private data class Accepted(val job: OriginOddJobSession, val shiftId: UUID, val quality: Int, var nextAttempt: Long = 0, var inFlight: Boolean = false)
     private val shifts = mutableMapOf<UUID, Shift>()
     private val accepted = mutableMapOf<UUID, Accepted>()
@@ -177,7 +181,9 @@ internal class OriginOddJobsGame(
                 visuals.tick()
                 progress.entries().filter { it.second.kind == OriginOddJobKind.FORGE_HAUL }.forEach { (id, job) ->
                     Bukkit.getPlayer(id)?.let { player ->
-                        if (forge.tick(player, job) && valid(player, job)) apply(player, progress.act(id, OriginOddJobAction.CART_ARRIVE, clock()))
+                        val destination = stations[OriginOddJobStationId.BLANK]
+                        if (destination != null && valid(player, job) && forge.tick(player, job, destination))
+                            apply(player, progress.act(id, OriginOddJobAction.CART_ARRIVE, clock()))
                     }
                 }
             } catch (failure: Exception) {
@@ -260,7 +266,13 @@ internal class OriginOddJobsGame(
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     fun onPlayerUnleash(event: PlayerUnleashEntityEvent) {
         val id = CitizensAPI.getNPCRegistry().getNPC(event.entity)?.id ?: return
-        if (yard.ownsAnimal(id)) event.isCancelled = true
+        if (yard.ownsAnimal(id) && !yard.workerLeading(event.player.uniqueId, id)) event.isCancelled = true
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    fun onPlayerLeash(event: PlayerLeashEntityEvent) {
+        val id = CitizensAPI.getNPCRegistry().getNPC(event.entity)?.id ?: return
+        if (yard.ownsAnimal(id) && !yard.workerLeading(event.player.uniqueId, id)) event.isCancelled = true
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -372,6 +384,12 @@ internal class OriginOddJobsGame(
         if (playerId in requests) { feedback(player, "checking"); return }
         val request = UUID.randomUUID(); requests[playerId] = request
         val epoch = tasks.token()
+        tasks.runLater(ODD_JOB_ASSIGNMENT_TIMEOUT_MILLIS / 50) {
+            if (requests.remove(playerId, request)) {
+                warn("ORIGIN_ODD_JOBS phase=ADMISSION_FAILED player={} npc={} kind={} reason=status-timeout", playerId, venue.npcId, venue.kind)
+                feedback(player, "cash-unavailable")
+            }
+        }
         if (!start) OriginMenus.openDialog(player, originOddJobsScreen(config, venue, null, rewards.amount, null, clock()),
             onDismiss = { requests.remove(playerId, request) })
         rewards.status(playerId).whenComplete { state, failure -> tasks.runSync(epoch) {
@@ -411,44 +429,86 @@ internal class OriginOddJobsGame(
     }
 
     private fun nextOrder(player: Player, shift: Shift) {
-        val now = clock()
-        if (!shift.score.acceptsOrders(now)) { finishIfReady(player.uniqueId, now); return }
+        val id = player.uniqueId; val now = clock()
+        if (closed || shifts[id] !== shift || id in accepted || progress.current(id) != null) return
+        if (!shift.score.acceptsOrders(now)) { finishIfReady(id, now); return }
+        if (shift.assigningSince == null) shift.assigningSince = now
+        if (assignmentExpired(player, shift, now) || id in requests || (retryAt[id] ?: 0) > now) return
         val phase = shift.score.phase(now)
-        val offer = if (shift.venue.kind == OriginOddJobKind.MOUNTYARD) shift.dispatch.nextAvailable(phase) { yard.target(it) != null }
-            else shift.dispatch.offers(phase).first()
-        if (offer == null) { retryAt[player.uniqueId] = now + 1_000; return }
+        val offer = shift.dispatch.nextAvailable(phase) { candidate ->
+            when {
+                candidate.id in shift.unavailableOffers -> false
+                !available(candidate.kind, refresh = true) -> { shift.assignmentFailure = "workplace-unavailable"; false }
+                candidate.kind == OriginOddJobKind.MOUNTYARD && yard.target(candidate) == null -> {
+                    shift.assignmentFailure = "animal-unavailable"; false
+                }
+                else -> true
+            }
+        }
+        if (offer == null) {
+            shift.unavailableOffers.clear()
+            retryAt[id] = now + 1_000
+            return
+        }
         accept(player, shift.score.id, offer.id)
+    }
+
+    private fun assignmentExpired(player: Player, shift: Shift, now: Long): Boolean {
+        val id = player.uniqueId
+        if (shifts[id] !== shift || progress.current(id) != null || id in accepted) return false
+        val started = shift.assigningSince ?: return false
+        if (now - started < ODD_JOB_ASSIGNMENT_TIMEOUT_MILLIS) return false
+        warn("ORIGIN_ODD_JOBS phase=ASSIGNMENT_FAILED player={} shift={} npc={} kind={} reason={} waited_ms={}",
+            id, shift.score.id, shift.venue.npcId, shift.venue.kind, shift.assignmentFailure, now - started)
+        requests.remove(id); retryAt.remove(id)
+        finishRequested(player)
+        feedback(player, if (shift.assignmentFailure == "status-pending") "cash-unavailable" else "unavailable")
+        return true
+    }
+
+    private fun retryAssignment(id: UUID, shift: Shift, offer: OriginOddJobOffer, reason: String, delayMillis: Long = 1_000) {
+        shift.unavailableOffers += offer.id
+        shift.assignmentFailure = reason
+        retryAt[id] = clock() + delayMillis
     }
 
     private fun accept(player: Player, shiftId: UUID, offerId: UUID) {
         val id = player.uniqueId; val shift = shifts[id]?.takeIf { it.score.id == shiftId } ?: return
         if (closed || !shift.score.acceptsOrders(clock()) || id in accepted || progress.current(id) != null || !inArea(player, shift.venue.kind)) return
         val offer = shift.dispatch.offers(shift.score.phase(clock())).firstOrNull { it.id == offerId } ?: return
-        if (!workMode(player) || otherWork(id) != null || !available(shift.venue.kind, refresh = true)) { feedback(player, "unavailable"); return }
+        val rejected = otherWork(id) ?: if (!workMode(player)) "work-mode" else null
+        if (rejected != null) { finishRequested(player); feedback(player, rejected); return }
+        if (!available(offer.kind, refresh = true)) { retryAssignment(id, shift, offer, "workplace-unavailable"); return }
         if (id in requests) return
         val request = UUID.randomUUID(); requests[id] = request; val epoch = tasks.token()
+        shift.assignmentFailure = "status-pending"
         rewards.status(id, shift.score.id).whenComplete { state, failure -> tasks.runSync(epoch) {
             if (!requests.remove(id, request) || closed || shifts[id] !== shift || !shift.score.acceptsOrders(clock()) ||
                 progress.current(id) != null || id in accepted || !inArea(player, shift.venue.kind)) return@runSync
+            if (assignmentExpired(player, shift, clock())) return@runSync
             val gate = when {
                 failure != null || state == null || !state.available -> "cash-unavailable"
                 state.unresolved -> "unconfirmed"
                 state.remainingOrders <= 0 -> "daily-limit"
-                !workMode(player) || otherWork(id) != null || !available(shift.venue.kind, refresh = true) -> "unavailable"
+                !workMode(player) -> "work-mode"
+                otherWork(id) != null -> otherWork(id)
                 else -> null
             }
-            if (gate != null) { feedback(player, gate); finishRequested(player); return@runSync }
+            if (gate != null) { finishRequested(player); feedback(player, gate); return@runSync }
+            if (!available(offer.kind, refresh = true)) { retryAssignment(id, shift, offer, "workplace-unavailable"); return@runSync }
             val yardTarget = if (offer.kind == OriginOddJobKind.MOUNTYARD) yard.target(offer) else null
-            if (offer.kind == OriginOddJobKind.MOUNTYARD && yardTarget == null) { retryAt[id] = clock() + 1_000; return@runSync }
+            if (offer.kind == OriginOddJobKind.MOUNTYARD && yardTarget == null) { retryAssignment(id, shift, offer, "animal-unavailable"); return@runSync }
             val leasedActors = if (offer.kind == OriginOddJobKind.MOUNTYARD)
                 setOf(requireNotNull(yardTarget).animalId) + listOfNotNull(config.yardRider?.npcId?.takeIf { offer.variant.isYardPreparation() })
                 else shift.venue.actorIds + config.venue(offer.kind).actorIds
             val leasedVenue = shift.venue.copy(actorIds = leasedActors)
             val lease = if (shift.venue.scene != null) acquire(leasedVenue) else null
-            if (shift.venue.scene != null && lease == null) { retryAt[id] = clock() + 3_000; feedback(player, "busy"); return@runSync }
-            if (shift.dispatch.accept(offerId) == null) { lease?.let(release); return@runSync }
+            if (shift.venue.scene != null && lease == null) {
+                retryAssignment(id, shift, offer, "worksite-busy", 3_000); feedback(player, "busy"); return@runSync
+            }
+            if (shift.dispatch.accept(offerId) == null) { lease?.let(release); retryAssignment(id, shift, offer, "offer-unavailable"); return@runSync }
             val job = progress.begin(id, offer, clock(), shift.score.hardStopAt, yardTarget, shift.venue.kind)
-            if (job == null) { lease?.let(release); return@runSync }
+            if (job == null) { lease?.let(release); retryAssignment(id, shift, offer, "session-unavailable"); return@runSync }
             if (lease != null) leases[id] = lease
             if (job.kind == OriginOddJobKind.MOUNTYARD &&
                 (!yard.begin(player, job) { lease == null || owns(lease) } || !syncYard(player, job))) {
@@ -461,6 +521,7 @@ internal class OriginOddJobsGame(
                 cancelOrder(id, "lease-unavailable"); feedback(player, "unavailable"); return@runSync
             }
             if (!render(player, job, clock())) return@runSync
+            shift.assigningSince = null; shift.unavailableOffers.clear(); retryAt.remove(id)
             info("ORIGIN_ODD_JOBS phase=STARTED player={} shift={} request={} kind={} variant={}", id, shiftId, job.id, job.kind, job.variant)
             if (job.kind.rewardKind == OriginSideJobKind.FORGE)
                 player.sendMessage(waiterText(config.line("forge.started", "order" to config.line("variants.${job.variant.key()}.title"),
@@ -524,6 +585,7 @@ internal class OriginOddJobsGame(
             if (!left) supplies.openStock(player, job, station.block)
             return true
         }
+        if (job.stage == OriginOddJobStage.HAUL_PUSH) { guide(player, job, clock(), true); return true }
         if (!supplies.canTransfer(player, job)) { feedback(player, "inventory-full"); return true }
         if (job.stage in setOf(OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_TACK) && !yard.readyForCare(player.uniqueId, job)) {
             stop(player.uniqueId, "unavailable"); feedback(player, "unavailable"); return true
@@ -543,8 +605,8 @@ internal class OriginOddJobsGame(
             OriginOddJobStage.FORGE_QUENCH -> OriginOddJobAction.QUENCH
             OriginOddJobStage.HAUL_PICKUP -> OriginOddJobAction.PICKUP
             OriginOddJobStage.HAUL_LOAD -> OriginOddJobAction.LOAD
-            OriginOddJobStage.HAUL_UNLOAD -> OriginOddJobAction.PICKUP
-            OriginOddJobStage.HAUL_DELIVER -> OriginOddJobAction.DELIVER
+            OriginOddJobStage.HAUL_ATTACH -> OriginOddJobAction.ATTACH_CART
+            OriginOddJobStage.HAUL_UNLOAD -> OriginOddJobAction.UNLOAD
             OriginOddJobStage.ENGRAVE_BLANK -> OriginOddJobAction.BLANK
             OriginOddJobStage.ENGRAVE_PLACE -> OriginOddJobAction.PLACE
             OriginOddJobStage.ENGRAVE_CARVE -> OriginOddJobAction.ENGRAVE
@@ -572,6 +634,11 @@ internal class OriginOddJobsGame(
         if (!near(player, npcId)) { feedback(player, "come-closer"); return true }
         if (duplicate(player)) return true
         if (!valid(player, job)) { stop(player.uniqueId, "unavailable"); feedback(player, "unavailable"); return true }
+        if (job.yard?.animalId == npcId && job.stage in setOf(OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_DELIVER)) {
+            if (player.hasLineOfSight(requireNotNull(yard.resolve(npcId))) && !yard.toggleWorkerLead(player, job))
+                feedback(player, "unavailable")
+            return true
+        }
         if (job.yard?.animalId != npcId || job.stage !in setOf(OriginOddJobStage.YARD_GROOM, OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_WATER)) {
             feedback(player, "mountyard.next-step", "guide" to originOddJobGuide(config, job, clock())); return true
         }
@@ -735,7 +802,7 @@ internal class OriginOddJobsGame(
                     }
                 }
                 job != null && render(player, job, now) -> guide(player, job, now)
-                job == null && id !in accepted && id !in requests && (retryAt[id] ?: 0) <= now -> {
+                job == null && id !in accepted -> {
                     if (shift.score.acceptsOrders(now)) nextOrder(player, shift)
                 }
             }
@@ -800,7 +867,7 @@ internal class OriginOddJobsGame(
                 renderedForge[player.uniqueId] = forgeProfile to heated
             }
         }
-        if (job.stage in setOf(OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.HAUL_DELIVER)) {
+        if (job.stage == OriginOddJobStage.HAUL_LOAD) {
             val cargo = requireNotNull(job.haul).cargo
             if (renderedCargo[player.uniqueId] != cargo) { visuals.cargo(player, job.id, cargo); renderedCargo[player.uniqueId] = cargo }
         } else if (renderedCargo.remove(player.uniqueId) != null) visuals.clear(player.uniqueId, job.id)
@@ -811,8 +878,8 @@ internal class OriginOddJobsGame(
         val stationId = originOddJobStation(job.stage)
         val caption = when (job.stage) {
             OriginOddJobStage.FORGE_HEATING, OriginOddJobStage.FORGE_HAMMER, OriginOddJobStage.FORGE_INSPECT,
-            OriginOddJobStage.HAUL_PICKUP, OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.HAUL_PUSH,
-            OriginOddJobStage.HAUL_UNLOAD, OriginOddJobStage.HAUL_DELIVER, OriginOddJobStage.HAUL_RETURN_CART,
+            OriginOddJobStage.HAUL_PICKUP, OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.HAUL_ATTACH,
+            OriginOddJobStage.HAUL_PUSH, OriginOddJobStage.HAUL_UNLOAD,
             OriginOddJobStage.ENGRAVE_BLANK, OriginOddJobStage.ENGRAVE_PLACE, OriginOddJobStage.ENGRAVE_CARVE,
             OriginOddJobStage.ENGRAVE_COLLECT -> originOddJobGuide(config, job, now)
             else -> if (job.kind == OriginOddJobKind.MOUNTYARD) originOddJobGuide(config, job, now)
@@ -823,15 +890,19 @@ internal class OriginOddJobsGame(
         val cartTarget = forge.target(player.uniqueId, job)
         val tieTarget = yard.station(player.uniqueId, job)?.point
         val gateTarget = yard.gateTarget(player.uniqueId, job)
+        val detachedLead = yard.leadDetached(player.uniqueId, job)
         val yardTarget = if (job.stage in setOf(OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_DELIVER))
             yard.destination(player.uniqueId, job)?.add(0.0, 0.05, 0.0) else null
-        if (gateTarget != null) visuals.target(player, job.id, gateTarget,
+        if (detachedLead) visuals.target(player, job.id, yard.resolve(requireNotNull(job.yard).animalId)?.location?.add(0.0, 0.9, 0.0),
+            config.line("guide.yard-regrab", "animal" to job.yard.animalName), outline = false)
+        else if (gateTarget != null) visuals.target(player, job.id, gateTarget,
             config.line("guide.yard-open-gate", "animal" to requireNotNull(job.yard).animalName))
         else if (yardTarget != null) visuals.destination(player, job.id, yardTarget,
             config.line(if (job.stage == OriginOddJobStage.YARD_LEAD_OUT) "targets.yard-care-pad" else "targets.yard-handoff"))
-        else visuals.target(player, job.id, tieTarget ?: cartTarget ?: stationId?.let { id -> stations.getValue(id).let { station ->
-            if (workpieceTarget) station.point else station.block.location.add(0.5, 0.5, 0.5)
-        } }, caption, outline = !workpieceTarget && cartTarget == null && tieTarget == null)
+        else if (tieTarget != null) visuals.wallTarget(player, job.id, tieTarget, caption)
+        else visuals.target(player, job.id, cartTarget ?: stationId?.let { id -> stations.getValue(id).let { station ->
+            if (workpieceTarget) station.point else station.block.location.clone().add(0.5, 0.5, 0.5)
+        } }, caption, outline = !workpieceTarget && cartTarget == null)
         visuals.glowWorkpiece(player, job.id, originOddJobWorkpieceGlows(job, now))
         if (stationId == null) targets.remove(player.uniqueId) else targets[player.uniqueId] = stationId
         val npcId = when (job.stage) {
@@ -859,7 +930,9 @@ internal class OriginOddJobsGame(
         val shift = shifts[player.uniqueId]?.score ?: return
         val ready = job != null && (originOddJobHammerReady(job, now) || job.stage == OriginOddJobStage.FORGE_HEATING &&
             now - job.stageStartedAt >= originOddJobHeatReady(job))
-        val instruction = if (job != null && yard.waitingForGate(player.uniqueId, job))
+        val instruction = if (job != null && yard.leadDetached(player.uniqueId, job))
+            config.line("guide.yard-regrab", "animal" to requireNotNull(job.yard).animalName)
+            else if (job != null && yard.waitingForGate(player.uniqueId, job))
             config.line("guide.yard-open-gate", "animal" to requireNotNull(job.yard).animalName)
             else job?.let { originOddJobGuide(config, it, now) } ?: paymentGuide(player.uniqueId, now)
                 ?: config.line(if (shifts[player.uniqueId]?.venue?.kind == OriginOddJobKind.MOUNTYARD &&
@@ -890,7 +963,7 @@ internal class OriginOddJobsGame(
         if (kind == OriginOddJobKind.FORGE && (actor(config.venue(OriginOddJobKind.FORGE_HAUL).npcId) == null ||
             actor(config.venue(OriginOddJobKind.FORGE_ENGRAVE).npcId) == null)) return false
         if (kind in setOf(OriginOddJobKind.FORGE, OriginOddJobKind.FORGE_HAUL) &&
-            Bukkit.getWorld(worldName)?.let { forge.available(it, inspectRoute = refresh) } != true) return false
+            Bukkit.getWorld(worldName)?.let { forge.available(it) } != true) return false
         if (kind == OriginOddJobKind.MOUNTYARD && !yard.available()) return false
         val required = originOddJobRequiredStations(kind)
         if (refresh && resolveStations != null && required.any { stations[it]?.valid() != true } &&

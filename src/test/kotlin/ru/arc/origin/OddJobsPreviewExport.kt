@@ -56,9 +56,9 @@ internal object OddJobsPreviewExport {
             "evidence" to "Production raw/heat/hammer/target geometry and exact carry poses. Hanging origins are the chain centre. Supporting world, native lighting and glow are not simulated.")
         Files.createDirectories(output.parent)
         Files.writeString(output, GsonBuilder().setPrettyPrinting().create().toJson(scene))
-        val route = OriginForgeCartRoute.from(OriginScenePlan.load(Files.createTempDirectory("odd-jobs-preview")).scene("forge"))
-        val cartStates = listOf(0, 3, 2, 0).mapIndexed { index, count ->
-            val cargo = (if (index == 2) 1..2 else 0 until count).flatMap { slot ->
+        val layout = OriginForgeCartLayout.from(OriginScenePlan.load(Files.createTempDirectory("odd-jobs-preview")).scene("forge"))
+        val cartStates = listOf(0, 3).mapIndexed { index, count ->
+            val cargo = (0 until count).flatMap { slot ->
                 val offset = originForgeCartLoadOffset(slot)
                 originForgeCargoPieces(OriginForgeCargo.IRON).map { piece ->
                     val center = org.joml.Vector3f(piece.center.x.toFloat(), piece.center.y.toFloat(), piece.center.z.toFloat())
@@ -67,23 +67,20 @@ internal object OddJobsPreviewExport {
                         (center.y + offset.y).toDouble(), (center.z + offset.z).toDouble()))
                 }
             }
-            state("cart-$index", listOf("Тележка · пустая", "Тележка · три корзины железа", "Разгрузка · две корзины", "Возврат пустой тележки")[index], cargo).let { value ->
+            state("cart-$index", listOf("Тележка · загрузка", "Тележка · гружёная")[index], cargo).let { value ->
                 value + ("pieces" to (value.getValue("pieces") as List<*>).map { piece -> (piece as Map<*, *>) + ("rotationX" to 22.5) })
             }
         }
-        val cart = mapOf("states" to cartStates, "route" to route.points,
-            "model" to mapOf("itemId" to route.itemId, "scale" to listOf(route.scale.x, route.scale.y, route.scale.z),
-                "lift" to route.lift, "context" to route.context.name, "displayYawFromTravelYaw" to 180),
-            "frames" to (0..130).map { frame ->
-                val distance = frame / 10.0
-                val motion = OriginForgeCartMotion(route, false)
-                val (x, z) = route.direction(distance, false)
-                mapOf("seconds" to frame / 20.0, "distance" to distance, "point" to route.point(distance),
-                    "travelYaw" to Math.toDegrees(kotlin.math.atan2(-x, z)), "initialYaw" to motion.yaw)
+        val cart = mapOf("states" to cartStates, "parking" to layout.start,
+            "model" to mapOf("itemId" to layout.itemId, "scale" to listOf(layout.scale.x, layout.scale.y, layout.scale.z),
+                "lift" to layout.lift, "context" to layout.context.name, "parkingYaw" to layout.yaw),
+            "attachment" to listOf(0.0, 90.0, 180.0, 270.0).map { yaw ->
+                val pose = originForgeCartCarryPose(yaw)
+                mapOf("bodyYaw" to yaw, "feetOffset" to pose.center, "bedRotation" to pose.rotation)
             },
             "camera" to mapOf("position" to mapOf("x" to 0.0, "y" to 1.62, "z" to -1.2),
                 "target" to mapOf("x" to 0.0, "y" to 0.65, "z" to 0.1), "fovDegrees" to 70),
-            "evidence" to "Source route, GROUND model scale, basket geometry and poses. Offline mesh preview; native lighting, world and ItemsAdder delivery are not observed.")
+            "evidence" to "Source parking, GROUND model scale, basket geometry and native player attachment poses. Offline mesh preview; native lighting, world and ItemsAdder delivery are not observed.")
         Files.writeString(output.resolveSibling("cart.json"), GsonBuilder().setPrettyPrinting().create().toJson(cart))
         writeCrossTies(output.resolveSibling("cross-ties.json"))
     }

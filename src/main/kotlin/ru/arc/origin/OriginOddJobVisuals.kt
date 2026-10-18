@@ -189,6 +189,7 @@ internal class OriginOddJobVisuals(
         var targetLocation: Location? = null
         var targetOutline = true
         var groundTarget = false
+        var wallTarget = false
     }
 
     private var owner: PaperPacketDisplays? = null
@@ -247,19 +248,23 @@ internal class OriginOddJobVisuals(
 
     /** A single personal next-action cue, separate from the game's forgiving interaction hit area. */
     fun target(player: Player, requestId: UUID, location: Location?, caption: String, outline: Boolean = true) =
-        target(player, requestId, location, caption, outline, ground = false)
+        target(player, requestId, location, caption, outline, ground = false, wall = false)
 
     fun destination(player: Player, requestId: UUID, location: Location, caption: String) =
-        target(player, requestId, location, caption, outline = true, ground = true)
+        target(player, requestId, location, caption, outline = true, ground = true, wall = false)
 
-    private fun target(player: Player, requestId: UUID, location: Location?, caption: String, outline: Boolean, ground: Boolean) {
+    /** The authored anchor faces out of its wall; keep its label parallel to that face. */
+    fun wallTarget(player: Player, requestId: UUID, location: Location, caption: String) =
+        target(player, requestId, location, caption, outline = false, ground = false, wall = true)
+
+    private fun target(player: Player, requestId: UUID, location: Location?, caption: String, outline: Boolean, ground: Boolean, wall: Boolean) {
         if (location == null) {
             owned[player.uniqueId]?.takeIf { it.requestId == requestId }?.let(::removeTarget)
             return
         }
         change(player, requestId) { state ->
             require(location.world?.uid == state.worldId) { "odd-job target must stay in its player's world" }
-            if (state.targetLocation == location && state.targetOutline == outline && state.groundTarget == ground) {
+            if (state.targetLocation == location && state.targetOutline == outline && state.groundTarget == ground && state.wallTarget == wall) {
                 state.label?.text(Component.text(caption, TextColor.color(0xe8dfd2)))
                 return@change
             }
@@ -272,11 +277,16 @@ internal class OriginOddJobVisuals(
                 it.glow(Color.fromRGB(239, 195, 113))
                 it.pieces.forEach { piece -> piece.display?.brightness = Display.Brightness(15, 15) }
             } else null
-            state.label = renderer.spawnText(location.clone().add(0.0, if (ground) 1.55 else if (outline) 0.95 else 0.42, 0.0),
+            val labelLocation = location.clone().add(0.0, if (ground) 1.55 else if (outline) 0.95 else 0.42, 0.0)
+            if (wall) {
+                labelLocation.pitch = 0f
+                labelLocation.add(labelLocation.direction.multiply(0.035))
+            }
+            state.label = renderer.spawnText(labelLocation,
                 Component.text(caption, TextColor.color(0xe8dfd2))).also { label ->
                 state.handles += label
                 label.isVisibleByDefault = false
-                label.billboard = Display.Billboard.CENTER
+                label.billboard = if (wall) Display.Billboard.FIXED else Display.Billboard.CENTER
                 label.viewRange = 0.35f
                 label.displayWidth = 2f
                 label.displayHeight = 1f
@@ -289,6 +299,7 @@ internal class OriginOddJobVisuals(
             state.targetLocation = location.clone()
             state.targetOutline = outline
             state.groundTarget = ground
+            state.wallTarget = wall
         }
     }
 
