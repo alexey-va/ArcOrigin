@@ -323,6 +323,7 @@ internal class OriginWaiterStations(
         val text = "$dish\n$caption" + (progress?.let { " · ${(it * 100).toInt()}%" } ?: "")
         val display = scene.label ?: renderer().spawnText(point.inWorld(player.world), waiterText(text)).also {
             configure(it, player)
+            it.teleportDuration = 1
             it.billboard = Display.Billboard.CENTER
             it.isShadowed = true
             it.backgroundColor = Color.fromARGB(170, 24, 19, 14)
