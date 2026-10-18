@@ -2,10 +2,12 @@ package ru.arc.origin
 
 import net.citizensnpcs.api.CitizensAPI
 import net.citizensnpcs.api.npc.NPC
+import net.citizensnpcs.trait.Controllable
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.Particle
 import org.bukkit.Sound
+import org.bukkit.attribute.Attribute
 import org.bukkit.block.Block
 import org.bukkit.block.data.type.Gate
 import org.bukkit.entity.AbstractHorse
@@ -58,6 +60,8 @@ internal class OriginOddJobMountyard(
     private val routeTimeoutMillis: Long = 60_000,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : AutoCloseable {
+    private data class RideControls(val trait: Controllable, val wasEnabled: Boolean?, val movementSpeed: Double?)
+
     private class Care(
         val requestId: UUID, val actor: NPC, val entity: AbstractHorse, val home: Location,
         val resources: OriginSceneResources, val ownsLease: () -> Boolean,
@@ -80,6 +84,7 @@ internal class OriginOddJobMountyard(
         var cleanupAttempts = 0
         var finishInBackground = false
         var mounted = false
+        var rideControls: RideControls? = null
         var leftStall = false
         var leftYard = false
         var recovery = OriginYardRecovery.HORSE
@@ -262,8 +267,14 @@ internal class OriginOddJobMountyard(
                 val route = rideAnchorIds.map { scene?.anchors?.get(it)?.inWorld(care.entity.world) ?: return false }
                 if (route.isEmpty() || passenger.vehicle != null || care.entity.passengers.isNotEmpty()) return false
                 care.resources.clearMovementPose(requireNotNull(care.rider))
+                val previous = care.actor.getTraitNullable(Controllable::class.java)
+                val controls = previous ?: care.actor.getOrAddTrait(Controllable::class.java)
+                care.rideControls = RideControls(controls, previous?.isEnabled, care.entity.getAttribute(Attribute.MOVEMENT_SPEED)?.baseValue)
+                // Citizens 4238 requires this trait to simulate a horse carrying a PLAYER on the server.
+                // Controllable itself yields to the active navigator, so the validated route keeps control.
+                controls.setEnabled(true)
                 care.mounted = care.entity.addPassenger(passenger)
-                if (!care.mounted) return false
+                if (!care.mounted) { restoreRideControls(care); return false }
                 care.leftYard = true
                 care.destination = scene?.anchors?.get("job-handoff")?.inWorld(care.entity.world) ?: return false
                 care.via = route
@@ -382,6 +393,20 @@ internal class OriginOddJobMountyard(
     private fun dismount(care: Care) {
         if (care.mounted && ownsRider(care) && care.riderEntity?.vehicle === care.entity) requireNotNull(care.riderEntity).leaveVehicle()
         care.mounted = false
+        restoreRideControls(care)
+    }
+
+    private fun restoreRideControls(care: Care) {
+        val snapshot = care.rideControls ?: return
+        // Traits belong to the persistent NPC, even after its current entity despawns or is replaced.
+        if (care.ownsLease() && CitizensAPI.getNPCRegistry().getById(care.actor.id) === care.actor &&
+            catalog.resolve(care.actor.id, care.actor.uniqueId) != null &&
+            care.actor.getTraitNullable(Controllable::class.java) === snapshot.trait) {
+            if (owns(care)) snapshot.movementSpeed?.let { care.entity.getAttribute(Attribute.MOVEMENT_SPEED)?.baseValue = it }
+            if (snapshot.wasEnabled == null) care.actor.removeTrait(Controllable::class.java)
+            else snapshot.trait.setEnabled(snapshot.wasEnabled)
+        }
+        care.rideControls = null
     }
 
     private fun beginReturn(care: Care) {
@@ -531,8 +556,8 @@ internal class OriginOddJobMountyard(
             attempt("route") { routes.stop(care.actor) }
             if (ownsRider(care)) {
                 attempt("rider-route") { routes.stop(requireNotNull(care.rider)) }
-                attempt("rider") { dismount(care) }
             }
+            attempt("rider") { dismount(care) }
             attempt("leash") { leash(care, null) }
             attempt("saddle") { restoreSaddle(care) }
             attempt("pose") { care.resources.cleanup().forEach {
@@ -543,6 +568,7 @@ internal class OriginOddJobMountyard(
             attempt("route-owner") { routes.abandon(care.actor) }
             care.rider?.let { attempt("rider-route-owner") { routes.abandon(it) } }
         }
+        attempt("ride-controls") { restoreRideControls(care) }
         if (failed && !closed && ++care.cleanupAttempts < 3) {
             if (synchronous) finishRecovery(care, failure, synchronous = true)
             else tasks.runLater(4) { finishRecovery(care, failure) }

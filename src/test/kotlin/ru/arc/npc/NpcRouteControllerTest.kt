@@ -784,8 +784,22 @@ class NpcRouteControllerTest : FreeSpec({
     }
 
     "resolved snapped endpoint is accepted independently of the authored blocked anchor" {
-        isNpcRouteResolvedEndpointReached(1.7, 0.5, NpcRouteCell(1, 0), margin = 0.35) shouldBe true
-        isNpcRouteResolvedEndpointReached(4.5, 0.5, NpcRouteCell(1, 0), margin = 0.35) shouldBe false
+        val remaining = listOf(Vector(1.5, 72.0, 0.5))
+        isNpcRouteResolvedEndpointReached(1.7, 0.5, NpcRouteCell(1, 0), margin = 0.35, remainingPath = remaining) shouldBe true
+        isNpcRouteResolvedEndpointReached(4.5, 0.5, NpcRouteCell(1, 0), margin = 0.35, remainingPath = remaining) shouldBe false
+    }
+
+    "a closed loop cannot complete or avoid stall detection before its intermediate points are passed" {
+        val home = Vector(0.5, 70.0, 0.5)
+        val path = listOf(home, Vector(0.5, 70.0, 2.5), Vector(2.5, 70.0, 2.5), home)
+        val motion = NpcRouteMotion(path)
+        repeat(80) {
+            motion.target(home, 0.116)
+            isNpcRouteResolvedEndpointReached(home.x, home.z, NpcRouteCell(0, 0), 0.35,
+                path.drop(motion.index)) shouldBe false
+        }
+        isNpcRouteResolvedEndpointReached(home.x, home.z, NpcRouteCell(0, 0), 0.35,
+            listOf(path.last())) shouldBe true
     }
 
     "terminal outcome is consumed once" {

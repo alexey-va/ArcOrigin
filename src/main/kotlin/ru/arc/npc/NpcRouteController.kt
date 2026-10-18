@@ -130,10 +130,12 @@ internal fun isNpcRouteResolvedEndpointReached(
     actualZ: Double,
     endpoint: NpcRouteCell,
     margin: Double,
+    remainingPath: Iterable<Vector>,
 ): Boolean {
     val dx = actualX - (endpoint.x + 0.5)
     val dz = actualZ - (endpoint.z + 0.5)
-    return dx * dx + dz * dz <= margin * margin
+    // A loop can start at its final coordinates while intermediate waypoints remain unvisited.
+    return dx * dx + dz * dz <= margin * margin && remainingPath.singleOrNull() != null
 }
 
 internal data class NpcRouteFootprint(
@@ -1031,6 +1033,7 @@ internal class CitizensNpcRouteController(
                 actual.z,
                 route.cells.last(),
                 route.profile.distanceMargin + 1.0e-3,
+                route.strategy.path,
             )
             val phase = if (reached) "FINISHED" else "ABORTED"
             val reason = if (reached) null else if (npc.navigator.isPaused) "navigator-paused" else "navigation-cancelled"
@@ -1040,7 +1043,7 @@ internal class CitizensNpcRouteController(
         }
         val movement = hypot(actual.x - route.previousX, actual.z - route.previousZ)
         val turningAtDestination = (route.faceOnArrival || route.arrivalLookAt != null) && isNpcRouteResolvedEndpointReached(
-            actual.x, actual.z, route.cells.last(), route.profile.distanceMargin + 1.0e-3,
+            actual.x, actual.z, route.cells.last(), route.profile.distanceMargin + 1.0e-3, route.strategy.path,
         )
         if (movement > 0.025 || turningAtDestination) route.stalledPolls = 0 else route.stalledPolls++
         route.previousX = actual.x

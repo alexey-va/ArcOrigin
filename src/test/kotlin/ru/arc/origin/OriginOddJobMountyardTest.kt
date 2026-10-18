@@ -10,12 +10,16 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkConstructor
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import io.mockk.verifyOrder
 import net.citizensnpcs.api.CitizensAPI
 import net.citizensnpcs.api.npc.NPC
 import net.citizensnpcs.api.npc.NPCRegistry
+import net.citizensnpcs.trait.Controllable
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.World
+import org.bukkit.attribute.Attribute
+import org.bukkit.attribute.AttributeInstance
 import org.bukkit.block.Block
 import org.bukkit.block.data.BlockData
 import org.bukkit.block.data.type.Gate
@@ -102,6 +106,7 @@ class OriginOddJobMountyardTest : StringSpec({
             f.location = Location(f.world, 59.5, 70.0, -133.5)
             f.sync(OriginOddJobStage.YARD_HANDOFF)
             f.sync(OriginOddJobStage.RETURN)
+            f.controllableEnabled shouldBe true
             verify(exactly = 1) { f.horse.addPassenger(f.riderEntity) }
             verify { f.routes.navigate(f.actor, match { it.z == -133.5 }, any(), match { it.single().z == -119.5 }, any(), true, any()) }
             var released = 0
@@ -113,12 +118,95 @@ class OriginOddJobMountyardTest : StringSpec({
             verify(exactly = 0) { f.riderEntity.leaveVehicle() }
             f.arrive(); f.scheduler.tick(4)
             verify(exactly = 1) { f.riderEntity.leaveVehicle() }
+            f.controllablePresent shouldBe false
             verify { f.routes.navigate(f.riderActor, f.riderHome, any(), any(), any(), true, any()) }
             f.riderLocation = f.riderHome.clone(); f.arrive(); f.scheduler.tick(4)
             released shouldBe 0
             f.location = f.home.clone(); f.arrive(); f.scheduler.tick(4)
             released shouldBe 1
             verify(exactly = 0) { f.horse.teleport(any<Location>()) }
+        }
+    }
+    "rider controls are enabled before mounting and their prior state is restored on revocation" {
+        for (initial in listOf<Boolean?>(null, false, true)) {
+            YardFixture(initialControllable = initial).use { f ->
+                f.prepareDelivery()
+                f.location = Location(f.world, 59.5, 70.0, -133.5)
+                f.sync(OriginOddJobStage.YARD_HANDOFF)
+                f.sync(OriginOddJobStage.RETURN)
+                f.controllableEnabled shouldBe true
+                verifyOrder { f.controllable.setEnabled(true); f.horse.addPassenger(f.riderEntity) }
+                // Citizens' horse adapter updates this attribute while the temporary trait is enabled.
+                f.movementSpeed = 0.1
+                f.yard.revoke(f.player.uniqueId, f.job.id)
+                f.passengerVehicle shouldBe null
+                f.controllablePresent shouldBe (initial != null)
+                if (initial != null) f.controllableEnabled shouldBe initial
+                f.movementSpeed shouldBe 0.2
+                verify(exactly = 0) { f.horse.teleport(any<Location>()) }
+            }
+        }
+    }
+    "a rejected passenger mount restores temporary controls immediately" {
+        YardFixture(initialControllable = false).use { f ->
+            f.prepareDelivery()
+            f.sync(OriginOddJobStage.YARD_HANDOFF)
+            every { f.horse.addPassenger(f.riderEntity) } returns false
+            f.yard.sync(f.player, f.job.copy(stage = OriginOddJobStage.RETURN), f.stations, 0) shouldBe false
+            f.controllablePresent shouldBe true
+            f.controllableEnabled shouldBe false
+        }
+    }
+    "mounted despawn or entity replacement restores persistent NPC controls without touching either entity" {
+        for ((replaced, initial) in listOf(false to false, true to null)) {
+            YardFixture(initialControllable = initial).use { f ->
+                f.prepareDelivery()
+                f.sync(OriginOddJobStage.YARD_HANDOFF)
+                f.sync(OriginOddJobStage.RETURN)
+                f.controllableEnabled shouldBe true
+                var released = 0
+                f.yard.clear(f.player.uniqueId, f.job.id) { released++ }
+                f.movementSpeed = 0.1
+                val replacement = mockk<Horse>(relaxed = true) {
+                    every { world } returns f.world
+                    every { isValid } returns true
+                    every { type } returns EntityType.HORSE
+                }
+                if (replaced) every { f.actor.entity } returns replacement
+                else {
+                    every { f.actor.isSpawned } returns false
+                    every { f.horse.isValid } returns false
+                }
+                f.scheduler.tick(4)
+                released shouldBe 1
+                f.yard.ownsAnimal(f.actor.id) shouldBe false
+                f.controllablePresent shouldBe (initial != null)
+                if (initial != null) f.controllableEnabled shouldBe initial
+                f.movementSpeed shouldBe 0.1
+                verify(exactly = 0) { replacement.getAttribute(any()) }
+                verify(exactly = 0) { f.riderEntity.leaveVehicle() }
+            }
+        }
+    }
+    "mounted cleanup cannot restore controls after the lease or persistent NPC identity changes" {
+        for (leaseLost in listOf(true, false)) {
+            YardFixture(initialControllable = false).use { f ->
+                f.prepareDelivery()
+                f.sync(OriginOddJobStage.YARD_HANDOFF)
+                f.sync(OriginOddJobStage.RETURN)
+                var released = 0
+                f.yard.clear(f.player.uniqueId, f.job.id) { released++ }
+                f.movementSpeed = 0.1
+                if (leaseLost) f.leaseValid = false
+                else every { f.actor.uniqueId } returns UUID.randomUUID()
+                f.scheduler.tick(4)
+                released shouldBe 1
+                f.controllablePresent shouldBe true
+                f.controllableEnabled shouldBe true
+                f.movementSpeed shouldBe 0.1
+                verify(exactly = 0) { f.controllable.setEnabled(false) }
+                verify(exactly = 0) { f.actor.removeTrait(Controllable::class.java) }
+            }
         }
     }
     "a closed authored stall gate waits during leading and the owned return opens only that gate" {
@@ -346,7 +434,8 @@ class OriginOddJobMountyardTest : StringSpec({
 
 private val testYardRider = OriginYardRider(490, UUID.fromString("00000000-0000-0000-0000-000000000490"), "Мирон")
 
-private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YARD_SADDLE, id: Int = 423, gates: Boolean = false, startJob: Boolean = true) : AutoCloseable {
+private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YARD_SADDLE, id: Int = 423, gates: Boolean = false, startJob: Boolean = true,
+    initialControllable: Boolean? = null) : AutoCloseable {
     val paper = MockBukkitTestRuntime.open()
     val scheduler = TestTaskScheduler()
     val world = mockk<World>(relaxed = true) { every { uid } returns UUID.randomUUID(); every { name } returns "rc_origin_spawn" }
@@ -377,12 +466,18 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
     }
     var playerLocation = home.clone().add(-1.0, 0.0, 0.0)
     val equipment = mockk<EntityEquipment>(relaxed = true) { every { getItem(EquipmentSlot.SADDLE) } returns ItemStack(Material.AIR) }
+    var movementSpeed = 0.2
+    private val movementAttribute = mockk<AttributeInstance> {
+        every { baseValue } answers { movementSpeed }
+        every { baseValue = any() } answers { movementSpeed = firstArg() }
+    }
     val horse = mockk<Horse>(relaxed = true) {
         every { this@mockk.world } returns this@YardFixture.world
         every { type } returns EntityType.HORSE
         every { isValid } returns true
         every { location } answers { this@YardFixture.location.clone() }
         every { this@mockk.equipment } returns this@YardFixture.equipment
+        every { getAttribute(Attribute.MOVEMENT_SPEED) } returns movementAttribute
         every { passengers } answers { if (passengerVehicle != null) listOf(riderEntity) else emptyList() }
         every { addPassenger(riderEntity) } answers { passengerVehicle = this@mockk; true }
         every { isLeashed } returns false
@@ -395,11 +490,20 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         every { location } answers { playerLocation.clone() }
     }
     val catalog = oddJobTestYardCatalog()
+    var controllablePresent = initialControllable != null
+    var controllableEnabled = initialControllable ?: false
+    val controllable = mockk<Controllable> {
+        every { isEnabled } answers { controllableEnabled }
+        every { setEnabled(any()) } answers { controllableEnabled = firstArg(); controllableEnabled }
+    }
     val actor = mockk<NPC> {
         every { this@mockk.id } returns id
         every { uniqueId } returns catalog.animals.first { it.npcId == id }.npcUuid
         every { isSpawned } returns true
         every { entity } returns horse
+        every { getTraitNullable(Controllable::class.java) } answers { if (controllablePresent) controllable else null }
+        every { getOrAddTrait(Controllable::class.java) } answers { controllablePresent = true; controllable }
+        every { removeTrait(Controllable::class.java) } answers { controllablePresent = false }
     }
     var navigating = false
     var leaseValid = true
