@@ -44,9 +44,8 @@ import java.util.UUID
 
 class OriginOddJobMountyardTest : StringSpec({
     "all work uses stall horses and both preparation variants rotate through the same pool" {
-        MockBukkitTestRuntime.open().use {
-            val yard = OriginOddJobMountyard("rc_origin_spawn", oddJobTestYardCatalog(), listOf(422, 423), 422, testYardRider,
-                routes = mockk(relaxed = true), tasks = LifecycleTaskScope(TestTaskScheduler()))
+        YardFixture(startJob = false).use { f ->
+            val yard = f.yard
             repeat(4) { seed ->
                 yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_RATIONS, seed, false)) shouldBe OriginYardWork(422, "Буран")
                 val selected = if (seed % 2 == 0) OriginYardWork(422, "Буран") else OriginYardWork(423, "Рыжик")
@@ -54,7 +53,6 @@ class OriginOddJobMountyardTest : StringSpec({
                 yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_GROOM, seed, false)) shouldBe selected
             }
             (0..3).map { seed -> yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_WATER, seed, false))!!.animalId } shouldBe listOf(422, 423, 422, 423)
-            yard.close()
         }
     }
     "feeding hay persists inside the stall until the actual route arrives and eating finishes" {
@@ -204,6 +202,26 @@ class OriginOddJobMountyardTest : StringSpec({
             verify(exactly = 0) { f.horse.teleport(any<Location>()) }
         }
     }
+    "failed return cannot offer or begin work outside the stall while the other horse stays available" {
+        YardFixture(id = 422).use { f ->
+            f.location = Location(f.world, 60.0113, 70.0, -127.4948)
+            every { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) } returns false
+            var released = false
+            f.yard.clear(f.player.uniqueId, f.job.id) { released = true }
+            released shouldBe true
+            f.yard.ownsAnimal(422) shouldBe false
+            for (variant in listOf(OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE, OriginOddJobVariant.YARD_WATER)) {
+                f.yard.target(OriginOddJobOffer(UUID.randomUUID(), variant, 0, false)) shouldBe OriginYardWork(423, "Рыжик")
+            }
+            val hay = OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_RATIONS, 0, false)
+            f.yard.target(hay) shouldBe null
+            f.yard.begin(f.player, f.job) shouldBe false
+            verify(exactly = 0) { f.horse.teleport(any<Location>()) }
+            f.location = f.home.clone()
+            f.yard.target(hay) shouldBe OriginYardWork(422, "Буран")
+            f.yard.begin(f.player, f.job) shouldBe true
+        }
+    }
     "lease invalidation during home recovery abandons only its route and never restarts the old return" {
         YardFixture().use { f ->
             f.location = Location(f.world, 60.5, 70.0, -124.5)
@@ -328,7 +346,7 @@ class OriginOddJobMountyardTest : StringSpec({
 
 private val testYardRider = OriginYardRider(490, UUID.fromString("00000000-0000-0000-0000-000000000490"), "Мирон")
 
-private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YARD_SADDLE, id: Int = 423, gates: Boolean = false) : AutoCloseable {
+private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YARD_SADDLE, id: Int = 423, gates: Boolean = false, startJob: Boolean = true) : AutoCloseable {
     val paper = MockBukkitTestRuntime.open()
     val scheduler = TestTaskScheduler()
     val world = mockk<World>(relaxed = true) { every { uid } returns UUID.randomUUID(); every { name } returns "rc_origin_spawn" }
@@ -436,14 +454,30 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         every { world.getBlockAt(any<Int>(), any(), any()) } answers { blockAt(firstArg(), secondArg(), thirdArg()) }
         every { world.getBlockAt(any<Location>()) } answers { firstArg<Location>().let { blockAt(it.blockX, it.blockY, it.blockZ) } }
         every { world.rayTraceBlocks(any(), any(), any(), any(), any()) } returns null
+        val otherId = if (id == 422) 423 else 422
+        val otherHome = OriginScenePoint(if (otherId == 422) 47.5 else 72.5, 70.0, if (otherId == 422) -136.5 else -134.5)
+        val otherHorse = mockk<Horse> {
+            every { world } returns this@YardFixture.world
+            every { type } returns EntityType.HORSE
+            every { isValid } returns true
+            every { location } answers { otherHome.inWorld(this@YardFixture.world) }
+        }
+        val otherActor = mockk<NPC> {
+            every { this@mockk.id } returns otherId
+            every { uniqueId } returns catalog.animals.first { it.npcId == otherId }.npcUuid
+            every { isSpawned } returns true
+            every { entity } returns otherHorse
+        }
         val registry = mockk<NPCRegistry> { every { getById(any()) } answers { when (firstArg<Int>()) {
             id -> actor
+            otherId -> otherActor
             testYardRider.npcId -> riderActor
             else -> null
         } } }
         every { CitizensAPI.getNPCRegistry() } returns registry
         val scene = OriginSceneDefinition("mount-yard", ORIGIN_YARD_CARE_PAD, 72.0, 3_000, 7,
-            mapOf(id to OriginSceneActor(id, OriginScenePoint(home.x, home.y, home.z), emptySet())),
+            mapOf(id to OriginSceneActor(id, OriginScenePoint(home.x, home.y, home.z), emptySet()),
+                otherId to OriginSceneActor(otherId, otherHome, emptySet())),
             mapOf("job-rider-home" to OriginScenePoint(riderHome.x, riderHome.y, riderHome.z),
                 "job-handoff" to OriginScenePoint(59.5, 70.0, -133.5),
                 "job-ride-turn" to OriginScenePoint(59.5, 70.0, -119.5),
@@ -452,7 +486,7 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         yard = OriginOddJobMountyard(world.name, catalog, listOf(422, 423), 422, testYardRider, scene, routes = routes,
             tasks = LifecycleTaskScope(scheduler), createDisplays = { renderer }, rideAnchorIds = listOf("job-ride-turn"),
             gateAnchorIds = if (gates) listOf("job-stall-423-gate-1") else emptyList(), clock = { now })
-        yard.begin(player, job) { leaseValid } shouldBe true
+        if (startJob) yard.begin(player, job) { leaseValid } shouldBe true
     }
     fun sync(stage: OriginOddJobStage): OriginOddJobSession = job.copy(stage = stage).also { yard.sync(player, it, stations, 0) shouldBe true }
     fun prepareTies(): OriginOddJobSession {

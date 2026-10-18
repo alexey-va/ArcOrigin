@@ -820,7 +820,7 @@ scenes:
       413: {"home": "43.5,68,-109.5,-90,0", "denied-denizen-flags": []}
       414: {"home": "73.5,68,-104.5,-90,0", "denied-denizen-flags": []}
       415: {"home": "73.5,68,-104.5,-90,0", "denied-denizen-flags": []}
-      422: {"home": "47.5,70.0,-136.5,-90,0", "denied-denizen-flags": []}
+      422: {"home": "48.5,70.0,-135.5,-90,0", "denied-denizen-flags": []}
       423: {"home": "72.5,70.0,-134.5,-180,0", "denied-denizen-flags": []}
       369: {"home": "54.6336,70,-119.518,180,0", "denied-denizen-flags": []}
       440: {"home": "57.5,70,-133.5,180,0", "denied-denizen-flags": []}
@@ -909,7 +909,7 @@ scenes:
       water-trough: "57.5,70.9,-121.5"
       caravan-person-exit: "65.5,70,-143.5,0,0"
       caravan-animal-exit: "65.5,70,-141.5,0,0"
-      home-422: "47.5,70.0,-136.5,-90,0"
+      home-422: "48.5,70.0,-135.5,-90,0"
       home-423: "72.5,70.0,-134.5,-180,0"
       home-415: "73.5,68,-104.5,-90,0"
       caravan-person-corner: "61.5,70,-139.5,0,0"

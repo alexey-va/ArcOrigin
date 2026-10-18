@@ -94,7 +94,7 @@ internal class OriginOddJobMountyard(
         if (offer.variant.isYardPreparation() && (rider == null || (active.values + recovering.values).any { it.rider != null })) return null
         val candidates = if (offer.variant == OriginOddJobVariant.YARD_RATIONS) listOf(feedingAnimalId)
             else animalIds.indices.map { animalIds[Math.floorMod(offer.seed + it, animalIds.size)] }
-        val id = candidates.firstOrNull { !ownsAnimal(it) } ?: return null
+        val id = candidates.firstOrNull { id -> !ownsAnimal(id) && (resolve(id) as? AbstractHorse)?.let { inStall(id, it) } == true } ?: return null
         val animal = catalog.animals.firstOrNull { it.npcId == id } ?: return null
         return OriginYardWork(animal.npcId, animal.name)
     }
@@ -108,6 +108,10 @@ internal class OriginOddJobMountyard(
     fun contains(id: Int): Boolean = id in animalIds || id == feedingAnimalId
     fun ownsAnimal(id: Int): Boolean = (active.values + recovering.values).any { it.actor.id == id }
     fun available(): Boolean = (animalIds + feedingAnimalId).all { resolve(it) is AbstractHorse }
+
+    /** Both authored stalls and their idle poses fit within two metres of home. */
+    private fun inStall(id: Int, horse: AbstractHorse): Boolean =
+        scene?.actors?.get(id)?.home?.inWorld(horse.world)?.let { horse.location.distanceSquared(it) <= 4.0 } == true
 
     private fun riderNpc(): NPC? = rider?.let { expected -> CitizensAPI.getNPCRegistry().getById(expected.npcId)?.takeIf {
         it.uniqueId == expected.npcUuid && it.isSpawned &&
@@ -135,7 +139,7 @@ internal class OriginOddJobMountyard(
         val id = requireNotNull(job.yard).animalId
         val actor = npc(id) ?: return false
         val horse = actor.entity as? AbstractHorse ?: return false
-        if (closed || !ownsLease() || player.uniqueId in active || ownsAnimal(id) || horse.isLeashed || horse.passengers.isNotEmpty()) return false
+        if (closed || !ownsLease() || player.uniqueId in active || ownsAnimal(id) || !inStall(id, horse) || horse.isLeashed || horse.passengers.isNotEmpty()) return false
         val home = scene?.actors?.get(id)?.home?.inWorld(horse.world) ?: horse.location.clone()
         val passenger = if (job.variant.isYardPreparation()) riderNpc() ?: return false else null
         val passengerEntity = passenger?.entity as? LivingEntity
