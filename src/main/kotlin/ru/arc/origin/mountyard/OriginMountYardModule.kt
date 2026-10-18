@@ -84,7 +84,7 @@ private class MountYardCareRuntime(
                 registry.getById(animal.npcId)?.takeIf { it.uniqueId == animal.npcUuid }?.let { npc ->
                     OriginNpcHolograms.patchName(npc.id, animal.name)
                     OriginNpcHolograms.patchNameplate(npc.id, "true")
-                    OriginNpcHolograms.patchHologram(npc.id, listOf("Погладить"), viewRange = 12)
+                    OriginNpcHolograms.patchHologram(npc.id, emptyList(), viewRange = 12)
                 }
             }
         }

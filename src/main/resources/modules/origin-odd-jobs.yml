@@ -237,7 +237,7 @@ text:
     yard-untie-first: "Сними первый повод · ПКМ по подсвеченному кольцу"
     yard-untie-second: "Сними второй повод · ПКМ по подсвеченному кольцу"
     yard-deliver: "{animal} · веди наружу · всадник {rider}"
-    yard-handoff: "Передай лошадь: {rider} · ПКМ по всаднику"
+    yard-handoff: "{rider} принимает лошадь"
     yard-handed: "{rider} принимает лошадь и отправляется на прогулку"
     yard-saddle: "{animal} · надень седло · ПКМ по лошади"
     forge-blank: "{product} · {metal} · возьми заготовку из сундука"

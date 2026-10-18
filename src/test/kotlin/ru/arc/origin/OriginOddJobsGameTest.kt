@@ -329,9 +329,9 @@ class OriginOddJobsGameTest : StringSpec({
                         f.strokeTie(); f.strokeTie()
                         f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_DELIVER
                         f.game.tick(f.now)
-                        f.clickNpc(440, sneaking = false)
                         f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_HANDOFF
-                        f.clickNpc(requireNotNull(f.config.yardRider).npcId, sneaking = false)
+                        f.game.tick(f.now)
+                        f.game.currentJob(f.player.uniqueId) shouldBe null
                         f.payments.count { it.id == job.id } shouldBe 1
                     }
                     else -> error("unexpected stable variant")
@@ -353,6 +353,23 @@ class OriginOddJobsGameTest : StringSpec({
                 f.open(440, sneaking = false); f.press("odd_job_finish")
                 f.game.isWorking(f.player.uniqueId) shouldBe false
             }
+        }
+    }
+    "automatic rider handoff cannot credit a horse when its receiver is no longer nearby" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(440, OriginOddJobVariant.YARD_SADDLE)
+            val animal = requireNotNull(f.game.currentJob(f.player.uniqueId)!!.yard).animalId
+            f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
+            repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(animal, sneaking = false) }
+            f.stroke(OriginOddJobStationId.SADDLE_RACK); f.clickNpc(animal, sneaking = false)
+            f.strokeTie(); f.strokeTie(); f.game.tick(f.now)
+            f.requireStage(OriginOddJobStage.YARD_HANDOFF, "horse arrived for automatic handoff")
+            val receiver = f.entity(requireNotNull(f.config.yardRider).npcId)
+            every { receiver.location } returns Location(f.world, 30.0, 70.0, 0.0)
+            f.game.tick(f.now)
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            f.payments shouldBe emptyList()
+            f.released shouldBe f.leases
         }
     }
     "empty bucket is filled at the actual cauldron and carried to the selected animal" {

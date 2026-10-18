@@ -352,11 +352,8 @@ internal class OriginOddJobsGame(
                 feedback(player, "mountyard.next-step", "guide" to originOddJobGuide(config, requireNotNull(current), clock()))
                 return true
             }
-            val animal = current.yard?.animalId?.let(yard::resolve)
-            val receiver = actor(npcId)
-            if (animal != null && receiver != null && animal.location.distanceSquared(receiver.location) <= 25.0)
-                apply(player, progress.act(playerId, OriginOddJobAction.HANDOFF, clock()))
-            else feedback(player, "mountyard.next-step", "guide" to originOddJobGuide(config, current, clock()))
+            if (!handoffYard(player, current))
+                feedback(player, "mountyard.next-step", "guide" to originOddJobGuide(config, current, clock()))
             return true
         }
         if (handoff) {
@@ -779,6 +776,14 @@ internal class OriginOddJobsGame(
         info("ORIGIN_ODD_JOBS phase=SHIFT_FINISHED player={} shift={} orders={} amount={} outcome={}", id, shift.score.id, score.completedOrders, score.earnedAmount, result.outcome)
     }
 
+    private fun handoffYard(player: Player, job: OriginOddJobSession): Boolean {
+        val animal = job.yard?.animalId?.let(yard::resolve) ?: return false
+        val receiver = config.yardRider?.npcId?.let(::actor) ?: return false
+        if (animal.world.uid != receiver.world.uid || animal.location.distanceSquared(receiver.location) > 25.0) return false
+        apply(player, progress.act(player.uniqueId, OriginOddJobAction.HANDOFF, clock()))
+        return true
+    }
+
     fun tick(now: Long) {
         accepted.toList().forEach { (id, result) -> pay(id, result) }
         shifts.toList().forEach { (id, shift) ->
@@ -791,6 +796,11 @@ internal class OriginOddJobsGame(
                 // Stable work is accepted on the next tick, after its final care feedback.
                 job?.kind == OriginOddJobKind.MOUNTYARD && job.stage == OriginOddJobStage.RETURN ->
                     apply(player, progress.act(id, OriginOddJobAction.RETURN, now))
+                job?.kind == OriginOddJobKind.MOUNTYARD && job.stage == OriginOddJobStage.YARD_HANDOFF -> {
+                    if (!handoffYard(player, job)) {
+                        cancelOrder(id, "yard-handoff-unavailable"); feedback(player, "mountyard.route-unavailable")
+                    }
+                }
                 job?.kind == OriginOddJobKind.MOUNTYARD -> {
                     when (runCatching { yard.tick(player, job, now) }.onFailure {
                         warn("ORIGIN_ODD_JOBS phase=YARD_TICK_FAILED player={} request={}", id, job.id, it)
