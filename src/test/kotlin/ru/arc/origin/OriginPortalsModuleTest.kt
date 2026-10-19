@@ -310,12 +310,12 @@ class OriginPortalsModuleTest : FreeSpec({
             move(outside, center)
             move(outside, center)
             move(center, center.clone().apply { yaw += 20f })
-            effects shouldContainExactly listOf("Вы вошли в портал «Мир добычи».", anchor.command)
+            effects shouldContainExactly listOf(" Вы вошли в портал «Мир добычи».", anchor.command)
             move(center, outside)
             move(outside, center)
             effects shouldContainExactly listOf(
-                "Вы вошли в портал «Мир добычи».", anchor.command,
-                "Вы вошли в портал «Мир добычи».", anchor.command,
+                " Вы вошли в портал «Мир добычи».", anchor.command,
+                " Вы вошли в портал «Мир добычи».", anchor.command,
             )
             bypass = true
             effects.clear()
@@ -389,7 +389,7 @@ class OriginPortalsModuleTest : FreeSpec({
             val event = PlayerMoveEvent(player, anchor.center(world).add(20.0, 0.0, 0.0), anchor.center(world))
             OriginPortalsModule.handleMove(event, config)
             OriginPortalsModule.handleMove(event, config)
-            effects shouldContainExactly listOf("Вы вошли в портал «Slimefun».", "transfer")
+            effects shouldContainExactly listOf(" Вы вошли в портал «Slimefun».", "transfer")
         } finally {
             OriginPortalsModule.onQuit(PlayerQuitEvent(player, Component.empty(), PlayerQuitEvent.QuitReason.DISCONNECTED))
             unmockkObject(OriginServices)

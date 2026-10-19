@@ -21,32 +21,32 @@ object OriginPortalsSubCommand : OriginCommandHandler {
         if (args.size == 2 && args[0].equals("enter", ignoreCase = true)) {
             val id = OriginPortalId.parse(args[1])
             if (id != OriginPortalId.SLIMEFUN) {
-                sender.sendMessage(TextUtils.mm("<red>Доступен только вход в портал Slimefun."))
+                sender.sendMessage(TextUtils.mm("<white></white> <red>Доступен только вход в портал Slimefun."))
                 return true
             }
             val result = OriginPortalsModule.enter(id, player)
             when (result) {
                 OriginPortalEnterResult.REQUESTED -> Unit
                 OriginPortalEnterResult.PORTAL_DISABLED -> sender.sendMessage(
-                    TextUtils.mm("<red>Портал Slimefun пока закрыт."),
+                    TextUtils.mm("<white></white> <red>Портал Slimefun пока закрыт."),
                 )
                 OriginPortalEnterResult.WRONG_WORLD -> sender.sendMessage(
-                    TextUtils.mm("<red>Войти в Slimefun можно только из зала Origin."),
+                    TextUtils.mm("<white></white> <red>Войти в Slimefun можно только из зала Origin."),
                 )
                 OriginPortalEnterResult.TOO_FAR -> sender.sendMessage(
-                    TextUtils.mm("<red>Подойдите ближе к порталу Slimefun."),
+                    TextUtils.mm("<white></white> <red>Подойдите ближе к порталу Slimefun."),
                 )
                 OriginPortalEnterResult.ALREADY_PENDING -> sender.sendMessage(
-                    TextUtils.mm("<yellow>Запрос перехода уже выполняется."),
+                    TextUtils.mm("<white></white> <yellow>Запрос перехода уже выполняется."),
                 )
                 OriginPortalEnterResult.COOLDOWN -> sender.sendMessage(
-                    TextUtils.mm("<yellow>Подождите немного перед повторным запросом перехода."),
+                    TextUtils.mm("<white></white> <yellow>Подождите немного перед повторным запросом перехода."),
                 )
                 OriginPortalEnterResult.TRANSFER_UNAVAILABLE -> sender.sendMessage(
-                    TextUtils.mm("<red>Не удалось отправить запрос на переход. Попробуйте позже."),
+                    TextUtils.mm("<white></white> <red>Не удалось отправить запрос на переход. Попробуйте позже."),
                 )
                 OriginPortalEnterResult.UNSUPPORTED_DESTINATION -> sender.sendMessage(
-                    TextUtils.mm("<red>Этот портал не поддерживает переход на другой сервер."),
+                    TextUtils.mm("<white></white> <red>Этот портал не поддерживает переход на другой сервер."),
                 )
             }
             return true

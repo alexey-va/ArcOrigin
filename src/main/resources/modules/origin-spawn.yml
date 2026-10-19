@@ -65,7 +65,7 @@ origin-portals:
   entry-depth: 2.0
   messages:
     # Sent once on entry, before the command or server-transfer request; blank disables it.
-    entered: '<#e6fff3>Вы вошли в портал «<#92bed8><portal><#e6fff3>».'
+    entered: '<white></white> <#e6fff3>Вы вошли в портал «<#92bed8><portal><#e6fff3>».'
   items:
     origin: origin_gate_portals:origin_portal
     astral: origin_gate_portals:astral_portal

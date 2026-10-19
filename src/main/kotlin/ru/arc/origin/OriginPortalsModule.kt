@@ -378,7 +378,7 @@ internal class OriginPortalsConfig private constructor(
                 anchors = anchors,
                 enteredMessage = source.string(
                     "$root.messages.entered",
-                    "<#e6fff3>Вы вошли в портал «<#92bed8><portal><#e6fff3>».",
+                    "<white></white> <#e6fff3>Вы вошли в портал «<#92bed8><portal><#e6fff3>».",
                 ),
             )
         }
@@ -780,14 +780,14 @@ object OriginPortalsModule : PluginModule, Listener {
             transfers.finish(player.uniqueId, attempt.token)
             return OriginPortalEnterResult.TRANSFER_UNAVAILABLE
         }
-        player.sendMessage(TextUtils.mm("<green>Запрос на переход на сервер <white>Slimefun<green> отправлен. Проверяю соединение…"))
+        player.sendMessage(TextUtils.mm("<white></white> <green>Запрос на переход на сервер <white>Slimefun<green> отправлен. Проверяю соединение…"))
         transferTasks.runLater(TRANSFER_TIMEOUT_TICKS) {
             if (!transfers.finish(player.uniqueId, attempt.token)) return@runLater
             val currentPlayer = Bukkit.getPlayer(player.uniqueId) ?: return@runLater
             if (currentPlayer.isOnline && OriginServices.configuration.serverName().equals(sourceServer, ignoreCase = true)) {
                 currentPlayer.sendMessage(
                     TextUtils.mm(
-                        "<red>Переход не завершился: вы всё ещё на Origin. Попробуйте снова через несколько секунд.",
+                        "<white></white> <red>Переход не завершился: вы всё ещё на Origin. Попробуйте снова через несколько секунд.",
                     ),
                 )
             }
