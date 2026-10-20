@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "title": "Forge cart receiving radius 2026-10-20",
+  "participants": [
+    5,
+    20,
+    50
+  ],
+  "assumptions": [
+    "Only arrival geometry changes: horizontal distance from cart centre to chest centre 2.25 -> 4.0 blocks. The independent vertical tolerance remains 3.0 blocks; loading, attachment, hauling, unloading and request ownership remain mandatory.",
+    "Live Spawn policy read 2026-10-20: 20 vault per completed order and 100 shared completed orders per UUID per UTC day; SHA256 51473a9539fcd0aeb7cf8e3109ad756c6396b8a361ab6e65faadb99c893aae87. No price, reward, quota, quality multiplier or settlement change.",
+    "Low/base/high sensitivity only, not measured: 5/20/50 participants, 0.25/1/2 active hours per day; 40/40/50 orders per hour before and 44/44/55 after. Assume 10 percent faster completion to stress the easier final approach; cap completed orders at 100 daily.",
+    "At equal completed-order counts delta is zero. Sensitivity: 200/800/2000 -> 220/880/2000 vault per player-day; maximum stays 2000 vault per UUID-day. No global budget; multiple accounts remain linear. Arrival itself never awards money or consumes quota.",
+    "No tokens, XP, transferable items, boosts or new sale/contract redemption. Existing idempotent journal and unload requirement prevent a repeated arrival from adding rewards. Cancellation and reload behavior unchanged.",
+    "No progression price changes. At the unchanged daily maximum, a 50000-vault target takes 25 active days if all income is saved; at sensitivity low/base it takes 250/62.5 -> 227.27/56.82 days. This is a hypothetical savings comparison, not a new price or observed player income.",
+    "Canonical economy inventory consulted. EconomyShopGUI SELL-to-contract transition and all neighboring job rewards remain unchanged. No claim of measured cadence or network ledger impact; native-client acceptance remains separate from the automated elevated-chest boundary test."
+  ],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "flows": [
+        {
+          "id": "forge_cart_cadence_sensitivity",
+          "kind": "mint",
+          "source": "OriginOddJobForge.tick and existing OriginSideJobRewards",
+          "basis": "Unchanged 20 vault/order, shared 100-order/day cap; illustrative 10 percent cadence sensitivity",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "20",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              10,
+              40,
+              100
+            ],
+            "player_daily_cap": {
+              "value": "2000",
+              "unit": "major"
+            }
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "20",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              11,
+              44,
+              100
+            ],
+            "player_daily_cap": {
+              "value": "2000",
+              "unit": "major"
+            }
+          }
+        }
+      ]
+    },
+    "tokens": {
+      "minor_per_unit": 100,
+      "flows": [
+        {
+          "id": "forge_cart_tokens",
+          "kind": "mint",
+          "source": "OriginSideJobRewards",
+          "basis": "No token flow",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              0,
+              0
+            ]
+          },
+          "after": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

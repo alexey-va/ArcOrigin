@@ -91,6 +91,29 @@ class OriginOddJobForgeTest : StringSpec({
         } }
     }
 
+    "cart reaches an elevated chest within four horizontal blocks without consuming its height allowance" {
+        OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
+            f.begin(351, OriginOddJobVariant.HAUL_IRON)
+            f.stroke(OriginOddJobStationId.ORE_STOCK); f.strokeCart(); f.strokeCart()
+            val job = f.game.currentJob(f.player.uniqueId)!!
+            val block = f.world.getBlockAt(8, 73, 7).also { it.type = Material.CHEST }
+            val destination = OriginOddJobStation(block.location.clone().add(0.5, 0.9, 0.5),
+                block, setOf(Material.CHEST))
+
+            fun arrives(distance: Double, floorY: Double): Boolean {
+                // At yaw zero the cart follows one block behind the worker.
+                f.player.teleport(Location(f.world, block.x + 0.5 + distance, floorY,
+                    block.z + 1.5, 0f, 0f))
+                return f.forge.tick(f.player, job, destination)
+            }
+
+            arrives(4.01, 70.0) shouldBe false
+            arrives(4.0, 70.0) shouldBe true
+            arrives(4.0, 69.99) shouldBe false
+            f.payments shouldBe emptyList()
+        } }
+    }
+
     "virtual cart click ignores the later floor block but still rejects an earlier solid obstruction" {
         OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
             f.begin(351, OriginOddJobVariant.HAUL_IRON)

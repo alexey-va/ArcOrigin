@@ -107,7 +107,7 @@ internal class OriginOddJobForge(
         follow(player, cart)
         val target = destination.block
         return destination.valid() && target.world.uid == cart.world.uid &&
-            hypot(cart.point.x - target.x - 0.5, cart.point.z - target.z - 0.5) <= 2.25 &&
+            hypot(cart.point.x - target.x - 0.5, cart.point.z - target.z - 0.5) <= 4.0 &&
             abs(cart.point.y - target.y) <= 3.0
     }
 
