@@ -6,6 +6,9 @@ import com.google.gson.GsonBuilder
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import ru.arc.core.LifecycleTaskScope
+import ru.arc.core.TaskScheduler
+import ru.arc.core.Tasks
+import ru.arc.redis.RedisOperations
 import ru.arc.redis.safety.BoundedJsonCodec
 import ru.arc.redis.safety.JsonObjectContract
 import ru.arc.redis.safety.JsonResourceBounds
@@ -17,6 +20,7 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.logging.Level
+import java.util.logging.Logger
 
 internal data class WorkshopCraftClaim(val request: String, val nextAt: Long) {
     fun validate() {
@@ -87,9 +91,13 @@ internal fun planWorkshopCraft(
 internal class OriginWorkshopCraftRewards(
     private val cooldownMillis: Long,
     private val productId: String,
+    private val quests: OriginQuestProgress? = ArcOriginPlugin.instance.questProgress,
+    redis: RedisOperations? = ArcOriginPlugin.instance.redisClient,
+    scheduler: TaskScheduler = Tasks.scheduler,
+    private val logger: Logger = ArcOriginPlugin.instance.logger,
 ) : AutoCloseable {
-    private val redis = ArcOriginPlugin.instance.redisClient
-    private val tasks = LifecycleTaskScope()
+    private val redis = redis
+    private val tasks = LifecycleTaskScope(scheduler)
     @Volatile private var closed = false
     private val pending = ConcurrentHashMap.newKeySet<UUID>()
     private val codec = workshopCraftClaimCodec()
@@ -147,7 +155,7 @@ internal class OriginWorkshopCraftRewards(
                     return@runSync
                 }
                 if (failure != null) {
-                    ArcOriginPlugin.instance.logger.log(Level.WARNING, "ORIGIN_WORKSHOP_GAME claim unconfirmed player=$playerId request=$requestId", failure)
+                    logger.log(Level.WARNING, "ORIGIN_WORKSHOP_GAME claim unconfirmed player=$playerId request=$requestId", failure)
                     if (!closed && player.isOnline && stillValid()) callback("Не удалось подтвердить сборку. Попробуй позже.")
                     return@runSync
                 }
@@ -168,7 +176,7 @@ internal class OriginWorkshopCraftRewards(
                         player.inventory.storageContents = plan.contents
                     } catch (error: Exception) {
                         runCatching { player.inventory.storageContents = before }
-                        ArcOriginPlugin.instance.logger.log(Level.SEVERE, "ORIGIN_WORKSHOP_GAME exchange uncertain player=$playerId request=$requestId", error)
+                        logger.log(Level.SEVERE, "ORIGIN_WORKSHOP_GAME exchange uncertain player=$playerId request=$requestId", error)
                         callback("Не удалось завершить выдачу. Сообщи администрации; повторная выдача заблокирована.")
                         return@runSync
                     }
@@ -178,7 +186,8 @@ internal class OriginWorkshopCraftRewards(
                         return@runSync
                     }
                 }
-                ArcOriginPlugin.instance.logger.info("ORIGIN_WORKSHOP_GAME reward=DELIVERED player=$playerId request=$requestId product=$productId")
+                logger.info("ORIGIN_WORKSHOP_GAME reward=DELIVERED player=$playerId request=$requestId product=$productId")
+                quests?.furnitureDelivered(playerId, requestId, productId)
                 callback(null)
             }
         }
@@ -193,7 +202,7 @@ internal class OriginWorkshopCraftRewards(
         updater?.update(playerId.toString()) { current ->
             workshopReleaseClaim(current, claim, previous)
         }?.whenComplete { _, failure ->
-            if (failure != null) ArcOriginPlugin.instance.logger.log(Level.WARNING,
+            if (failure != null) logger.log(Level.WARNING,
                 "ORIGIN_WORKSHOP_GAME unused claim retained player=$playerId request=${claim.request}", failure)
         }
     }

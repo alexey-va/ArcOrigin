@@ -124,7 +124,8 @@ internal class OriginOddJobsGame(
     private val worldName: String,
     stations: Map<OriginOddJobStationId, OriginOddJobStation>,
     private val rewards: OriginSideJobRewards = OriginSideJobRewards(policy = config.rewardPolicy,
-        captureRecovery = { step -> ArcOriginPlugin.instance.capture({ true }, step) }),
+        captureRecovery = { step -> ArcOriginPlugin.instance.capture({ true }, step) },
+        quests = ArcOriginPlugin.instance.questProgress),
     private val visuals: OriginOddJobVisuals = OriginOddJobVisuals(),
     private val tasks: LifecycleTaskScope = LifecycleTaskScope(),
     private val acquire: (OriginOddJobVenue) -> OriginSceneLease? = { venue ->

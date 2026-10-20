@@ -4,8 +4,8 @@ ArcOrigin is the standalone Paper plugin for RusCrafting's Origin worlds and con
 
 The runtime and its Java API have independent immutable Maven coordinates:
 
-- Runtime plugin: `ru.ruscrafting:ArcOrigin:0.1.11`
-- Java API: `ru.ruscrafting.arc:arc-origin-api:0.1.0`
+- Runtime plugin: `ru.ruscrafting:ArcOrigin:0.1.50`
+- Java API: `ru.ruscrafting.arc:arc-origin-api:0.1.1`
 
 ARC shades the API once. ArcOrigin consumes it as `compileOnly`; add-ons should do the same and must not embed the API or shared provider implementations. Change `originApiVersion` before publishing a contract change. Runtime releases do not require an API version change.
 
@@ -171,3 +171,14 @@ and employer dialog show earned money; only the final receipt says it was receiv
 Focused verification includes `OriginOddJob*Test`, `OriginWorkShiftTest` and
 `OriginSideJob*Test`. Unit tests and offline geometry previews do not
 establish native-client gameplay, rendered motion or an observed live payout.
+## Daily quest integration
+
+When ArcRanks is enabled, completed side-job orders (waiter, forge, mountyard,
+auction) and successfully delivered workshop furniture report through the typed
+`arc-ranks-api:0.1.0` service. Quota rejection, cancelled work and failed inventory
+delivery do not count. The existing durable order/claim UUID and player UUID form
+the event identity; retries retain it. Gameplay rewards and limits are unchanged.
+Quest delivery retries at most three times after the first asynchronous attempt.
+There is no durable publication outbox: a crash, reload or unavailable ArcRanks
+service can leave a completed action without quest progress. ArcRanks owns and
+embeds the API classes; ArcOrigin must not embed them.

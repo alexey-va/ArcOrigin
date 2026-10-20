@@ -111,6 +111,7 @@ internal class OriginSideJobRewards(
     private val logger: Logger = ArcOriginPlugin.instance.logger,
     private val policy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy(),
     private val captureRecovery: ((() -> Boolean) -> CompletableFuture<Unit>)? = null,
+    private val quests: OriginQuestProgress? = null,
 ) : AutoCloseable {
     val amount: Int get() = policy.rewardPerOrder
     private val codec = sideJobRewardCodec()
@@ -227,7 +228,10 @@ internal class OriginSideJobRewards(
             creditWrites.remove(playerId, write)
             write.done.complete(Unit)
             if (failure != null) warn("credit", playerId, requestId, failure)
-            dispatch(token) { callback(SideJobRewardResult(outcome, earnings)) }
+            dispatch(token) {
+                if (outcome == SideJobRewardOutcome.CREDITED) quests?.orderCompleted(kind, playerId, requestId)
+                callback(SideJobRewardResult(outcome, earnings))
+            }
         }
     }
 

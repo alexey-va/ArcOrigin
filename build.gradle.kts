@@ -52,6 +52,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.10.2")
 
     compileOnly(project(":arc-origin-api"))
+    compileOnly("ru.ruscrafting.arc:arc-ranks-api:0.1.0")
     compileOnly("ru.ruscrafting.arc:arc-mounts-api:0.1.0")
     compileOnly("ru.ruscrafting.arc:arc-core-paper-api:2.7.41")
     compileOnly("io.papermc.paper:paper-api:26.1.2.build.+")
@@ -69,6 +70,7 @@ dependencies {
 
     testImplementation("ru.ruscrafting.arc:arc-core-paper-testing:2.7.41")
     testImplementation(project(":arc-origin-api"))
+    testImplementation("ru.ruscrafting.arc:arc-ranks-api:0.1.0")
     testImplementation("ru.ruscrafting.arc:arc-core-paper-api:2.7.41")
     testImplementation(platform("org.junit:junit-bom:6.0.3"))
     testImplementation("org.junit.jupiter:junit-jupiter-api")
@@ -155,6 +157,8 @@ tasks.shadowJar {
 
     // ARC owns these shared service contracts and provider implementations.
     exclude("ru/arc/origin/api/**")
+    exclude("ru/ruscrafting/ranks/api/**")
+    exclude("ru/ruscrafting/ranks/storage/ExternalProgressResult.class")
     exclude("ru/arc/mounts/api/**")
     exclude("ru/arc/paper/api/**")
     exclude("ru/arc/paper/packet/PaperVisualPacketRuntime*.class")

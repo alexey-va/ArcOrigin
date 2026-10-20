@@ -6,9 +6,12 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import ru.arc.core.TaskScheduler
+import ru.arc.core.LifecycleTaskScope
 import ru.arc.core.TestTaskScheduler
 import ru.arc.origin.api.ArcOriginEconomy
 import ru.arc.redis.RedisOperations
+import ru.ruscrafting.ranks.api.RankQuestApi
+import ru.ruscrafting.ranks.storage.ExternalProgressResult
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
@@ -17,6 +20,19 @@ import java.util.logging.Level
 import java.util.logging.Logger
 
 class OriginSideJobRewardsTest : StringSpec({
+    "quest credit follows the durable completed order and quota rejection produces no quest event" {
+        SideJobRewardFixture(OriginSideJobRewardPolicy(dailyOrderLimit = 1)).use { f ->
+            val id = UUID.randomUUID()
+            f.credit(id)
+            f.questEvents shouldBe emptyList()
+            f.ackCredit()
+            f.questEvents shouldBe listOf("$id:${f.playerId}" to "sidejob.complete:forge")
+            f.credit()
+            f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.DAILY_LIMIT
+            f.questEvents.size shouldBe 1
+        }
+    }
     "terminal drain waits for every already earned chained write after close" {
         SideJobRewardFixture().use { f ->
             f.credit()
@@ -312,6 +328,7 @@ private class SideJobRewardFixture(val policy: OriginSideJobRewardPolicy = Origi
     var providerThrows = false
     val results = mutableListOf<SideJobRewardResult>()
     val amounts = mutableListOf<Double>()
+    val questEvents = mutableListOf<Pair<String, String>>()
     private val provider = mockk<ArcOriginEconomy>().also { economy ->
         every { economy.isAvailable() } answers { Thread.currentThread() shouldBe serverThread; providerAvailable }
         every { economy.depositDefaultCurrency(any(), any(), any()) } answers {
@@ -324,7 +341,11 @@ private class SideJobRewardFixture(val policy: OriginSideJobRewardPolicy = Origi
     }
     val rewards = owner(policy = policy)
     fun owner(taskScheduler: TaskScheduler = scheduler, policy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy()) = OriginSideJobRewards(
-        redis, { provider }, taskScheduler, { now }, Logger.getAnonymousLogger().also { it.level = Level.OFF }, policy)
+        redis, { provider }, taskScheduler, { now }, Logger.getAnonymousLogger().also { it.level = Level.OFF }, policy,
+        quests = OriginQuestProgress(LifecycleTaskScope(taskScheduler), { RankQuestApi { _, event, _, objective, _ ->
+            questEvents += event to objective
+            CompletableFuture.completedFuture(ExternalProgressResult.APPLIED)
+        } }, Logger.getAnonymousLogger()))
     fun credit(requestId: UUID = UUID.randomUUID()) = rewards.credit(OriginSideJobKind.FORGE, playerId, shiftId, requestId, 80, results::add)
     fun settle() = rewards.settle(playerId, shiftId, results::add)
     fun ackCredit() { redis.completeWrite(); scheduler.executeImmediate() }

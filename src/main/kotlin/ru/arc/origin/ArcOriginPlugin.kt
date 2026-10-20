@@ -51,6 +51,8 @@ open class ArcOriginPlugin : JavaPlugin() {
     @Volatile private var stopping = false
     private lateinit var io: BoundedAsyncExecutor
     private lateinit var workScope: LifecycleTaskScope
+    internal var questProgress: OriginQuestProgress? = null
+        private set
     private lateinit var nativeWork: BudgetedTaskQueue
     private var commandService: OriginCommandService? = null
     private val redisLeases = ConcurrentHashMap.newKeySet<PaperRedisClient>()
@@ -87,6 +89,9 @@ open class ArcOriginPlugin : JavaPlugin() {
         legacyDataPath = host.legacyDataPath()
         PaperArcRuntime.installScheduling(this)
         workScope = LifecycleTaskScope(Tasks.scheduler)
+        questProgress = if (server.pluginManager.isPluginEnabled("ArcRanks")) OriginQuestProgress(workScope, {
+            server.servicesManager.load(ru.ruscrafting.ranks.api.RankQuestApi::class.java)
+        }, logger) else null
         nativeWork = BudgetedTaskQueue(workScope)
         io = BoundedAsyncExecutor("arc-origin-prepare")
         val localRuntime = PaperPluginRuntime(this, "arc-origin").also { runtime = it; it.start("host" to "ARC") }
