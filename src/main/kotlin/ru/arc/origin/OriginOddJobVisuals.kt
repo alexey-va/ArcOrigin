@@ -6,8 +6,12 @@ import org.bukkit.Bukkit
 import org.bukkit.Color
 import org.bukkit.Location
 import org.bukkit.Material
+import org.bukkit.block.Block
+import org.bukkit.block.Chest
+import org.bukkit.block.DoubleChest
 import org.bukkit.entity.Display
 import org.bukkit.entity.Player
+import org.bukkit.util.BoundingBox
 import org.bukkit.util.Transformation
 import org.joml.Quaternionf
 import org.joml.Vector3f
@@ -128,14 +132,26 @@ internal fun originOddJobCleaningPieces(mask: Int): List<OriginWorkshopWorkpiece
 private fun oddJobPiece(material: Material, x: Double, y: Double, z: Double, w: Float, h: Float, d: Float) =
     OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(x, y, z), OriginWorkshopGamePartSize(w, h, d), material)
 
-/** Twelve continuous edges surround the real target block, instead of four tiny dots on its top. */
-internal fun originOddJobTargetPieces(): List<OriginWorkshopWorkpiecePiece> = buildList {
-    val edge = 0.53; val thickness = 0.035f
-    for (a in listOf(-edge, edge)) for (b in listOf(-edge, edge)) {
-        add(oddJobPiece(Material.YELLOW_CONCRETE, 0.0, a, b, 1.095f, thickness, thickness))
-        add(oddJobPiece(Material.YELLOW_CONCRETE, a, 0.0, b, thickness, 1.025f, thickness))
-        add(oddJobPiece(Material.YELLOW_CONCRETE, a, b, 0.0, thickness, thickness, 1.025f))
+/** Twelve continuous edges surround the whole target, including both halves of a connected chest. */
+internal fun originOddJobTargetPieces(size: OriginWorkshopGamePartSize = OriginWorkshopGamePartSize(1f, 1f, 1f)):
+    List<OriginWorkshopWorkpiecePiece> = buildList {
+    val x = size.x / 2.0 + 0.03; val y = size.y / 2.0 + 0.03; val z = size.z / 2.0 + 0.03
+    val thickness = 0.035f
+    for (a in listOf(-1, 1)) for (b in listOf(-1, 1)) {
+        add(oddJobPiece(Material.YELLOW_CONCRETE, 0.0, a * y, b * z, size.x + 0.095f, thickness, thickness))
+        add(oddJobPiece(Material.YELLOW_CONCRETE, a * x, 0.0, b * z, thickness, size.y + 0.025f, thickness))
+        add(oddJobPiece(Material.YELLOW_CONCRETE, a * x, b * y, 0.0, thickness, thickness, size.z + 0.025f))
     }
+}
+
+/** Bukkit resolves the connected inventory; touching single chests must remain separate targets. */
+internal fun originOddJobDoubleChestBounds(block: Block): BoundingBox? {
+    val data = block.blockData as? org.bukkit.block.data.type.Chest ?: return null
+    if (data.type == org.bukkit.block.data.type.Chest.Type.SINGLE) return null
+    val chest = (block.state as? Chest)?.inventory?.holder as? DoubleChest ?: return null
+    val left = (chest.leftSide as? Chest)?.block ?: return null
+    val right = (chest.rightSide as? Chest)?.block ?: return null
+    return BoundingBox.of(left).union(BoundingBox.of(right))
 }
 
 /** Outside edges shared by the visible ground frame and cart delivery acceptance. */
@@ -195,6 +211,7 @@ internal class OriginOddJobVisuals(
         var target: OriginWorkshopProp? = null
         var label: PacketTextDisplay? = null
         var targetLocation: Location? = null
+        var targetSize: OriginWorkshopGamePartSize? = null
         var targetOutline = true
         var groundTarget = false
         var wallTarget = false
@@ -272,20 +289,24 @@ internal class OriginOddJobVisuals(
         }
         change(player, requestId) { state ->
             require(location.world?.uid == state.worldId) { "odd-job target must stay in its player's world" }
-            if (state.targetLocation == location && state.targetOutline == outline && state.groundTarget == ground && state.wallTarget == wall) {
+            val bounds = if (outline && !ground) originOddJobDoubleChestBounds(location.block) else null
+            val anchor = bounds?.let { Location(location.world, it.centerX, it.centerY, it.centerZ) } ?: location
+            val size = bounds?.let { OriginWorkshopGamePartSize(it.widthX.toFloat(), it.height.toFloat(), it.widthZ.toFloat()) }
+                ?: OriginWorkshopGamePartSize(1f, 1f, 1f)
+            if (state.targetLocation == anchor && state.targetSize == size && state.targetOutline == outline && state.groundTarget == ground && state.wallTarget == wall) {
                 state.label?.text(Component.text(caption, TextColor.color(0xe8dfd2)))
                 return@change
             }
             removeTarget(state)
             val renderer = renderer()
-            state.target = if (outline) OriginWorkshopProp(renderer, location,
-                if (ground) originOddJobDestinationPieces() else originOddJobTargetPieces(), privateViewer = player,
+            state.target = if (outline) OriginWorkshopProp(renderer, anchor,
+                if (ground) originOddJobDestinationPieces() else originOddJobTargetPieces(size), privateViewer = player,
                 onSpawn = { display -> state.handles += display; display.isVisibleByDefault = false }).also {
-                it.place(location, if (ground) Quaternionf().rotationY(-Math.toRadians(location.yaw.toDouble()).toFloat()) else Quaternionf())
+                it.place(anchor, if (ground) Quaternionf().rotationY(-Math.toRadians(anchor.yaw.toDouble()).toFloat()) else Quaternionf())
                 it.glow(Color.fromRGB(239, 195, 113))
                 it.pieces.forEach { piece -> piece.display?.brightness = Display.Brightness(15, 15) }
             } else null
-            val labelLocation = location.clone().add(0.0, if (ground) 1.55 else if (outline) 0.95 else 0.42, 0.0)
+            val labelLocation = anchor.clone().add(0.0, if (ground) 1.55 else if (outline) 0.95 else 0.42, 0.0)
             if (wall) {
                 labelLocation.pitch = 0f
                 labelLocation.add(labelLocation.direction.multiply(0.035))
@@ -304,7 +325,8 @@ internal class OriginOddJobVisuals(
                 label.transformation = Transformation(Vector3f(), Quaternionf(), Vector3f(0.45f), Quaternionf())
                 label.showTo(player)
             }
-            state.targetLocation = location.clone()
+            state.targetLocation = anchor.clone()
+            state.targetSize = size
             state.targetOutline = outline
             state.groundTarget = ground
             state.wallTarget = wall

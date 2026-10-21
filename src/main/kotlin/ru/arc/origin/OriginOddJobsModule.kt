@@ -532,9 +532,6 @@ internal class OriginOddJobsGame(
             if (job.kind == OriginOddJobKind.MOUNTYARD) shift.lastYardAnimal = job.yard?.animalId
             shift.assigningSince = null; shift.unavailableOffers.clear(); retryAt.remove(id)
             info("ORIGIN_ODD_JOBS phase=STARTED player={} shift={} request={} kind={} variant={}", id, shiftId, job.id, job.kind, job.variant)
-            if (job.kind.rewardKind == OriginSideJobKind.FORGE)
-                player.sendMessage(waiterText(config.line("forge.started", "order" to config.line("variants.${job.variant.key()}.title"),
-                    "guide" to originOddJobGuide(config, job, clock())), TextColor.color(0xFFCA82)))
             guide(player, job, clock(), true)
         } }
     }

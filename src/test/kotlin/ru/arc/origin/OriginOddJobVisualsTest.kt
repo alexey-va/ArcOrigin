@@ -79,6 +79,56 @@ class OriginOddJobVisualsTest : StringSpec({
         }
     }
 
+    "both halves and both axes of a double chest share one complete frame and centered label" {
+        for ((dx, dz) in listOf(1 to 0, 0 to 1)) {
+            val world = mockk<org.bukkit.World>(relaxed = true)
+            every { world.uid } returns UUID.randomUUID()
+            val blocks = listOf(0 to 0, dx to dz).map { (x, z) ->
+                mockk<org.bukkit.block.Block> {
+                    every { getX() } returns x; every { getY() } returns 70; every { getZ() } returns z
+                    every { blockData } returns mockk<org.bukkit.block.data.type.Chest> {
+                        every { type } returns org.bukkit.block.data.type.Chest.Type.LEFT
+                    }
+                }
+            }
+            val states = blocks.map { block -> mockk<org.bukkit.block.Chest> { every { this@mockk.block } returns block } }
+            val holder = mockk<org.bukkit.block.DoubleChest> {
+                every { leftSide } returns states[0]; every { rightSide } returns states[1]
+            }
+            blocks.zip(states).forEach { (block, state) ->
+                every { block.state } returns state
+                every { state.inventory } returns mockk { every { this@mockk.holder } returns holder }
+            }
+            every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
+                if (firstArg<Int>() == 0 && thirdArg<Int>() == 0) blocks[0] else blocks[1]
+            }
+            every { world.getBlockAt(any<Location>()) } answers {
+                if (firstArg<Location>().blockX == 0 && firstArg<Location>().blockZ == 0) blocks[0] else blocks[1]
+            }
+            val player = mockk<Player>(relaxed = true)
+            every { player.uniqueId } returns UUID.randomUUID()
+            every { player.world } returns world
+            val bounds = requireNotNull(originOddJobDoubleChestBounds(blocks[0]))
+            originOddJobDoubleChestBounds(blocks[1]) shouldBe bounds
+            bounds.widthX shouldBe 1.0 + dx
+            bounds.widthZ shouldBe 1.0 + dz
+            val pieces = originOddJobTargetPieces(OriginWorkshopGamePartSize(bounds.widthX.toFloat(), 1f, bounds.widthZ.toFloat()))
+            pieces.size shouldBe 12
+            (pieces.minOf { it.center.x - it.size.x / 2 } < -bounds.widthX / 2) shouldBe true
+            (pieces.maxOf { it.center.z + it.size.z / 2 } > bounds.widthZ / 2) shouldBe true
+            val harness = OddJobDisplayHarness()
+            val visuals = OriginOddJobVisuals { harness.owner }
+            val request = UUID.randomUUID()
+            visuals.target(player, request, Location(world, 0.5, 70.5, 0.5), "Возьми груз · ПКМ")
+            visuals.target(player, request, Location(world, 0.5 + dx, 70.5, 0.5 + dz), "Возьми груз · ПКМ")
+            harness.blocks.size shouldBe 12
+            harness.textLocations.single() shouldBe Location(world, bounds.centerX, 71.45, bounds.centerZ)
+            visuals.close()
+            every { (blocks[0].blockData as org.bukkit.block.data.type.Chest).type } returns org.bukkit.block.data.type.Chest.Type.SINGLE
+            originOddJobDoubleChestBounds(blocks[0]) shouldBe null
+        }
+    }
+
     "wall mounted action labels keep their plane outside both walls when the player turns" {
         failOnUnsupportedMockBukkitOperation {
             val player = oddJobCarrier(paper)

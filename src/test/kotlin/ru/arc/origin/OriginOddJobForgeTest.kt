@@ -22,6 +22,23 @@ import java.nio.file.Files
 import kotlin.math.abs
 
 class OriginOddJobForgeTest : StringSpec({
+    "successive forge orders update the HUD and world cue without repeating their instructions in chat" {
+        OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
+            f.startForge()
+            fun messages() = generateSequence { f.player.nextComponentMessage() }.map(f::plain).toList()
+            messages().none { "Новый заказ:" in it } shouldBe true
+            f.plain(f.player.bossBars.single().name()) shouldContain "возьми"
+            (f.target != null) shouldBe true
+            f.finishForge()
+            f.payments.single().callback(SideJobRewardOutcome.CREDITED)
+            f.game.tick(f.now); f.scheduler.executeImmediate()
+            (f.game.currentJob(f.player.uniqueId) != null) shouldBe true
+            messages().none { "Новый заказ:" in it } shouldBe true
+            f.plain(f.player.bossBars.single().name()) shouldContain "возьми"
+            (f.target != null) shouldBe true
+        } }
+    }
+
     "only Edgar starts a forge shift and the cart follows view yaw when the worker's body faces sideways" {
         OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
             for (actor in listOf(351, 354)) {

@@ -7,14 +7,53 @@ import org.bukkit.World
 import org.bukkit.entity.Display
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
+import org.bukkit.util.BoundingBox
 import org.bukkit.util.Transformation
 import org.joml.Quaternionf
 import org.joml.Vector3f
 import ru.arc.paper.display.PacketItemDisplay
 import ru.arc.paper.display.PacketDisplay
 import ru.arc.paper.display.PaperPacketDisplays
+import ru.arc.paper.scene.PaperSpatialSpace
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.floor
+import kotlin.math.hypot
+import kotlin.math.sin
+
+/**
+ * cart_2 element bounds after its GROUND context, before the configured display scale/lift.
+ * Include handles and wheels, and every rotational extremum along the shortest yaw arc.
+ */
+internal fun originOddJobCartSweptBounds(from: OriginWorkshopPoint, fromYaw: Float,
+    to: OriginWorkshopPoint, toYaw: Float, layout: OriginForgeCartLayout): BoundingBox {
+    // JOML's rotationY(a) maps +Z toward +X; the X/Z polar angle therefore uses -a.
+    val angle = Math.toRadians(fromYaw - 180.0)
+    val delta = Math.toRadians((toYaw - fromYaw).toDouble())
+    val turn = atan2(sin(delta), cos(delta))
+    // At a half turn the float quaternion dot can select either slerp arc; cover both.
+    val end = angle + if (abs(abs(turn) - Math.PI) <= 1e-5) Math.PI * 2 else turn
+    val xs = mutableListOf<Double>(); val zs = mutableListOf<Double>()
+    for (x in listOf(-0.1953125, 0.1953125)) for (z in listOf(-0.3615598789197727, 0.3045303505978045)) {
+        val localX = x * layout.scale.x; val localZ = z * layout.scale.z
+        val radius = hypot(localX, localZ); val corner = atan2(localZ, localX)
+        val startAngle = angle + corner; val endAngle = end + corner
+        val quarter = Math.PI / 2
+        val extrema = (ceil(minOf(startAngle, endAngle) / quarter).toInt()..floor(maxOf(startAngle, endAngle) / quarter).toInt())
+            .map { it * quarter }
+        for (sample in listOf(startAngle, endAngle) + extrema) {
+            xs += radius * cos(sample); zs += radius * sin(sample)
+        }
+    }
+    return BoundingBox(minOf(from.x, to.x) + xs.min(),
+        minOf(from.y, to.y) + layout.lift - 0.1875 * layout.scale.y + 1e-5,
+        minOf(from.z, to.z) + zs.min(), maxOf(from.x, to.x) + xs.max(),
+        maxOf(from.y, to.y) + layout.lift + 0.15111959953042072 * layout.scale.y,
+        maxOf(from.z, to.z) + zs.max())
+}
 
 /** The shared cart owns its model, cargo, native carry pose and cleanup for every hauling job. */
 internal class OriginOddJobCart(
@@ -28,6 +67,7 @@ internal class OriginOddJobCart(
         val handles: MutableList<PacketDisplay> = mutableListOf(),
         var point: OriginWorkshopPoint, var yaw: Float, var attached: Boolean = false)
     private val carts = mutableMapOf<UUID, Cart>()
+    private val space = PaperSpatialSpace()
     private var owner: PaperPacketDisplays? = null
     private var model: ItemStack? = null
 
@@ -100,20 +140,35 @@ internal class OriginOddJobCart(
         val at = player.location
         // A player's body yaw may face sideways while looking/steering; packet passengers do not inherit it.
         val pose = originForgeCartCarryPose(at.yaw.toDouble())
-        cart.point = OriginWorkshopPoint(at.x + pose.center.x, at.y, at.z + pose.center.z)
-        cart.yaw = at.yaw + 180f
+        val desired = OriginWorkshopPoint(at.x + pose.center.x, at.y, at.z + pose.center.z)
+        val desiredYaw = at.yaw + 180f
+        if (canMove(cart, desired, desiredYaw)) {
+            cart.point = desired
+            cart.yaw = desiredYaw
+        }
+        val center = OriginWorkshopPoint(cart.point.x - at.x, cart.point.y - at.y, cart.point.z - at.z)
+        val rotation = Quaternionf().rotationY(Math.toRadians(180.0 - cart.yaw).toFloat())
         if (!cart.attached) cart.display.teleport(at.clone().apply { yaw = 0f; pitch = 0f })
         cart.display.transformation = Transformation(
-            Vector3f(pose.center.x.toFloat(), (spec.lift - player.height).toFloat(), pose.center.z.toFloat()),
-            Quaternionf(pose.rotation).rotateY(Math.PI.toFloat()), Vector3f(spec.scale), Quaternionf())
+            Vector3f(center.x.toFloat(), (center.y + spec.lift - player.height).toFloat(), center.z.toFloat()),
+            Quaternionf(rotation).rotateY(Math.PI.toFloat()), Vector3f(spec.scale), Quaternionf())
         cart.display.attachTo(player)
         cart.attached = true
         cart.cargo.forEach { (index, prop) ->
             val offset = originForgeCartLoadOffset(index)
-            pose.rotation.transform(offset)
-            prop.carry(player, OriginWorkshopCarryPose(OriginWorkshopPoint(pose.center.x + offset.x,
-                offset.y.toDouble(), pose.center.z + offset.z), Quaternionf(pose.rotation).rotateX(Math.toRadians(22.5).toFloat())))
+            rotation.transform(offset)
+            prop.carry(player, OriginWorkshopCarryPose(OriginWorkshopPoint(center.x + offset.x,
+                center.y + offset.y, center.z + offset.z), Quaternionf(rotation).rotateX(Math.toRadians(22.5).toFloat())))
         }
+    }
+
+    private fun canMove(cart: Cart, desired: OriginWorkshopPoint, yaw: Float): Boolean {
+        val from = cart.point
+        // A blocked cart stays put; returning to it resumes motion without a long scan or tunnelling.
+        if (abs(desired.x - from.x) > 4 || abs(desired.z - from.z) > 4 || abs(desired.y - from.y) > 1.5) return false
+        // The client interpolates directly between these poses, so validate that same swept path.
+        return space.clearBounds(cart.world,
+            originOddJobCartSweptBounds(from, cart.yaw, desired, yaw, requireNotNull(layout)))
     }
 
     private fun park(cart: Cart) {
