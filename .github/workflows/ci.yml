@@ -64,7 +64,7 @@ jobs:
             !build/libs/*-plain.jar
           if-no-files-found: error
       - name: Publish immutable plugin and API coordinates
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: success() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
           REPOSILITE_PUBLISH_PASSWORD: ${{ secrets.REPOSILITE_PUBLISH_PASSWORD }}
         run: ./scripts/publish-artifacts.sh
