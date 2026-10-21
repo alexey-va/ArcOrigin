@@ -89,7 +89,7 @@ internal data class OriginOddJobsConfig(
     }
 }
 
-internal enum class OriginOddJobStationId { HAY, FEED, WATER, WELL, BRUSH, SADDLE_RACK, BLANK, FIRE, ANVIL, QUENCH, ORE_STOCK, ENGRAVING }
+internal enum class OriginOddJobStationId { HAY, FEED, WATER, WELL, BRUSH, SADDLE_RACK, BLANK, FIRE, ANVIL, QUENCH, ORE_STOCK, ENGRAVING, HAUL_DELIVERY }
 
 internal fun originOddJobWorkpieceTarget(stage: OriginOddJobStage): Boolean = stage in setOf(
     OriginOddJobStage.FORGE_HEATING, OriginOddJobStage.FORGE_INSPECT, OriginOddJobStage.FORGE_HAMMER,
@@ -114,7 +114,7 @@ internal fun originOddJobStation(stage: OriginOddJobStage): OriginOddJobStationI
     OriginOddJobStage.FORGE_INSPECT, OriginOddJobStage.FORGE_PLACE, OriginOddJobStage.FORGE_HAMMER -> OriginOddJobStationId.ANVIL
     OriginOddJobStage.FORGE_QUENCH -> OriginOddJobStationId.QUENCH
     OriginOddJobStage.HAUL_PICKUP -> OriginOddJobStationId.ORE_STOCK
-    OriginOddJobStage.HAUL_PUSH, OriginOddJobStage.HAUL_UNLOAD -> OriginOddJobStationId.BLANK
+    OriginOddJobStage.HAUL_PUSH, OriginOddJobStage.HAUL_UNLOAD -> OriginOddJobStationId.HAUL_DELIVERY
     OriginOddJobStage.ENGRAVE_BLANK -> OriginOddJobStationId.BLANK
     OriginOddJobStage.ENGRAVE_PLACE, OriginOddJobStage.ENGRAVE_CARVE, OriginOddJobStage.ENGRAVE_COLLECT -> OriginOddJobStationId.ENGRAVING
     else -> null
@@ -124,8 +124,8 @@ internal fun originOddJobRequiredStations(kind: OriginOddJobKind): Set<OriginOdd
     OriginOddJobKind.MOUNTYARD -> setOf(OriginOddJobStationId.HAY, OriginOddJobStationId.FEED, OriginOddJobStationId.WATER,
         OriginOddJobStationId.WELL, OriginOddJobStationId.BRUSH, OriginOddJobStationId.SADDLE_RACK)
     OriginOddJobKind.FORGE -> setOf(OriginOddJobStationId.BLANK, OriginOddJobStationId.FIRE, OriginOddJobStationId.ANVIL,
-        OriginOddJobStationId.QUENCH, OriginOddJobStationId.ORE_STOCK, OriginOddJobStationId.ENGRAVING)
-    OriginOddJobKind.FORGE_HAUL -> setOf(OriginOddJobStationId.ORE_STOCK, OriginOddJobStationId.BLANK)
+        OriginOddJobStationId.QUENCH, OriginOddJobStationId.ORE_STOCK, OriginOddJobStationId.ENGRAVING, OriginOddJobStationId.HAUL_DELIVERY)
+    OriginOddJobKind.FORGE_HAUL -> setOf(OriginOddJobStationId.ORE_STOCK, OriginOddJobStationId.HAUL_DELIVERY)
     OriginOddJobKind.FORGE_ENGRAVE -> setOf(OriginOddJobStationId.BLANK, OriginOddJobStationId.ENGRAVING)
     OriginOddJobKind.AUCTION -> emptySet()
 }
@@ -179,6 +179,14 @@ internal fun originOddJobStations(plan: OriginScenePlan, world: World): Map<Orig
     forge.propSurfaces["apprentice-work-surface"]?.let { surface(OriginOddJobStationId.ENGRAVING, it) }
     around(OriginOddJobStationId.ORE_STOCK, forge.anchors.getValue("job-haul-stock"),
         setOf(Material.CHEST, Material.TRAPPED_CHEST, Material.BARREL), 0, 0.9)
+    forge.anchors["job-haul-delivery"]?.let { anchor ->
+        val x = floor(anchor.x).toInt(); val z = floor(anchor.z).toInt()
+        if (world.isChunkLoaded(x shr 4, z shr 4)) {
+            val support = world.getBlockAt(x, floor(anchor.y - 0.01).toInt(), z)
+            if (support.type.isSolid) put(OriginOddJobStationId.HAUL_DELIVERY,
+                OriginOddJobStation(anchor.inWorld(world), support, setOf(support.type)))
+        }
+    }
     around(OriginOddJobStationId.QUENCH, forge.anchors.getValue("quench-cauldron"), setOf(Material.WATER_CAULDRON), 2, 0.9)
 }
 

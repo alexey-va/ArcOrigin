@@ -58,7 +58,7 @@ scenes:
         home: "80.7,70.0,78.4458,65.1,0"
         denied-denizen-flags: [rc_origin_forge_service_busy]
 
-    anchor-ids: [master-anvil, master-anvil-stand, master-assistant-stand, ledger-desk, stock-stand, stock-chest, apprentice-stand, apprentice-anvil, ore-cart-stand, ore-cart, ore-chest-stand, ore-chest, dummy-stage, dummy, hammer-anvil, furnace-stand, furnace-fire, heat-chain, quench-stand, quench-cauldron, ore-load-stand, ore-load-cart, ore-route-entry, ore-route-turn, ore-passage, ore-park-stand, ore-park-cart, ore-unload-side, ore-return-side, ore-return-grip, ore-return-load, job-haul-cart, job-haul-stock]
+    anchor-ids: [master-anvil, master-anvil-stand, master-assistant-stand, ledger-desk, stock-stand, stock-chest, apprentice-stand, apprentice-anvil, ore-cart-stand, ore-cart, ore-chest-stand, ore-chest, dummy-stage, dummy, hammer-anvil, furnace-stand, furnace-fire, heat-chain, quench-stand, quench-cauldron, ore-load-stand, ore-load-cart, ore-route-entry, ore-route-turn, ore-passage, ore-park-stand, ore-park-cart, ore-unload-side, ore-return-side, ore-return-grip, ore-return-load, job-haul-cart, job-haul-stock, job-haul-delivery]
     anchors:
       master-anvil: "76.5,70.65,69.5"
       master-anvil-stand: "76.5,70.0,70.5"
@@ -74,6 +74,7 @@ scenes:
       ore-load-cart: "71.5,70.5625,65.5,90,0"
       job-haul-cart: "61.8,69.0,63.7,90,0"
       job-haul-stock: "65.0,70.0,61.0"
+      job-haul-delivery: "78.5,70.0,71.5"
       ore-route-entry: "74.5,70.0,65.5"
       ore-route-turn: "74.5,70.0,69.5"
       ore-passage: "78.5,70.0,69.5"

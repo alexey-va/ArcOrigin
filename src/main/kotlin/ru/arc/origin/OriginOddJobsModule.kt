@@ -182,9 +182,12 @@ internal class OriginOddJobsGame(
                 visuals.tick()
                 progress.entries().filter { it.second.kind == OriginOddJobKind.FORGE_HAUL }.forEach { (id, job) ->
                     Bukkit.getPlayer(id)?.let { player ->
-                        val destination = stations[OriginOddJobStationId.BLANK]
-                        if (destination != null && valid(player, job) && forge.tick(player, job, destination))
+                        val destination = stations[OriginOddJobStationId.HAUL_DELIVERY]
+                        if (destination != null && valid(player, job) && forge.tick(player, job, destination)) {
                             apply(player, progress.act(id, OriginOddJobAction.CART_ARRIVE, clock()))
+                            if (progress.current(id)?.let { it.id == job.id && it.stage == OriginOddJobStage.HAUL_UNLOAD } == true)
+                                apply(player, progress.act(id, OriginOddJobAction.UNLOAD, clock()))
+                        }
                     }
                 }
             } catch (failure: Exception) {
@@ -341,6 +344,8 @@ internal class OriginOddJobsGame(
         if (current?.kind == OriginOddJobKind.MOUNTYARD && yard.contains(npcId)) return workAnimal(player, current, npcId)
         val venue = config.venues.firstOrNull { it.npcId == npcId }
         if (venue?.kind == OriginOddJobKind.AUCTION) return false
+        // Edgar owns the forge shift; Savva and Luka remain its leased work actors.
+        if (venue?.kind in setOf(OriginOddJobKind.FORGE_HAUL, OriginOddJobKind.FORGE_ENGRAVE)) return false
         val handoff = current?.kind == OriginOddJobKind.AUCTION && npcId == config.handoffNpcId
         val yardHandoff = current?.kind == OriginOddJobKind.MOUNTYARD && npcId == config.yardRider?.npcId
         if (venue == null && !handoff && !yardHandoff || actor(npcId) == null) return false
@@ -910,6 +915,8 @@ internal class OriginOddJobsGame(
             config.line("guide.yard-open-gate", "animal" to requireNotNull(job.yard).animalName))
         else if (yardTarget != null) visuals.destination(player, job.id, yardTarget,
             config.line(if (job.stage == OriginOddJobStage.YARD_LEAD_OUT) "targets.yard-care-pad" else "targets.yard-handoff"))
+        else if (stationId == OriginOddJobStationId.HAUL_DELIVERY) visuals.destination(player, job.id,
+            stations.getValue(stationId).point.clone().add(0.0, 0.05, 0.0), config.line("targets.haul-delivery"))
         else if (tieTarget != null) visuals.wallTarget(player, job.id, tieTarget, caption)
         else visuals.target(player, job.id, cartTarget ?: stationId?.let { id -> stations.getValue(id).let { station ->
             if (workpieceTarget) station.point else station.block.location.clone().add(0.5, 0.5, 0.5)

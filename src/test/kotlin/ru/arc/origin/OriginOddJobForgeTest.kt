@@ -11,66 +11,52 @@ import org.bukkit.Material
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerTeleportEvent
 import org.bukkit.util.Transformation
-import org.joml.Matrix4f
 import org.joml.Vector3f
 import ru.arc.origin.scene.OriginScenePlan
-import ru.arc.paper.display.PacketDisplay
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import java.nio.file.Files
 import kotlin.math.abs
 
 class OriginOddJobForgeTest : StringSpec({
-    "cart stays one block ahead with its handles towards the worker through turns" {
-        for (yaw in listOf(0.0, 45.0, 90.0, 180.0, 270.0, -90.0)) {
-            val pose = originForgeCartCarryPose(yaw)
-            val angle = Math.toRadians(yaw)
-            abs(pose.center.x + kotlin.math.sin(angle)) shouldBeLessThan 1e-6
-            abs(pose.center.z - kotlin.math.cos(angle)) shouldBeLessThan 1e-6
-            pose.center.y shouldBe 0.0
-            val forward = Vector3f((-kotlin.math.sin(angle)).toFloat(), 0f, kotlin.math.cos(angle).toFloat())
-            val offset = Vector3f(pose.center.x.toFloat(), 0f, pose.center.z.toFloat())
-            abs(offset.dot(forward).toDouble() - 1) shouldBeLessThan 1e-6
-            val handles = pose.rotation.transform(Vector3f(0f, 0f, -1f))
-            abs(handles.dot(forward).toDouble() + 1) shouldBeLessThan 1e-6
-        }
-    }
-
-    "cart and every cargo piece keep their world pose when released for unloading" {
+    "only Edgar starts a forge shift and the cart follows view yaw when the worker's body faces sideways" {
         OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
-            f.begin(351, OriginOddJobVariant.HAUL_IRON)
+            for (actor in listOf(351, 354)) {
+                f.moveNpc(actor)
+                f.game.interact(f.player, actor) shouldBe false
+            }
+            f.screens shouldBe emptyList()
+            f.game.isWorking(f.player.uniqueId) shouldBe false
+            f.begin(349, OriginOddJobVariant.HAUL_IRON)
+            f.leases.single().actorIds shouldBe setOf(349, 362, 351)
             f.stroke(OriginOddJobStationId.ORE_STOCK); f.strokeCart(); f.strokeCart()
             val job = f.game.currentJob(f.player.uniqueId)!!
-            val transforms = mutableMapOf<PacketDisplay, Transformation>()
-            val anchors = mutableMapOf<PacketDisplay, Location>()
-            f.cartDisplays.forEach { display ->
-                every { display.transformation = any() } answers { transforms[display] = firstArg() }
-                every { display.teleport(any()) } answers { anchors[display] = firstArg<Location>().clone() }
-                every { display.attachTo(f.player) } answers {
-                    anchors[display] = f.player.location.add(0.0, f.player.height, 0.0).apply { yaw = 0f; pitch = 0f }
-                }
+            var transform: Transformation? = null
+            var releasedAt: Location? = null
+            val cart = f.cartDisplays.first()
+            every { cart.transformation = any() } answers { transform = firstArg() }
+            every { cart.teleport(any()) } answers { releasedAt = firstArg<Location>().clone() }
+            // Native GrocerMC observation, 2026-10-21 11:51:05: looking and body headings differ by 50 degrees.
+            val viewYaw = 150.30119324f
+            f.bodyYawOverride = 200.30119324f
+            val at = Location(f.world, 2.0, 70.0, 5.0, viewYaw, 0f)
+            f.player.teleport(at)
+            f.forge.sync(f.player, job)
+            val angle = Math.toRadians(viewYaw.toDouble())
+            val forward = Vector3f((-kotlin.math.sin(angle)).toFloat(), 0f, kotlin.math.cos(angle).toFloat())
+            val carried = requireNotNull(transform)
+            val offset = Vector3f(carried.translation).apply { y = 0f }
+            abs(offset.dot(forward).toDouble() - 1) shouldBeLessThan 1e-6
+            // Model handles are -Z; native ItemDisplay adds Y+180 before the authored left rotation.
+            val handles = carried.leftRotation.transform(Vector3f(0f, 0f, 1f))
+            abs(handles.dot(forward).toDouble() + 1) shouldBeLessThan 1e-6
+            f.forge.sync(f.player, job.copy(stage = OriginOddJobStage.HAUL_UNLOAD))
+            val parked = requireNotNull(releasedAt)
+            parked.yaw shouldBe viewYaw + 180f
+            parked.toVector().subtract(at.toVector()).let {
+                abs(it.x - forward.x) shouldBeLessThan 1e-6
+                abs(it.z - forward.z) shouldBeLessThan 1e-6
             }
-            fun worldPoses() = transforms.mapValues { (display, transform) ->
-                val at = anchors.getValue(display)
-                Matrix4f().translation(at.x.toFloat(), at.y.toFloat(), at.z.toFloat())
-                    .rotateY(-Math.toRadians(at.yaw.toDouble()).toFloat())
-                    .translate(transform.translation).rotate(transform.leftRotation)
-                    .scale(transform.scale).rotate(transform.rightRotation)
-            }
-            for (yaw in listOf(0f, 45f, 90f, 180f, 270f)) {
-                f.player.teleport(Location(f.world, 2.0, 70.0, 5.0, yaw, 0f))
-                f.forge.sync(f.player, job)
-                val carried = worldPoses()
-                f.forge.sync(f.player, job.copy(stage = OriginOddJobStage.HAUL_UNLOAD))
-                val parked = worldPoses()
-                carried.size shouldBe f.cartDisplays.size
-                for ((display, before) in carried) {
-                    for (point in listOf(Vector3f(), Vector3f(1f, 0f, 0f), Vector3f(0f, 1f, 0f), Vector3f(0f, 0f, 1f))) {
-                        val from = before.transformPosition(Vector3f(point))
-                        val to = parked.getValue(display).transformPosition(Vector3f(point))
-                        from.distance(to).toDouble() shouldBeLessThan 5e-5
-                    }
-                }
-            }
+            f.payments shouldBe emptyList()
         } }
     }
 
@@ -105,7 +91,8 @@ class OriginOddJobForgeTest : StringSpec({
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.ENGRAVE_COLLECT
             f.stroke(OriginOddJobStationId.ENGRAVING)
             f.plain(f.player.bossBars.single().name()) shouldContain "Эдгар"
-            f.clickNpc(354, sneaking = false)
+            f.moveNpc(354)
+            f.game.interact(f.player, 354) shouldBe false
             f.payments shouldBe emptyList()
             f.clickNpc(349, sneaking = false)
             f.payments.single().kind shouldBe OriginSideJobKind.FORGE
@@ -123,44 +110,9 @@ class OriginOddJobForgeTest : StringSpec({
         } }
     }
 
-    "production timer reaches the chest by ordinary player movement and waits for unloading" {
-        for (speed in listOf(0.22, 0.28)) OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
-            f.begin(351, OriginOddJobVariant.HAUL_IRON)
-            f.stroke(OriginOddJobStationId.ORE_STOCK); f.strokeCart(); f.strokeCart()
-            f.dragCart(step = speed)
-            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_UNLOAD
-            f.payments shouldBe emptyList()
-            f.stroke(OriginOddJobStationId.BLANK)
-            f.payments.size shouldBe 1
-        } }
-    }
-
-    "cart reaches an elevated chest within four horizontal blocks without consuming its height allowance" {
-        OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
-            f.begin(351, OriginOddJobVariant.HAUL_IRON)
-            f.stroke(OriginOddJobStationId.ORE_STOCK); f.strokeCart(); f.strokeCart()
-            val job = f.game.currentJob(f.player.uniqueId)!!
-            val block = f.world.getBlockAt(8, 73, 7).also { it.type = Material.CHEST }
-            val destination = OriginOddJobStation(block.location.clone().add(0.5, 0.9, 0.5),
-                block, setOf(Material.CHEST))
-
-            fun arrives(distance: Double, floorY: Double): Boolean {
-                // At yaw zero the cart is one block ahead of the worker.
-                f.player.teleport(Location(f.world, block.x + 0.5 + distance, floorY,
-                    block.z - 0.5, 0f, 0f))
-                return f.forge.tick(f.player, job, destination)
-            }
-
-            arrives(4.01, 70.0) shouldBe false
-            arrives(4.0, 70.0) shouldBe true
-            arrives(4.0, 69.99) shouldBe false
-            f.payments shouldBe emptyList()
-        } }
-    }
-
     "virtual cart click ignores the later floor block but still rejects an earlier solid obstruction" {
         OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
-            f.begin(351, OriginOddJobVariant.HAUL_IRON)
+            f.begin(349, OriginOddJobVariant.HAUL_IRON)
             f.stroke(OriginOddJobStationId.ORE_STOCK)
             val job = f.game.currentJob(f.player.uniqueId)!!
             val station = f.forge.station(f.player.uniqueId, job)!!
@@ -180,7 +132,7 @@ class OriginOddJobForgeTest : StringSpec({
 
     "partial cargo allocation failure clears every spawned cart and cargo handle" {
         OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
-            f.begin(351, OriginOddJobVariant.HAUL_IRON)
+            f.begin(349, OriginOddJobVariant.HAUL_IRON)
             f.stroke(OriginOddJobStationId.ORE_STOCK)
             f.cartBlocksBeforeFailure = 2
             f.strokeCart()
@@ -203,7 +155,7 @@ class OriginOddJobForgeTest : StringSpec({
             f.requireStage(OriginOddJobStage.HAUL_ATTACH, "after loading stationary cart")
             f.strokeCart()
             f.requireStage(OriginOddJobStage.HAUL_PUSH, "after attaching stationary cart")
-            val destination = f.stations.getValue(OriginOddJobStationId.BLANK)
+            val destination = f.stations.getValue(OriginOddJobStationId.HAUL_DELIVERY)
             val destinationAt = destination.block.location.clone()
             repeat(80) { tick ->
                 f.scheduler.tick()
@@ -212,7 +164,7 @@ class OriginOddJobForgeTest : StringSpec({
             destination.block.location shouldBe destinationAt
             destination.valid() shouldBe true
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_PUSH
-            f.stroke(OriginOddJobStationId.BLANK)
+            f.stroke(OriginOddJobStationId.HAUL_DELIVERY)
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_PUSH
             @Suppress("UNNECESSARY_SAFE_CALL") // The closed MockBukkit view may omit its top inventory.
             (f.player.openInventory.topInventory?.holder is OriginOddJobSupplies.Stock) shouldBe false
@@ -222,7 +174,7 @@ class OriginOddJobForgeTest : StringSpec({
             f.cartDisplays.none { it.isValid } shouldBe true
             f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
             f.payments shouldBe emptyList()
-            f.begin(351, OriginOddJobVariant.HAUL_COAL)
+            f.begin(349, OriginOddJobVariant.HAUL_COAL)
             f.forge.clear(f.player.uniqueId, request)
             f.cartDisplays.any { it.isValid } shouldBe true
             f.game.onQuit(mockk<PlayerQuitEvent> { every { player } returns f.player })

@@ -138,12 +138,20 @@ internal fun originOddJobTargetPieces(): List<OriginWorkshopWorkpiecePiece> = bu
     }
 }
 
+/** Outside edges shared by the visible ground frame and cart delivery acceptance. */
+internal const val ODD_JOB_DESTINATION_HALF_WIDTH = 1.185
+internal const val ODD_JOB_DESTINATION_HALF_LENGTH = 1.585
+
 /** A hollow horse-size footprint leaves the approach and the animal unobscured. */
 internal fun originOddJobDestinationPieces(): List<OriginWorkshopWorkpiecePiece> = buildList {
-    val halfWidth = 1.15; val halfLength = 1.55; val thickness = 0.07f
+    val thickness = 0.07f
+    val halfWidth = ODD_JOB_DESTINATION_HALF_WIDTH - thickness / 2
+    val halfLength = ODD_JOB_DESTINATION_HALF_LENGTH - thickness / 2
     for (side in listOf(-1, 1)) {
-        add(oddJobPiece(Material.YELLOW_CONCRETE, 0.0, 0.0, side * halfLength, 2.37f, thickness, thickness))
-        add(oddJobPiece(Material.YELLOW_CONCRETE, side * halfWidth, 0.0, 0.0, thickness, thickness, 3.03f))
+        add(oddJobPiece(Material.YELLOW_CONCRETE, 0.0, 0.0, side * halfLength,
+            (ODD_JOB_DESTINATION_HALF_WIDTH * 2).toFloat(), thickness, thickness))
+        add(oddJobPiece(Material.YELLOW_CONCRETE, side * halfWidth, 0.0, 0.0,
+            thickness, thickness, (ODD_JOB_DESTINATION_HALF_LENGTH * 2 - thickness * 2).toFloat()))
     }
 }
 

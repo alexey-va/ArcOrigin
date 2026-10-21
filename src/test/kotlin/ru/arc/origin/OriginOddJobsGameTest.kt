@@ -56,16 +56,16 @@ class OriginOddJobsGameTest : StringSpec({
 
     "every employer opens an ordinary right click confirmation and never starts before acceptance" {
         failOnUnsupportedMockBukkitOperation {
-            for (id in listOf(440, 349, 351, 354)) {
+            for (id in listOf(440, 349)) {
                 f.open(id, sneaking = false)
                 f.game.isWorking(f.player.uniqueId) shouldBe false
-                f.screens.last().buttons.map { it.id.value } shouldBe if (id == 351)
-                    listOf("odd_job_start", "odd_job_shop", "odd_job_later") else listOf("odd_job_start", "odd_job_later")
+                f.screens.last().buttons.map { it.id.value } shouldBe listOf("odd_job_start", "odd_job_later")
                 f.screens.last().buttons.last().label.let(f::plain) shouldBe "Не сейчас"
             }
+            f.desiredVariant = OriginOddJobVariant.FORGE_REPAIR
             f.press("odd_job_start"); f.scheduler.executeImmediate(); f.scheduler.executeImmediate()
             f.game.isWorking(f.player.uniqueId) shouldBe true
-            f.game.currentJob(f.player.uniqueId)!!.kind shouldBe OriginOddJobKind.FORGE_ENGRAVE
+            f.game.currentJob(f.player.uniqueId)!!.employer shouldBe OriginOddJobKind.FORGE
         }
     }
     "auctioneer clicks fall through to the auction service without starting or interrupting work" {
@@ -190,10 +190,10 @@ class OriginOddJobsGameTest : StringSpec({
             f.payments.single().kind shouldBe OriginSideJobKind.FORGE
         }
     }
-    "Savva hauling highlights each target loads once follows the player and unloads without chest menus" {
+    "Edgar's hauling order leases Savva and unloads automatically inside the ground marker" {
         failOnUnsupportedMockBukkitOperation {
-            f.begin(351, OriginOddJobVariant.HAUL_COPPER)
-            f.leases.single().actorIds shouldBe setOf(351)
+            f.begin(349, OriginOddJobVariant.HAUL_COPPER)
+            f.leases.single().actorIds shouldBe setOf(349, 362, 351)
             f.requireStage(OriginOddJobStage.HAUL_PICKUP, "before picking up Savva's cargo")
             val request = f.game.currentJob(f.player.uniqueId)!!.id
             val source = f.stations.getValue(OriginOddJobStationId.ORE_STOCK)
@@ -215,29 +215,41 @@ class OriginOddJobsGameTest : StringSpec({
             f.strokeCart()
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_PUSH
             f.cartDisplays.forEach { verify { it.attachTo(f.player) } }
-            val destination = f.stations.getValue(OriginOddJobStationId.BLANK)
-            verify { f.visuals.target(f.player, request, destination.block.location.clone().add(0.5, 0.5, 0.5), any(), true) }
+            val destination = f.stations.getValue(OriginOddJobStationId.HAUL_DELIVERY)
+            verify { f.visuals.destination(f.player, request, destination.point.clone().add(0.0, 0.05, 0.0), "Разгрузка сырья") }
+            val outline = originOddJobDestinationPieces()
+            val halfWidth = outline.maxOf { it.center.x + it.size.x / 2 }
+            val halfLength = outline.maxOf { it.center.z + it.size.z / 2 }
+            fun reaches(dx: Double, dz: Double, target: OriginOddJobStation = destination): Boolean {
+                f.player.teleport(target.point.clone().add(dx, 0.0, dz - 1.0).apply { yaw = 0f })
+                return f.forge.tick(f.player, f.game.currentJob(f.player.uniqueId)!!, target)
+            }
+            reaches(halfWidth - 0.0001, halfLength - 0.0001) shouldBe true
+            reaches(halfWidth + 0.0001, 0.0) shouldBe false
+            reaches(0.0, halfLength + 0.0001) shouldBe false
+            reaches(-halfLength + 0.0001, halfWidth - 0.0001,
+                destination.copy(point = destination.point.clone().apply { yaw = 90f })) shouldBe true
+            f.payments shouldBe emptyList()
             // No authored lane: the cart stays attached even when the player walks around the yard.
             f.player.teleport(Location(f.world, -4.0, 70.0, 9.0, 90f, 0f)); f.scheduler.tick()
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_PUSH
             f.payments shouldBe emptyList()
             f.dragCart()
-            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_UNLOAD
-            f.payments shouldBe emptyList()
             verify { cart.detach() }
-            f.stroke(OriginOddJobStationId.BLANK)
             @Suppress("UNNECESSARY_SAFE_CALL") // The closed MockBukkit view may omit its top inventory.
             (f.player.openInventory.topInventory?.holder is OriginOddJobSupplies.Stock) shouldBe false
             f.payments.single().kind shouldBe OriginSideJobKind.FORGE
             f.game.currentJob(f.player.uniqueId) shouldBe null
             f.cartDisplays.none { it.isValid } shouldBe true
             f.released shouldBe f.leases
+            repeat(12) { f.scheduler.tick() }
+            f.payments.size shouldBe 1
         }
     }
     "Luka engraving owns her actor through manual pickup carving collection and return" {
         failOnUnsupportedMockBukkitOperation {
-            f.begin(354, OriginOddJobVariant.ENGRAVE_CAT)
-            f.leases.single().actorIds shouldBe setOf(354)
+            f.begin(349, OriginOddJobVariant.ENGRAVE_CAT)
+            f.leases.single().actorIds shouldBe setOf(349, 362, 354)
             f.pickupBlank()
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.ENGRAVE_PLACE
             f.stroke(OriginOddJobStationId.ENGRAVING)
@@ -249,7 +261,7 @@ class OriginOddJobsGameTest : StringSpec({
             verify { f.visuals.target(f.player, any(), f.stations.getValue(OriginOddJobStationId.ENGRAVING).point, any(), false) }
             f.stroke(OriginOddJobStationId.ENGRAVING)
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.RETURN
-            f.clickNpc(354, sneaking = false)
+            f.clickNpc(349, sneaking = false)
             f.payments.single().kind shouldBe OriginSideJobKind.FORGE
             f.released shouldBe f.leases
         }
@@ -600,10 +612,11 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     val paper = MockBukkitTestRuntime.open()
     private val itemFactory = paper.server.itemFactory
     val world = OddJobWorld().also { it.name = "rc_origin_spawn"; paper.server.addWorld(it); it.getChunkAt(0, 0) }
+    var bodyYawOverride: Float? = null
     // The fixture has no native entity sight engine; block aiming is tested separately below.
     val player = object : org.mockbukkit.mockbukkit.entity.PlayerMock(paper.server, "OddJobTest") {
         override fun hasLineOfSight(other: Entity): Boolean = world.uid == other.world.uid
-        override fun getBodyYaw(): Float = location.yaw
+        override fun getBodyYaw(): Float = bodyYawOverride ?: location.yaw
         override fun getHeight(): Double = 1.8
     }.also(paper.server::addPlayer)
     val config = oddJobTestConfig().copy(yardRider = OriginYardRider(490, UUID.fromString("00000000-0000-0000-0000-000000000490"), "Мирон"))
@@ -767,9 +780,11 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
                 OriginOddJobStationId.BLANK, OriginOddJobStationId.ORE_STOCK -> Material.CHEST
                 OriginOddJobStationId.FIRE -> Material.FURNACE
                 OriginOddJobStationId.ANVIL, OriginOddJobStationId.ENGRAVING -> Material.ANVIL
+                OriginOddJobStationId.HAUL_DELIVERY -> Material.GRAVEL
             }
-            val block = world.getBlockAt(index + 1, 70, 3).also { it.type = material }
-            id to OriginOddJobStation(Location(world, block.x + 0.5, 71.02, 3.5), block, setOf(material))
+            val ground = id == OriginOddJobStationId.HAUL_DELIVERY
+            val block = world.getBlockAt(index + 1, if (ground) 69 else 70, 3).also { it.type = material }
+            id to OriginOddJobStation(Location(world, block.x + 0.5, if (ground) 70.0 else 71.02, 3.5), block, setOf(material))
         }.toMap()
         game = OriginOddJobsGame(config, world.name, if (deferStations) emptyMap() else stations, rewards, visuals, LifecycleTaskScope(scheduler),
             acquire = { venue ->
@@ -857,7 +872,7 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     fun dragCart(step: Double = 0.22) {
         val stage = OriginOddJobStage.HAUL_PUSH
         val start = player.location
-        val destination = stations.getValue(OriginOddJobStationId.BLANK).block.location.clone().add(0.5, 0.0, -0.5)
+        val destination = stations.getValue(OriginOddJobStationId.HAUL_DELIVERY).point.clone().add(0.0, 0.0, -1.0)
         val distance = kotlin.math.hypot(destination.x - start.x, destination.z - start.z)
         val ticks = kotlin.math.ceil(distance / step).toInt().coerceAtLeast(1)
         repeat(ticks) { tick ->

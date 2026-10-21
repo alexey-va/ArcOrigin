@@ -21,7 +21,6 @@ import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.floor
-import kotlin.math.hypot
 import kotlin.math.sin
 
 /** The job has its own parking point and reuses Savva's measured model and ground correction. */
@@ -48,8 +47,8 @@ internal data class OriginForgeCartLayout(
 }
 
 /** One metre ahead, like Savva's ambient cart; the model's -Z handles point back to the worker. */
-internal fun originForgeCartCarryPose(bodyYaw: Double): OriginWorkshopCarryPose {
-    val yaw = Math.toRadians(bodyYaw)
+internal fun originForgeCartCarryPose(viewYaw: Double): OriginWorkshopCarryPose {
+    val yaw = Math.toRadians(viewYaw)
     return OriginWorkshopCarryPose(OriginWorkshopPoint(-sin(yaw), 0.0, cos(yaw)),
         Quaternionf().rotationY(-yaw.toFloat()))
 }
@@ -105,10 +104,12 @@ internal class OriginOddJobForge(
         val cart = carts[player.uniqueId]?.takeIf { it.request == job.id } ?: return false
         if (job.stage != OriginOddJobStage.HAUL_PUSH || player.world.uid != cart.world.uid) return false
         follow(player, cart)
-        val target = destination.block
-        return destination.valid() && target.world.uid == cart.world.uid &&
-            hypot(cart.point.x - target.x - 0.5, cart.point.z - target.z - 0.5) <= 4.0 &&
-            abs(cart.point.y - target.y) <= 3.0
+        if (!destination.valid() || destination.point.world?.uid != cart.world.uid) return false
+        val point = destination.point
+        val yaw = Math.toRadians(point.yaw.toDouble())
+        val dx = cart.point.x - point.x; val dz = cart.point.z - point.z
+        return abs(dx * cos(yaw) + dz * sin(yaw)) <= ODD_JOB_DESTINATION_HALF_WIDTH &&
+            abs(-dx * sin(yaw) + dz * cos(yaw)) <= ODD_JOB_DESTINATION_HALF_LENGTH && abs(cart.point.y - point.y) <= 1.0
     }
 
     fun station(playerId: UUID, job: OriginOddJobSession): OriginOddJobStation? {
@@ -123,10 +124,11 @@ internal class OriginOddJobForge(
 
     private fun follow(player: Player, cart: Cart) {
         val spec = requireNotNull(layout)
-        val pose = originForgeCartCarryPose(player.bodyYaw.toDouble())
         val at = player.location
+        // A player's body yaw may face sideways while looking/steering; packet passengers do not inherit it.
+        val pose = originForgeCartCarryPose(at.yaw.toDouble())
         cart.point = OriginWorkshopPoint(at.x + pose.center.x, at.y, at.z + pose.center.z)
-        cart.yaw = player.bodyYaw + 180f
+        cart.yaw = at.yaw + 180f
         if (!cart.attached) cart.display.teleport(at.clone().apply { yaw = 0f; pitch = 0f })
         cart.display.transformation = Transformation(
             Vector3f(pose.center.x.toFloat(), (spec.lift - player.height).toFloat(), pose.center.z.toFloat()),
