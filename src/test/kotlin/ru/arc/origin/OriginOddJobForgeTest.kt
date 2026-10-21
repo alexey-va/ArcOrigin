@@ -8,8 +8,12 @@ import io.mockk.every
 import io.mockk.mockk
 import org.bukkit.Location
 import org.bukkit.Material
+import org.bukkit.event.Event
+import org.bukkit.event.block.Action
+import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerTeleportEvent
+import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.util.Transformation
 import org.joml.Vector3f
 import ru.arc.origin.scene.OriginScenePlan
@@ -144,7 +148,71 @@ class OriginOddJobForgeTest : StringSpec({
         } }
     }
 
-    "attached cart cannot finish from idle or destination clicks and interruption clears its lease" {
+    "haul completion uses the player's pad XZ even above the pad with the cart outside" {
+        OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
+            f.begin(349, OriginOddJobVariant.HAUL_IRON)
+            f.stroke(OriginOddJobStationId.ORE_STOCK); f.strokeCart(); f.strokeCart()
+            val destination = f.stations.getValue(OriginOddJobStationId.HAUL_DELIVERY).point
+            val at = destination.clone().add(ODD_JOB_DESTINATION_HALF_WIDTH - 0.01, 100.0, 0.0).apply { yaw = -90f }
+            f.player.teleport(at)
+            val cartX = at.x + originForgeCartCarryPose(at.yaw.toDouble()).center.x
+            (cartX - destination.x > ODD_JOB_DESTINATION_HALF_WIDTH) shouldBe true
+            // The normal game tick used to cancel at its NPC-based 3D area gate before delivery.
+            f.game.tick(f.now)
+            f.payments.single().kind shouldBe OriginSideJobKind.FORGE
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            repeat(12) { f.scheduler.tick() }
+            f.payments.size shouldBe 1
+            f.cartDisplays.none { it.isValid } shouldBe true
+            f.released shouldBe f.leases
+        } }
+    }
+
+    "right click on the haul pad shares automatic delivery without rechecking spent admission resources" {
+        OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
+            f.begin(349, OriginOddJobVariant.HAUL_COPPER)
+            f.stroke(OriginOddJobStationId.ORE_STOCK); f.strokeCart(); f.strokeCart()
+            val job = f.game.currentJob(f.player.uniqueId)!!
+            val destination = f.stations.getValue(OriginOddJobStationId.HAUL_DELIVERY).point
+            f.player.teleport(destination.clone().add(ODD_JOB_DESTINATION_HALF_WIDTH + 0.5, 100.0, 0.0))
+            f.stations.getValue(OriginOddJobStationId.ORE_STOCK).block.type = Material.AIR
+            every { f.npc(351).isSpawned } returns false
+            f.forge.clear(f.player.uniqueId, job.id)
+            f.world.unloadChunk(0, 0)
+            f.forge.available(f.world) shouldBe false
+            f.game.tick(f.now)
+            f.requireStage(OriginOddJobStage.HAUL_PUSH, "loaded hauling survives spent admission resources outside the pad")
+            f.payments shouldBe emptyList()
+            f.cartDisplays.none { it.isValid } shouldBe true
+            f.player.teleport(destination.clone().add(0.0, -100.0, 0.0))
+            // Aiming and the display's existence are irrelevant: the active worker is inside the pad.
+            val click = PlayerInteractEvent(f.player, Action.RIGHT_CLICK_AIR, null, null, org.bukkit.block.BlockFace.SELF, EquipmentSlot.HAND)
+            f.game.onBlock(click)
+            click.useItemInHand() shouldBe Event.Result.DENY
+            f.payments.single().id shouldBe job.id
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            repeat(12) { f.scheduler.tick(); f.game.onBlock(click) }
+            f.payments.size shouldBe 1
+            f.released shouldBe f.leases
+        } }
+    }
+
+    "cart inside the haul pad does not deliver while its worker remains outside" {
+        OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
+            f.begin(349, OriginOddJobVariant.HAUL_IRON)
+            f.stroke(OriginOddJobStationId.ORE_STOCK); f.strokeCart(); f.strokeCart()
+            val destination = f.stations.getValue(OriginOddJobStationId.HAUL_DELIVERY).point
+            val at = destination.clone().add(ODD_JOB_DESTINATION_HALF_WIDTH + 0.01, 0.0, 0.0).apply { yaw = 90f }
+            f.player.teleport(at)
+            val cartX = at.x + originForgeCartCarryPose(at.yaw.toDouble()).center.x
+            (abs(cartX - destination.x) < ODD_JOB_DESTINATION_HALF_WIDTH) shouldBe true
+            repeat(8) { f.scheduler.tick() }
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_PUSH
+            f.payments shouldBe emptyList()
+        } }
+    }
+
+    "attached cart cannot finish outside the pad and interruption clears its lease" {
         OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
             f.begin(349, OriginOddJobVariant.HAUL_IRON)
             f.leases.single().actorIds shouldBe setOf(349, 362, 351)

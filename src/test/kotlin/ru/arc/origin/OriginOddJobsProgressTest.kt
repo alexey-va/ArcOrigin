@@ -22,10 +22,16 @@ class OriginOddJobsProgressTest : StringSpec({
         board.nextAvailable(OriginWorkShiftPhase.OPENING) { false } shouldBe null
         board.offers(OriginWorkShiftPhase.OPENING).all { it.variant.isYardPreparation() } shouldBe true
     }
-    "the first forge assignment always teaches a raw blank before repair variants" {
-        repeat(20) { seed ->
-            val dispatch = OriginOddJobDispatch(OriginOddJobKind.FORGE, Random(seed))
-            dispatch.offers(OriginWorkShiftPhase.OPENING).first().variant shouldBe OriginOddJobVariant.FORGE_NEW
+    "new forge shifts randomize the starting craft and its variant" {
+        val starts = List(120) { seed ->
+            OriginOddJobDispatch(OriginOddJobKind.FORGE, Random(seed))
+                .nextAvailable(OriginWorkShiftPhase.OPENING) { true }!!
+        }
+        starts.map { it.kind }.toSet() shouldBe
+            setOf(OriginOddJobKind.FORGE, OriginOddJobKind.FORGE_HAUL, OriginOddJobKind.FORGE_ENGRAVE)
+        for (kind in starts.map { it.kind }.toSet()) {
+            starts.filter { it.kind == kind }.map { it.variant }.toSet() shouldBe
+                OriginOddJobVariant.entries.filter { it.kind == kind }.toSet()
         }
     }
     "reopening the employer cannot reroll offers and each bag covers all families" {
@@ -50,7 +56,6 @@ class OriginOddJobsProgressTest : StringSpec({
                 board.offers(OriginWorkShiftPhase.CLOSING) shouldBe shown
                 board.accept(shown.first().id)!!
             }
-            selected.first().variant shouldBe OriginOddJobVariant.FORGE_NEW
             selected.chunked(3).forEach { batch -> batch.map { it.kind }.toSet() shouldBe
                 setOf(OriginOddJobKind.FORGE, OriginOddJobKind.FORGE_HAUL, OriginOddJobKind.FORGE_ENGRAVE) }
             selected.zipWithNext().none { (a, b) -> a.kind == b.kind } shouldBe true

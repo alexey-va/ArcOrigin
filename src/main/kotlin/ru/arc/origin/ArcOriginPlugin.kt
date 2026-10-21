@@ -44,7 +44,6 @@ open class ArcOriginPlugin : JavaPlugin() {
         private set
     internal var sideJobRewardPolicy = OriginSideJobRewardPolicy()
         private set
-    private var modulesRegistered = false
     private var lifecycleOpen = false
     private var pendingClose = CompletableFuture.completedFuture(Unit)
     private var nativeDetachFailed = false
@@ -150,14 +149,11 @@ open class ArcOriginPlugin : JavaPlugin() {
         )
         logger.info("ORIGIN_SIDE_JOB_POLICY orders=${sideJobRewardPolicy.dailyOrderLimit} amount=${sideJobRewardPolicy.rewardPerOrder} settlement=shift-end")
         OriginMenus.initialize(this)
-        if (!modulesRegistered) {
-            ModuleRegistry.registerAll(
-                OriginSpawnModule, OriginPortalsModule, OriginWorkshopTablesModule, OriginDiningModule,
-                OriginAmbientScenesModule, OriginFurnitureWorkshopModule, OriginWorkshopGame,
-                OriginTrainingDummyModule, OriginMountYardModule, OriginOddJobsModule,
-            )
-            modulesRegistered = true
-        }
+        ModuleRegistry.registerAll(
+            OriginSpawnModule, OriginPortalsModule, OriginWorkshopTablesModule, OriginDiningModule,
+            OriginAmbientScenesModule, OriginFurnitureWorkshopModule, OriginWorkshopGame,
+            OriginTrainingDummyModule, OriginMountYardModule, OriginOddJobsModule,
+        )
         ModuleRegistry.initAll()
         commandService = OriginCommandService().also {
             server.servicesManager.register(ArcOriginCommands::class.java, it, this, ServicePriority.Normal)

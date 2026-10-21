@@ -78,6 +78,7 @@ internal class OriginOddJobForge(
         val spec = requireNotNull(layout)
         val old = carts[player.uniqueId]
         if (old != null && old.request != job.id) clear(player.uniqueId, old.request)
+        if (job.stage == OriginOddJobStage.HAUL_PUSH && old?.request != job.id) return
         val cart = carts.getOrPut(player.uniqueId) {
             check(available(player.world)) { "forge cart model or parking point is unavailable" }
             val at = spec.start.location(player.world).add(0.0, spec.lift, 0.0).apply { yaw = spec.yaw }
@@ -101,15 +102,15 @@ internal class OriginOddJobForge(
     }
 
     fun tick(player: Player, job: OriginOddJobSession, destination: OriginOddJobStation): Boolean {
-        val cart = carts[player.uniqueId]?.takeIf { it.request == job.id } ?: return false
-        if (job.stage != OriginOddJobStage.HAUL_PUSH || player.world.uid != cart.world.uid) return false
-        follow(player, cart)
-        if (!destination.valid() || destination.point.world?.uid != cart.world.uid) return false
+        if (job.stage != OriginOddJobStage.HAUL_PUSH || destination.point.world?.uid != player.world.uid) return false
+        carts[player.uniqueId]?.takeIf { it.request == job.id && it.world.uid == player.world.uid }?.let { follow(player, it) }
         val point = destination.point
         val yaw = Math.toRadians(point.yaw.toDouble())
-        val dx = cart.point.x - point.x; val dz = cart.point.z - point.z
+        // Delivery belongs to the worker entering the visible pad, independent of height or cart heading.
+        val at = player.location
+        val dx = at.x - point.x; val dz = at.z - point.z
         return abs(dx * cos(yaw) + dz * sin(yaw)) <= ODD_JOB_DESTINATION_HALF_WIDTH &&
-            abs(-dx * sin(yaw) + dz * cos(yaw)) <= ODD_JOB_DESTINATION_HALF_LENGTH && abs(cart.point.y - point.y) <= 1.0
+            abs(-dx * sin(yaw) + dz * cos(yaw)) <= ODD_JOB_DESTINATION_HALF_LENGTH
     }
 
     fun station(playerId: UUID, job: OriginOddJobSession): OriginOddJobStation? {

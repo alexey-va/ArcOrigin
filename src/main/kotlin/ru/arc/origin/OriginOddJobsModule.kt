@@ -181,14 +181,7 @@ internal class OriginOddJobsGame(
             try {
                 visuals.tick()
                 progress.entries().filter { it.second.kind == OriginOddJobKind.FORGE_HAUL }.forEach { (id, job) ->
-                    Bukkit.getPlayer(id)?.let { player ->
-                        val destination = stations[OriginOddJobStationId.HAUL_DELIVERY]
-                        if (destination != null && valid(player, job) && forge.tick(player, job, destination)) {
-                            apply(player, progress.act(id, OriginOddJobAction.CART_ARRIVE, clock()))
-                            if (progress.current(id)?.let { it.id == job.id && it.stage == OriginOddJobStage.HAUL_UNLOAD } == true)
-                                apply(player, progress.act(id, OriginOddJobAction.UNLOAD, clock()))
-                        }
-                    }
+                    Bukkit.getPlayer(id)?.let { handoffHaul(it, job) }
                 }
             } catch (failure: Exception) {
                 warn("ORIGIN_ODD_JOBS phase=VISUAL_TICK_FAILED", failure)
@@ -572,9 +565,10 @@ internal class OriginOddJobsGame(
             showWork(player, (step as? OriginOddJobStep.Rejected)?.let { config.line(rejectionKey(it.reason)) })
     }
 
-    /** Every intercepted action still passes the actual block, reach and line-of-sight checks. */
+    /** Hauling uses the worker's pad XZ; workstation actions check the block, reach and line of sight. */
     fun work(player: Player, left: Boolean, clicked: Block?): Boolean {
         val job = progress.current(player.uniqueId) ?: return false
+        if (!left && handoffHaul(player, job)) return true
         val wanted = originOddJobStation(job.stage)
         val cartStation = forge.station(player.uniqueId, job)
         val tieStation = yard.station(player.uniqueId, job)
@@ -790,6 +784,19 @@ internal class OriginOddJobsGame(
         return true
     }
 
+    private fun handoffHaul(player: Player, job: OriginOddJobSession): Boolean {
+        if (job.stage != OriginOddJobStage.HAUL_PUSH || progress.current(player.uniqueId)?.id != job.id ||
+            !player.isOnline || player.isDead || player.world.name != worldName || !workMode(player)) return false
+        if (config.venue(job.employer).scene != null && leases[player.uniqueId]?.let(owns) != true) return false
+        val destination = stations[OriginOddJobStationId.HAUL_DELIVERY] ?: return false
+        if (!forge.tick(player, job, destination)) return false
+        val arrival = progress.act(player.uniqueId, OriginOddJobAction.CART_ARRIVE, clock())
+        // Immediate unloading must not recreate or revalidate a presentation-only cart between the two steps.
+        apply(player, if (arrival is OriginOddJobStep.Changed && arrival.job.stage == OriginOddJobStage.HAUL_UNLOAD)
+            progress.act(player.uniqueId, OriginOddJobAction.UNLOAD, clock()) else arrival)
+        return true
+    }
+
     fun tick(now: Long) {
         accepted.toList().forEach { (id, result) -> pay(id, result) }
         shifts.toList().forEach { (id, shift) ->
@@ -797,7 +804,10 @@ internal class OriginOddJobsGame(
             when {
                 player == null || !player.isOnline -> stop(id, "offline")
                 now >= shift.score.hardStopAt -> { cancelOrder(id, "expired"); shift.score = shift.score.requestFinish() }
-                !inArea(player, shift.venue.kind) -> { cancelOrder(id, "left-area"); shift.score = shift.score.requestFinish(); feedback(player, "left-area") }
+                job != null && handoffHaul(player, job) -> Unit
+                !inArea(player, shift.venue.kind, horizontal = job?.stage == OriginOddJobStage.HAUL_PUSH) -> {
+                    cancelOrder(id, "left-area"); shift.score = shift.score.requestFinish(); feedback(player, "left-area")
+                }
                 job != null && (!valid(player, job) || now >= job.expiresAt) -> { cancelOrder(id, "expired"); feedback(player, "expired") }
                 // Stable work is accepted on the next tick, after its final care feedback.
                 job?.kind == OriginOddJobKind.MOUNTYARD && job.stage == OriginOddJobStage.RETURN ->
@@ -993,14 +1003,19 @@ internal class OriginOddJobsGame(
         }
         return required.all { stations[it]?.valid() == true }
     }
-    private fun valid(player: Player, job: OriginOddJobSession): Boolean = workMode(player) && inArea(player, job.employer) && available(job.kind) &&
+    private fun valid(player: Player, job: OriginOddJobSession): Boolean = workMode(player) &&
+        inArea(player, job.employer, horizontal = job.stage == OriginOddJobStage.HAUL_PUSH) &&
+        (job.stage == OriginOddJobStage.HAUL_PUSH || available(job.kind)) &&
         (!supplies.requiresWorkpiece(job) || supplies.has(player, job)) &&
         (config.venue(job.employer).scene == null || leases[player.uniqueId]?.let(owns) == true)
     private fun workMode(player: Player): Boolean = player.gameMode == GameMode.SURVIVAL || player.gameMode == GameMode.ADVENTURE
-    private fun inArea(player: Player, kind: OriginOddJobKind): Boolean {
+    private fun inArea(player: Player, kind: OriginOddJobKind, horizontal: Boolean = false): Boolean {
         if (!player.isOnline || player.isDead || player.world.name != worldName) return false
         val npc = actor(config.venue(kind).npcId) ?: return false
-        return player.location.distanceSquared(npc.location) <= config.workRange * config.workRange
+        val at = player.location
+        val employer = npc.location
+        if (horizontal) at.y = employer.y
+        return at.distanceSquared(employer) <= config.workRange * config.workRange
     }
     private fun actor(id: Int): LivingEntity? {
         if (yard.contains(id)) return yard.resolve(id)

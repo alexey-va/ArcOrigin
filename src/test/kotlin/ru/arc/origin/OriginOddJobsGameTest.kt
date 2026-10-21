@@ -221,7 +221,7 @@ class OriginOddJobsGameTest : StringSpec({
             val halfWidth = outline.maxOf { it.center.x + it.size.x / 2 }
             val halfLength = outline.maxOf { it.center.z + it.size.z / 2 }
             fun reaches(dx: Double, dz: Double, target: OriginOddJobStation = destination): Boolean {
-                f.player.teleport(target.point.clone().add(dx, 0.0, dz - 1.0).apply { yaw = 0f })
+                f.player.teleport(target.point.clone().add(dx, 0.0, dz).apply { yaw = 0f })
                 return f.forge.tick(f.player, f.game.currentJob(f.player.uniqueId)!!, target)
             }
             reaches(halfWidth - 0.0001, halfLength - 0.0001) shouldBe true
@@ -816,7 +816,7 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     fun clickNpc(id: Int, sneaking: Boolean = true) { moveNpc(id); player.isSneaking = sneaking; game.interact(player, id) shouldBe true }
     fun open(id: Int, flush: Boolean = true, sneaking: Boolean = true) { clickNpc(id, sneaking); if (flush) scheduler.executeImmediate() }
     fun currentStation() = stations.entries.single { it.value.block.location.clone().add(0.5, 0.5, 0.5) == target || it.value.point == target }.key
-    fun startForge() { startShift(349) }
+    fun startForge() { begin(349, OriginOddJobVariant.FORGE_NEW) }
     fun stockClick() {
         val click = mockk<org.bukkit.event.inventory.InventoryClickEvent>(relaxed = true) {
             every { whoClicked } returns player

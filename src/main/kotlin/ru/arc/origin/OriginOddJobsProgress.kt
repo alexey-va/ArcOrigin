@@ -32,22 +32,18 @@ internal class OriginOddJobDispatch(private val kind: OriginOddJobKind, private 
     private val lastVariant = mutableMapOf<OriginOddJobKind, OriginOddJobVariant>()
     private var lastFamily: OriginOddJobKind? = null
     private var shown = emptyList<OriginOddJobOffer>()
-    private var first = true
     fun offers(phase: OriginWorkShiftPhase): List<OriginOddJobOffer> {
         if (shown.isNotEmpty()) return shown
         if (families.isEmpty()) {
             families = (if (kind == OriginOddJobKind.FORGE)
                 listOf(kind, OriginOddJobKind.FORGE_HAUL, OriginOddJobKind.FORGE_ENGRAVE) else listOf(kind)).shuffled(random)
             if (families.size > 1 && families.first() == lastFamily) families = families.drop(1) + families.first()
-            if (first && kind == OriginOddJobKind.FORGE) families = listOf(kind) + families.filterNot { it == kind }
         }
         fun bagFor(family: OriginOddJobKind): List<OriginOddJobVariant> {
             var bag = variants[family].orEmpty()
             if (bag.isEmpty()) {
                 bag = OriginOddJobVariant.entries.filter { it.kind == family }.shuffled(random)
                 if (bag.size > 1 && bag.first() == lastVariant[family]) bag = bag.drop(1) + bag.first()
-                if (first && family == OriginOddJobKind.FORGE)
-                    bag = listOf(OriginOddJobVariant.FORGE_NEW) + bag.filterNot { it == OriginOddJobVariant.FORGE_NEW }
                 variants[family] = bag
             }
             return bag
@@ -72,7 +68,7 @@ internal class OriginOddJobDispatch(private val kind: OriginOddJobKind, private 
     fun accept(id: UUID): OriginOddJobOffer? = shown.firstOrNull { it.id == id }?.also {
         families = families.filterNot { family -> family == it.kind }
         variants[it.kind] = variants.getValue(it.kind).filterNot { variant -> variant == it.variant }
-        lastFamily = it.kind; lastVariant[it.kind] = it.variant; shown = emptyList(); first = false
+        lastFamily = it.kind; lastVariant[it.kind] = it.variant; shown = emptyList()
     }
 }
 
