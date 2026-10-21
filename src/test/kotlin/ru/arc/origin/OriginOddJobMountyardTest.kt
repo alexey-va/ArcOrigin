@@ -193,7 +193,8 @@ class OriginOddJobMountyardTest : StringSpec({
                 f.sync(OriginOddJobStage.YARD_HANDOFF)
                 f.sync(OriginOddJobStage.RETURN)
                 f.controllableEnabled shouldBe true
-                verifyOrder { f.controllable.setEnabled(true); f.horse.addPassenger(f.riderEntity) }
+                f.tamed shouldBe true
+                verifyOrder { f.horse.isTamed = true; f.controllable.setEnabled(true); f.horse.addPassenger(f.riderEntity) }
                 // Citizens' horse adapter updates this attribute while the temporary trait is enabled.
                 f.movementSpeed = 0.1
                 f.yard.revoke(f.player.uniqueId, f.job.id)
@@ -201,6 +202,7 @@ class OriginOddJobMountyardTest : StringSpec({
                 f.controllablePresent shouldBe (initial != null)
                 if (initial != null) f.controllableEnabled shouldBe initial
                 f.movementSpeed shouldBe 0.2
+                f.tamed shouldBe false
                 verify(exactly = 0) { f.horse.teleport(any<Location>()) }
             }
         }
@@ -282,20 +284,92 @@ class OriginOddJobMountyardTest : StringSpec({
             verify(exactly = 0) { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) }
         }
     }
-    "lesson rejects a missing replaced or extra rider and a lead held by another player" {
-        for (riderState in listOf("missing", "replacement", "extra", "other-holder")) {
+    "lesson remounts the same nearby instructor without restarting checkpoints or overwriting originals" {
+        for (initialTamed in listOf(false, true)) YardFixture(OriginOddJobVariant.YARD_LESSON,
+            initialControllable = false, initialTamed = initialTamed).use { f ->
+            var walk = f.prepareLesson()
+            f.tamed shouldBe true
+            verifyOrder { f.horse.isTamed = true; f.horse.addPassenger(f.riderEntity); f.horse.setAI(true) }
+            f.location = f.lessonStops.first().clone()
+            f.yard.tick(f.player, walk, 0) shouldBe OriginYardTick.ARRIVED
+            walk = walk.copy(yard = requireNotNull(walk.yard).copy(routeIndex = 1))
+            f.yard.sync(f.player, walk, f.stations, 1) shouldBe true
+            f.location = f.lessonStops.last().clone()
+            f.riderEntity.leaveVehicle()
+            f.riderLocation.add(1.0, 0.0, 0.0)
+            f.movementSpeed = 0.1
+            clearMocks(f.horse, answers = false)
+            f.yard.tick(f.player, walk, 2) shouldBe OriginYardTick.WAITING
+            f.passengerVehicle shouldBe f.horse
+            f.leashHolder shouldBe f.player
+            f.yard.destination(f.player.uniqueId, walk) shouldBe f.lessonStops.last()
+            val returned = walk.copy(stage = OriginOddJobStage.RETURN, yard = requireNotNull(walk.yard).copy(routeIndex = 2))
+            f.yard.sync(f.player, returned, f.stations, 2) shouldBe false
+            f.yard.tick(f.player, walk, 3) shouldBe OriginYardTick.ARRIVED
+            f.yard.sync(f.player, returned, f.stations, 3) shouldBe true
+            f.tamed shouldBe initialTamed
+            f.movementSpeed shouldBe 0.2
+            f.controllableEnabled shouldBe false
+            f.nativeAi shouldBe false
+            f.nativeAware shouldBe false
+            f.leashHolder shouldBe null
+            verify(exactly = 1) { f.horse.addPassenger(f.riderEntity) }
+            verify(exactly = 0) { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) }
+            verify(exactly = 0) { f.horse.teleport(any<Location>()) }
+            verify(exactly = 0) { f.riderEntity.teleport(any<Location>()) }
+        }
+    }
+    "lesson remount attempts are bounded for rejected mounts and repeated dismounts" {
+        for (rejected in listOf(false, true)) YardFixture(OriginOddJobVariant.YARD_LESSON, initialControllable = false).use { f ->
+            val walk = f.prepareLesson()
+            f.riderEntity.leaveVehicle()
+            f.movementSpeed = 0.1
+            clearMocks(f.horse, answers = false)
+            if (rejected) every { f.horse.addPassenger(f.riderEntity) } returns false
+            repeat(3) { attempt ->
+                f.yard.tick(f.player, walk, attempt.toLong()) shouldBe
+                    if (rejected && attempt == 2) OriginYardTick.FAILED else OriginYardTick.WAITING
+                f.yard.destination(f.player.uniqueId, walk) shouldBe f.lessonStops.first()
+                f.tamed shouldBe true
+                if (!rejected) f.riderEntity.leaveVehicle()
+            }
+            f.yard.tick(f.player, walk, 4) shouldBe OriginYardTick.FAILED
+            verify(exactly = 3) { f.horse.addPassenger(f.riderEntity) }
+            verify(exactly = 0) { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) }
+            verify(exactly = 0) { f.horse.teleport(any<Location>()) }
+            verify(exactly = 0) { f.riderEntity.teleport(any<Location>()) }
+            f.yard.revoke(f.player.uniqueId, f.job.id)
+            f.tamed shouldBe false
+            f.movementSpeed shouldBe 0.2
+            f.controllableEnabled shouldBe false
+        }
+    }
+    "lesson rejects unsafe rider recovery and waits for a lead held by another player" {
+        for (riderState in listOf("replacement", "extra", "vehicle", "world", "far", "obstructed", "lease", "other-holder")) {
             YardFixture(OriginOddJobVariant.YARD_LESSON).use { f ->
                 val walk = f.prepareLesson()
                 f.location = f.lessonStops.first().clone()
+                clearMocks(f.horse, answers = false)
                 val other = mockk<LivingEntity>(relaxed = true)
                 when (riderState) {
-                    "missing" -> f.passengerVehicle = null
                     "replacement" -> every { f.riderActor.entity } returns other
                     "extra" -> every { f.horse.passengers } returns listOf(f.riderEntity, other)
+                    "vehicle" -> { f.riderEntity.leaveVehicle(); every { f.riderEntity.vehicle } returns other }
+                    "world" -> {
+                        f.riderEntity.leaveVehicle()
+                        every { f.riderEntity.world } returns mockk { every { name } returns f.world.name; every { uid } returns UUID.randomUUID() }
+                    }
+                    "far" -> { f.riderEntity.leaveVehicle(); f.riderLocation.add(4.01, 0.0, 0.0) }
+                    "obstructed" -> { f.riderEntity.leaveVehicle(); every { f.riderEntity.hasLineOfSight(f.horse) } returns false }
+                    "lease" -> f.leaseValid = false
                     else -> f.leashHolder = mockk<Player> { every { uniqueId } returns UUID.randomUUID() }
                 }
                 f.yard.tick(f.player, walk, 0) shouldBe if (riderState == "other-holder") OriginYardTick.WAITING else OriginYardTick.FAILED
+                verify(exactly = 0) { f.horse.addPassenger(any()) }
+                verify(exactly = 0) { f.horse.isTamed = any() }
                 verify(exactly = 0) { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) }
+                verify(exactly = 0) { f.horse.teleport(any<Location>()) }
+                verify(exactly = 0) { f.riderEntity.teleport(any<Location>()) }
             }
         }
     }
@@ -314,6 +388,7 @@ class OriginOddJobMountyardTest : StringSpec({
             f.nativeAware shouldBe false
             f.controllableEnabled shouldBe false
             f.movementSpeed shouldBe 0.2
+            f.tamed shouldBe false
             f.metadata.get<Boolean>(NPC.Metadata.USE_MINECRAFT_AI) shouldBe false
             f.metadata.get<Boolean>(NPC.Metadata.LEASH_PROTECTED) shouldBe true
             val saved = MemoryDataKey().also(f.metadata::saveTo)
@@ -330,13 +405,14 @@ class OriginOddJobMountyardTest : StringSpec({
         }
     }
     "a rejected passenger mount restores temporary controls immediately" {
-        YardFixture(initialControllable = false).use { f ->
+        for (initialTamed in listOf(false, true)) YardFixture(initialControllable = false, initialTamed = initialTamed).use { f ->
             f.prepareDelivery()
             f.sync(OriginOddJobStage.YARD_HANDOFF)
             every { f.horse.addPassenger(f.riderEntity) } returns false
             f.yard.sync(f.player, f.job.copy(stage = OriginOddJobStage.RETURN), f.stations, 0) shouldBe false
             f.controllablePresent shouldBe true
             f.controllableEnabled shouldBe false
+            f.tamed shouldBe initialTamed
         }
     }
     "mounted despawn or entity replacement restores persistent NPC controls without touching either entity" {
@@ -365,7 +441,10 @@ class OriginOddJobMountyardTest : StringSpec({
                 f.controllablePresent shouldBe (initial != null)
                 if (initial != null) f.controllableEnabled shouldBe initial
                 f.movementSpeed shouldBe 0.1
+                f.tamed shouldBe true
                 verify(exactly = 0) { replacement.getAttribute(any()) }
+                verify(exactly = 0) { replacement.isTamed = any() }
+                verify(exactly = 0) { f.horse.isTamed = false }
                 verify(exactly = 0) { f.riderEntity.leaveVehicle() }
             }
         }
@@ -386,6 +465,8 @@ class OriginOddJobMountyardTest : StringSpec({
                 f.controllablePresent shouldBe true
                 f.controllableEnabled shouldBe true
                 f.movementSpeed shouldBe 0.1
+                f.tamed shouldBe true
+                verify(exactly = 0) { f.horse.isTamed = false }
                 verify(exactly = 0) { f.controllable.setEnabled(false) }
                 verify(exactly = 0) { f.actor.removeTrait(Controllable::class.java) }
             }
@@ -692,7 +773,7 @@ class OriginOddJobMountyardTest : StringSpec({
 private val testYardRider = OriginYardRider(490, UUID.fromString("00000000-0000-0000-0000-000000000490"), "Мирон")
 
 private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YARD_SADDLE, id: Int = 423, gates: Boolean = false, startJob: Boolean = true,
-    initialControllable: Boolean? = null, rideAnchorIds: List<String> = listOf("job-ride-turn"),
+    initialControllable: Boolean? = null, initialTamed: Boolean = false, rideAnchorIds: List<String> = listOf("job-ride-turn"),
     private val firstTieSide: Int = 0, private val firstUntieSide: Int = 0) : AutoCloseable {
     val paper = MockBukkitTestRuntime.open()
     val scheduler = TestTaskScheduler()
@@ -713,6 +794,7 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         every { isValid } returns true
         every { vehicle } answers { passengerVehicle }
         every { passengers } returns emptyList()
+        every { hasLineOfSight(any<Entity>()) } returns true
         every { location } answers { if (passengerVehicle != null) this@YardFixture.location.clone() else riderLocation.clone() }
         every { leaveVehicle() } answers { riderLocation = this@YardFixture.location.clone(); passengerVehicle = null; true }
     }
@@ -726,6 +808,7 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
     val equipment = mockk<EntityEquipment>(relaxed = true) { every { getItem(EquipmentSlot.SADDLE) } returns ItemStack(Material.AIR) }
     var nativeAi = false
     var nativeAware = false
+    var tamed = initialTamed
     var leashHolder: Entity? = null
     val metadata = SimpleMetadataStore()
     var movementSpeed = 0.2
@@ -746,6 +829,8 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         every { setAI(any()) } answers { nativeAi = firstArg() }
         every { isAware } answers { nativeAware }
         every { isAware = any() } answers { nativeAware = firstArg() }
+        every { isTamed } answers { tamed }
+        every { isTamed = any() } answers { tamed = firstArg() }
         every { isLeashed } answers { this@YardFixture.leashHolder != null }
         every { leashHolder } answers { requireNotNull(this@YardFixture.leashHolder) }
         every { height } returns 1.6

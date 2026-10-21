@@ -14,6 +14,9 @@ import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.block.Block
+import org.bukkit.block.BlockFace
+import org.bukkit.entity.Player
+import org.bukkit.util.RayTraceResult
 import ru.arc.config.Config
 import ru.arc.origin.scene.OriginScenePlan
 import ru.arc.origin.mountyard.OriginMountYardAnimalsConfig
@@ -35,6 +38,48 @@ internal fun oddJobTestYardCatalog(): ru.arc.origin.mountyard.OriginMountYardAni
 }
 
 class OriginOddJobsSurfaceTest : StringSpec({
+    "either half of the same native double chest is reachable for every facing and chest type" {
+        MockBukkitTestRuntime.open().use {
+            for (material in listOf(Material.CHEST, Material.TRAPPED_CHEST)) for (facing in listOf(BlockFace.NORTH, BlockFace.EAST, BlockFace.SOUTH, BlockFace.WEST)) {
+                val world = mockk<World> { every { uid } returns UUID.randomUUID() }
+                val blocks = oddJobTestDoubleChest(world, 0, 70, 0, material, facing)
+                for (anchor in blocks) {
+                    originOddJobStationBlocks(anchor) shouldBe blocks
+                    val other = blocks.first { it != anchor }
+                    val hit = other.location.add(0.5, 0.5, 0.5)
+                    val eye = hit.clone().add(0.0, 0.5, -2.0).apply { setDirection(hit.toVector().subtract(toVector())) }
+                    val player = mockk<Player> { every { this@mockk.world } returns world; every { eyeLocation } returns eye }
+                    every { world.rayTraceBlocks(any(), any(), any(), any(), any()) } returns RayTraceResult(hit.toVector(), other, BlockFace.NORTH)
+                    val station = OriginOddJobStation(anchor.location.add(0.5, 0.9, 0.5), anchor, setOf(material))
+                    originOddJobAimed(player, station, 4.5, other) shouldBe true
+                }
+            }
+        }
+    }
+    "double chest membership excludes unrelated blocks and still requires clear sight and native reach" {
+        MockBukkitTestRuntime.open().use {
+            val world = mockk<World> { every { uid } returns UUID.randomUUID() }
+            val blocks = oddJobTestDoubleChest(world, 0, 70, 0)
+            val station = OriginOddJobStation(blocks[0].location.add(0.5, 0.9, 0.5), blocks[0], setOf(Material.CHEST))
+            val hit = blocks[1].location.add(0.5, 0.5, 0.5)
+            var eye = hit.clone().add(0.0, 0.5, -2.0).apply { setDirection(hit.toVector().subtract(toVector())) }
+            val player = mockk<Player> { every { this@mockk.world } returns world; every { eyeLocation } answers { eye } }
+            val unrelated = mockk<Block> { every { this@mockk.world } returns world; every { x } returns 2; every { y } returns 70; every { z } returns 0 }
+            every { world.rayTraceBlocks(any(), any(), any(), any(), any()) } returns RayTraceResult(hit.toVector(), blocks[1], BlockFace.NORTH)
+            originOddJobAimed(player, station, 4.5, unrelated) shouldBe false
+            val foreignWorld = mockk<World> { every { uid } returns UUID.randomUUID() }
+            val foreign = mockk<Block> { every { this@mockk.world } returns foreignWorld }
+            originOddJobAimed(player, station, 4.5, foreign) shouldBe false
+            every { world.rayTraceBlocks(any(), any(), any(), any(), any()) } returns RayTraceResult(eye.toVector(), unrelated, BlockFace.SOUTH)
+            originOddJobAimed(player, station, 4.5, blocks[1]) shouldBe false
+            eye = hit.clone().add(0.0, 0.0, -10.0).apply { setDirection(hit.toVector().subtract(toVector())) }
+            every { world.rayTraceBlocks(any(), any(), any(), any(), any()) } returns RayTraceResult(hit.toVector(), blocks[1], BlockFace.NORTH)
+            originOddJobAimed(player, station, 4.5, blocks[1]) shouldBe false
+            every { (blocks[0].blockData as org.bukkit.block.data.type.Chest).type } returns org.bukkit.block.data.type.Chest.Type.SINGLE
+            originOddJobStationBlocks(blocks[0]) shouldBe listOf(blocks[0])
+            originOddJobAimed(player, station, 4.5, blocks[1]) shouldBe false
+        }
+    }
     "stable guidance names the physical task and has no choices or water level instruction" {
         val config = oddJobTestConfig()
         val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(),
@@ -230,3 +275,29 @@ class OriginOddJobsSurfaceTest : StringSpec({
 
 private fun plain(component: Component): String = PlainTextComponentSerializer.plainText().serialize(component)
 private fun components(component: Component): List<Component> = listOf(component) + component.children().flatMap(::components)
+
+internal fun oddJobTestDoubleChest(world: World, x: Int, y: Int, z: Int, material: Material = Material.CHEST,
+    facing: BlockFace = BlockFace.NORTH): List<Block> {
+    val (dx, dz) = when (facing) {
+        BlockFace.NORTH -> 1 to 0; BlockFace.EAST -> 0 to 1; BlockFace.SOUTH -> -1 to 0; else -> 0 to -1
+    }
+    val blocks = listOf(x to z, x + dx to z + dz).mapIndexed { index, (bx, bz) ->
+        mockk<Block> {
+            every { this@mockk.world } returns world
+            every { this@mockk.x } returns bx; every { this@mockk.y } returns y; every { this@mockk.z } returns bz
+            every { type } returns material
+            every { location } answers { Location(world, bx.toDouble(), y.toDouble(), bz.toDouble()) }
+            every { blockData } returns mockk<org.bukkit.block.data.type.Chest> chestData@{
+                every { type } returns if (index == 0) org.bukkit.block.data.type.Chest.Type.LEFT else org.bukkit.block.data.type.Chest.Type.RIGHT
+                every { this@chestData.facing } returns facing
+            }
+        }
+    }
+    val states = blocks.map { block -> mockk<org.bukkit.block.Chest>(relaxed = true) { every { this@mockk.block } returns block } }
+    val holder = mockk<org.bukkit.block.DoubleChest> { every { leftSide } returns states[0]; every { rightSide } returns states[1] }
+    blocks.zip(states).forEach { (block, state) ->
+        every { block.state } returns state
+        every { state.inventory } returns mockk { every { this@mockk.holder } returns holder }
+    }
+    return blocks
+}

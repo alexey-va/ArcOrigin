@@ -100,6 +100,16 @@ internal data class OriginOddJobStation(val point: Location, val block: Block, v
     fun valid(): Boolean = block.world.isChunkLoaded(block.x shr 4, block.z shr 4) && block.type in materials
 }
 
+/** Resolve the native connected inventory; adjacent single chests remain separate stations. */
+internal fun originOddJobStationBlocks(block: Block): List<Block> {
+    val data = block.blockData as? org.bukkit.block.data.type.Chest ?: return listOf(block)
+    if (data.type == org.bukkit.block.data.type.Chest.Type.SINGLE) return listOf(block)
+    val holder = (block.state as? org.bukkit.block.Chest)?.inventory?.holder as? org.bukkit.block.DoubleChest ?: return listOf(block)
+    val left = (holder.leftSide as? org.bukkit.block.Chest)?.block ?: return listOf(block)
+    val right = (holder.rightSide as? org.bukkit.block.Chest)?.block ?: return listOf(block)
+    return if (left != right && (left == block || right == block)) listOf(left, right) else listOf(block)
+}
+
 internal fun originOddJobStation(stage: OriginOddJobStage): OriginOddJobStationId? = when (stage) {
     OriginOddJobStage.YARD_HAY -> OriginOddJobStationId.HAY
     OriginOddJobStage.YARD_BUCKET -> OriginOddJobStationId.WELL

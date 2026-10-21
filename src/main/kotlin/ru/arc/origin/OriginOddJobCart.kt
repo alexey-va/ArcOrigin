@@ -24,35 +24,239 @@ import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.sin
 
+internal data class OriginOddJobCartPose(val point: OriginWorkshopPoint, val yaw: Float, val pitch: Float = 0f,
+    val velocityX: Double = 0.0, val velocityZ: Double = 0.0, val velocityY: Double = 0.0) {
+    fun rotation(): Quaternionf = Quaternionf().rotationY(Math.toRadians(180.0 - yaw).toFloat())
+        .rotateX(Math.toRadians(pitch.toDouble()).toFloat())
+}
+
 /**
- * cart_2 element bounds after its GROUND context, before the configured display scale/lift.
- * Include handles and wheels, and every rotational extremum along the shortest yaw arc.
+ * A hand-supported cart, with the two actual cart_2 wheels and its low front feet.
+ * A one-block riser exceeds the 0.75 m wheel diameter: the worker first lifts the
+ * nose by the handles, then the wheels take the load and the chassis levels out.
+ * All heights come from the same native collision shapes used for obstruction.
  */
-internal fun originOddJobCartSweptBounds(from: OriginWorkshopPoint, fromYaw: Float,
-    to: OriginWorkshopPoint, toYaw: Float, layout: OriginForgeCartLayout): BoundingBox {
-    // JOML's rotationY(a) maps +Z toward +X; the X/Z polar angle therefore uses -a.
-    val angle = Math.toRadians(fromYaw - 180.0)
-    val delta = Math.toRadians((toYaw - fromYaw).toDouble())
-    val turn = atan2(sin(delta), cos(delta))
-    // At a half turn the float quaternion dot can select either slerp arc; cover both.
-    val end = angle + if (abs(abs(turn) - Math.PI) <= 1e-5) Math.PI * 2 else turn
-    val xs = mutableListOf<Double>(); val zs = mutableListOf<Double>()
-    for (x in listOf(-0.1953125, 0.1953125)) for (z in listOf(-0.3615598789197727, 0.3045303505978045)) {
-        val localX = x * layout.scale.x; val localZ = z * layout.scale.z
-        val radius = hypot(localX, localZ); val corner = atan2(localZ, localX)
-        val startAngle = angle + corner; val endAngle = end + corner
-        val quarter = Math.PI / 2
-        val extrema = (ceil(minOf(startAngle, endAngle) / quarter).toInt()..floor(maxOf(startAngle, endAngle) / quarter).toInt())
-            .map { it * quarter }
-        for (sample in listOf(startAngle, endAngle) + extrema) {
-            xs += radius * cos(sample); zs += radius * sin(sample)
+internal class OriginOddJobCartMotion(private val layout: OriginForgeCartLayout) {
+    private data class Part(val center: Vector3f, val half: Vector3f, val rotation: Quaternionf)
+    private val radius = 0.125 * maxOf(layout.scale.y, layout.scale.z)
+    private val wheels = listOf(modelPoint(-3.5, -8.0, 11.0), modelPoint(19.5, -8.0, 11.0))
+    private val grip = Vector3f(0f, (layout.lift + 0.1125 * layout.scale.y).toFloat(), (-0.347 * layout.scale.z).toFloat())
+    private val parts = listOf(
+        part(-2.5, -7.5, 1.5, 18.5, -4.5, 27.0), // bed
+        part(-2.0, -4.5, 2.0, 0.0, 1.5, 27.0), part(16.0, -4.5, 2.0, 18.0, 1.5, 27.0),
+        part(-3.0, -8.0, 23.5, 1.0, 3.0, 27.5), part(15.0, -8.0, 23.5, 19.0, 3.0, 27.5),
+        part(-3.0, -5.0, 1.0, 1.0, 6.0, 5.0, pivotZ = 1.48465),
+        part(15.0, -5.0, 1.0, 19.0, 6.0, 5.0, pivotZ = 1.48465),
+        part(1.0, -4.5, 24.5, 15.0, 1.5, 26.5),
+        part(-1.6, -7.0, -14.5, 0.4, -5.0, 1.5), part(15.6, -7.0, -14.5, 17.6, -5.0, 1.5),
+        part(-4.5, -9.0, 10.0, 20.5, -7.0, 12.0, angle = 0.0),
+        part(0.5, -6.5, -3.5, 15.5, -5.5, -1.5),
+    )
+
+    fun next(from: OriginOddJobCartPose, target: OriginWorkshopPoint, yaw: Float, workerGround: Double,
+        blocks: List<BoundingBox>, cargo: Map<Int, OriginWorkshopProp> = emptyMap()): OriginOddJobCartPose {
+        val dx = target.x - from.point.x; val dz = target.z - from.point.z
+        val distance = hypot(dx, dz)
+        if (distance > 4.0 || abs(workerGround - from.point.y) > 3.0) return from
+        // Walking and sprinting must not accumulate a gap. Ease toward the
+        // handles, with bounded acceleration and a 7.2 m/s catch-up ceiling.
+        val brakingSpeed = kotlin.math.sqrt(0.0009 + 0.12 * distance) - 0.03
+        val speed = minOf(0.36, distance * 0.5, brakingSpeed)
+        val fraction = if (distance > 1e-9) speed / distance else 0.0
+        val ax = dx * fraction - from.velocityX; val az = dz * fraction - from.velocityZ
+        val acceleration = hypot(ax, az)
+        val ease = if (acceleration > 0.06) 0.06 / acceleration else 1.0
+        var vx = from.velocityX + ax * ease; var vz = from.velocityZ + az * ease
+        if (dx * vx + dz * vz > 0 && hypot(vx, vz) > distance) { vx = dx; vz = dz }
+        val x = from.point.x + vx; val z = from.point.z + vz
+        val turn = Math.toDegrees(atan2(sin(Math.toRadians((yaw - from.yaw).toDouble())), cos(Math.toRadians((yaw - from.yaw).toDouble()))))
+        val heading = from.yaw + turn.coerceIn(-6.0, 6.0).toFloat()
+        val terrain = blocks.filter { it.maxY <= from.point.y + 1.001 && it.maxY >= from.point.y - 1.25 }
+        // Read the next contact slightly ahead, so the worker can lift the nose
+        // before the wooden front hits the riser. The actual swept pose remains
+        // fully collision checked and never jumps to this planning point.
+        val ahead = minOf(0.35, distance)
+        val planX = x + if (distance > 1e-9) dx / distance * ahead else 0.0
+        val planZ = z + if (distance > 1e-9) dz / distance * ahead else 0.0
+        val goal = supportPose(planX, planZ, heading, from, terrain) ?: return from
+        val pitch = from.pitch + ((goal.pitch - from.pitch) * 0.45f).coerceIn(-3.5f, 3.5f)
+        val wantedY = ((goal.point.y - from.point.y) * 0.5).coerceIn(-0.25, 0.25)
+        val velocityY = from.velocityY + (wantedY - from.velocityY).coerceIn(-0.045, 0.045)
+        // Pitch and lift share a support pivot: easing them independently can
+        // put a wheel below the old floor and deadlock descent/levelling.
+        val currentSupport = supportHeight(OriginOddJobCartPose(from.point, heading, pitch), terrain) ?: return from
+        val y = maxOf(from.point.y + velocityY, currentSupport + 0.003)
+        if (y - from.point.y > 0.25) return from.copy(velocityX = 0.0, velocityZ = 0.0, velocityY = 0.0)
+        val vy = y - from.point.y
+        val next = OriginOddJobCartPose(OriginWorkshopPoint(x, y, z), heading, pitch, vx, vz, vy)
+        if (clearSweep(from, next, blocks, cargo)) return next
+        // Contact with the riser precedes translation. Lift around the held rear
+        // handles instead of rejecting the entire frame or jumping onto the block.
+        val lift = next.copy(point = OriginWorkshopPoint(from.point.x, y, from.point.z))
+        if (clearSweep(from, lift, blocks, cargo)) {
+            // Keep the safe part of this frame's travel. Discarding the whole
+            // advance and restarting acceleration at each stair causes a cart
+            // to fall behind a walking worker on a sustained climb.
+            var low = 0.0; var high = 1.0; var accepted = lift
+            repeat(5) {
+                val fraction = (low + high) / 2
+                val candidate = next.copy(point = OriginWorkshopPoint(from.point.x + vx * fraction, y, from.point.z + vz * fraction))
+                if (clearSweep(from, candidate, blocks, cargo)) { low = fraction; accepted = candidate } else high = fraction
+            }
+            if (low > 0 || abs(y - from.point.y) > 0.0001 || abs(pitch - from.pitch) > 0.01) return accepted
         }
+        return from.copy(velocityX = 0.0, velocityZ = 0.0, velocityY = 0.0)
     }
-    return BoundingBox(minOf(from.x, to.x) + xs.min(),
-        minOf(from.y, to.y) + layout.lift - 0.1875 * layout.scale.y + 1e-5,
-        minOf(from.z, to.z) + zs.min(), maxOf(from.x, to.x) + xs.max(),
-        maxOf(from.y, to.y) + layout.lift + 0.15111959953042072 * layout.scale.y,
-        maxOf(from.z, to.z) + zs.max())
+
+    private fun supportPose(x: Double, z: Double, yaw: Float, previous: OriginOddJobCartPose,
+        terrain: List<BoundingBox>): OriginOddJobCartPose? {
+        var best: OriginOddJobCartPose? = null
+        var score = Double.POSITIVE_INFINITY
+        val rear = OriginOddJobCartPose(previous.point, yaw).rotation().transform(Vector3f(grip))
+        val ground = terrain.filter { it.minX <= previous.point.x + rear.x && it.maxX >= previous.point.x + rear.x &&
+            it.minZ <= previous.point.z + rear.z && it.maxZ >= previous.point.z + rear.z }
+            .maxOfOrNull { it.maxY } ?: return null
+        for (degrees in -42..42 step 2) {
+            val pose = OriginOddJobCartPose(OriginWorkshopPoint(x, 0.0, z), yaw, degrees.toFloat())
+            val required = supportHeight(pose, terrain) ?: continue
+            val handle = pose.rotation().transform(Vector3f(grip))
+            val candidateScore = abs(required + handle.y - ground - grip.y) + abs(degrees) * 0.0004
+            if (candidateScore < score) {
+                score = candidateScore
+                best = pose.copy(point = OriginWorkshopPoint(x, required + 0.003, z))
+            }
+        }
+        return best
+    }
+
+    private fun supportHeight(pose: OriginOddJobCartPose, terrain: List<BoundingBox>): Double? {
+        val rotation = pose.rotation()
+        val axis = rotation.transform(Vector3f(1f, 0f, 0f))
+        var required = Double.NEGATIVE_INFINITY
+        for (wheel in wheels) {
+            val c = rotation.transform(Vector3f(wheel))
+            val cx = pose.point.x + c.x; val cz = pose.point.z + c.z
+            val under = terrain.asSequence().filter { axialOverlap(it, cx, cz, axis) }.mapNotNull { box ->
+                val horizontal = squaredDistance(cx, box.minX, box.maxX) + squaredDistance(cz, box.minZ, box.maxZ)
+                if (horizontal >= radius * radius) null else box.maxY + kotlin.math.sqrt(radius * radius - horizontal) - c.y
+            }.maxOrNull() ?: return null
+            required = maxOf(required, under)
+        }
+        // Slanted front posts meet a riser before their feet reach its top.
+        // Use the exact cuboid's vertical contact interval, including its side.
+        for (part in parts) for (box in terrain) {
+            verticalContact(part, pose, rotation, box)?.let { required = maxOf(required, it) }
+        }
+        return required
+    }
+
+    /** Same ordered poses as the renderer; small substeps include in-place steering and pitch. */
+    private fun clearSweep(from: OriginOddJobCartPose, to: OriginOddJobCartPose, blocks: List<BoundingBox>,
+        cargo: Map<Int, OriginWorkshopProp>): Boolean {
+        for (step in 1..12) {
+            val t = step / 12.0
+            val pose = OriginOddJobCartPose(OriginWorkshopPoint(
+                from.point.x + (to.point.x - from.point.x) * t,
+                from.point.y + (to.point.y - from.point.y) * t,
+                from.point.z + (to.point.z - from.point.z) * t),
+                from.yaw + (to.yaw - from.yaw) * t.toFloat(), from.pitch + (to.pitch - from.pitch) * t.toFloat())
+            if (!clear(pose, blocks, cargo)) return false
+        }
+        return true
+    }
+
+    internal fun clear(pose: OriginOddJobCartPose, blocks: List<BoundingBox>,
+        cargo: Map<Int, OriginWorkshopProp> = emptyMap()): Boolean {
+        val rotation = pose.rotation()
+        val at = pose.point
+        val axis = rotation.transform(Vector3f(1f, 0f, 0f))
+        for (wheel in wheels) {
+            val c = rotation.transform(Vector3f(wheel))
+            val x = at.x + c.x; val y = at.y + c.y; val z = at.z + c.z
+            if (blocks.any { axialOverlap(it, x, z, axis) &&
+                squaredDistance(x, it.minX, it.maxX) + squaredDistance(y, it.minY, it.maxY) + squaredDistance(z, it.minZ, it.maxZ) < (radius - 0.001) * (radius - 0.001) }) return false
+        }
+        for (part in parts) if (!clearPart(part, pose, rotation, blocks)) return false
+        val bed = Quaternionf().rotateX(Math.toRadians(22.5).toFloat())
+        for ((slot, prop) in cargo) for (piece in prop.pieces) {
+            val geometry = piece.geometry
+            val c = bed.transform(Vector3f(geometry.center.x.toFloat(), geometry.center.y.toFloat(), geometry.center.z.toFloat()))
+                .add(originForgeCartLoadOffset(slot))
+            if (!clearPart(Part(c, Vector3f(geometry.size.x, geometry.size.y, geometry.size.z).mul(0.5f), bed), pose, rotation, blocks)) return false
+        }
+        return true
+    }
+
+    private fun clearPart(part: Part, pose: OriginOddJobCartPose, rotation: Quaternionf, blocks: List<BoundingBox>): Boolean {
+        val c = rotation.transform(Vector3f(part.center))
+        val q = Quaternionf(rotation).mul(part.rotation)
+        fun basis(x: Float, y: Float, z: Float): org.joml.Vector3d = q.transform(Vector3f(x, y, z)).let {
+            org.joml.Vector3d(it.x.toDouble(), it.y.toDouble(), it.z.toDouble()).normalize()
+        }
+        val volume = ru.arc.paper.display.DisplayOrientedVolume(
+            org.joml.Vector3d(pose.point.x + c.x, pose.point.y + c.y, pose.point.z + c.z),
+            basis(1f, 0f, 0f), basis(0f, 1f, 0f), basis(0f, 0f, 1f),
+            org.joml.Vector3d(part.half.x.toDouble(), part.half.y.toDouble(), part.half.z.toDouble()))
+        val bounds = volume.bounds
+        return blocks.none { bounds.overlaps(it) && volume.overlaps(it) }
+    }
+
+    /** Highest vertical translation at which this real cuboid contacts a block. */
+    private fun verticalContact(part: Part, pose: OriginOddJobCartPose, rotation: Quaternionf, box: BoundingBox): Double? {
+        val c = rotation.transform(Vector3f(part.center))
+        val q = Quaternionf(rotation).mul(part.rotation)
+        val axes = arrayOf(q.transform(Vector3f(1f, 0f, 0f)), q.transform(Vector3f(0f, 1f, 0f)), q.transform(Vector3f(0f, 0f, 1f)))
+        val half = doubleArrayOf(part.half.x.toDouble(), part.half.y.toDouble(), part.half.z.toDouble())
+        val dx = pose.point.x + c.x - box.centerX; val dz = pose.point.z + c.z - box.centerZ
+        val ex = axes.indices.sumOf { abs(axes[it].x.toDouble()) * half[it] } + box.widthX / 2
+        val ez = axes.indices.sumOf { abs(axes[it].z.toDouble()) * half[it] } + box.widthZ / 2
+        if (abs(dx) > ex || abs(dz) > ez) return null
+        var low = Double.NEGATIVE_INFINITY; var high = Double.POSITIVE_INFINITY
+        fun constrain(a: Vector3f): Boolean {
+            val radius = axes.indices.sumOf { abs(a.dot(axes[it]).toDouble()) * half[it] } +
+                abs(a.x) * box.widthX / 2 + abs(a.y) * box.height / 2 + abs(a.z) * box.widthZ / 2
+            val offset = a.x * dx + a.y * (c.y - box.centerY) + a.z * dz
+            if (abs(a.y) < 1e-8) return abs(offset) <= radius
+            val first = (-radius - offset) / a.y; val second = (radius - offset) / a.y
+            low = maxOf(low, minOf(first, second)); high = minOf(high, maxOf(first, second))
+            return low <= high
+        }
+        val worldAxes = arrayOf(Vector3f(1f, 0f, 0f), Vector3f(0f, 1f, 0f), Vector3f(0f, 0f, 1f))
+        for (a in worldAxes) if (!constrain(a)) return null
+        for (a in axes) if (!constrain(a)) return null
+        for (a in axes) for (b in worldAxes) if (!constrain(Vector3f(a).cross(b))) return null
+        return high
+    }
+
+    private fun axialOverlap(box: BoundingBox, x: Double, z: Double, axis: Vector3f): Boolean {
+        val center = (box.centerX - x) * axis.x + (box.centerZ - z) * axis.z
+        val extent = box.widthX * abs(axis.x) / 2 + box.widthZ * abs(axis.z) / 2
+        return abs(center) <= extent + 0.025
+    }
+
+    private fun part(x0: Double, y0: Double, z0: Double, x1: Double, y1: Double, z1: Double,
+        angle: Double = 22.5, pivotZ: Double = 8.51535): Part {
+        val center = rotatedModelPoint((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, angle, pivotZ)
+        val half = Vector3f(((x1 - x0) * layout.scale.x / 128).toFloat(),
+            ((y1 - y0) * layout.scale.y / 128).toFloat(), ((z1 - z0) * layout.scale.z / 128).toFloat())
+        if (abs(layout.scale.y - layout.scale.z) < 1e-6) return Part(center, half, Quaternionf().rotateX(Math.toRadians(angle).toFloat()))
+        // An operator's nonuniform Y/Z scale shears the authored cuboid. Its
+        // baked local envelope remains conservative; the normal model is ×3.
+        val points = listOf(x0, x1).flatMap { x -> listOf(y0, y1).flatMap { y -> listOf(z0, z1).map { z -> rotatedModelPoint(x, y, z, angle, pivotZ) } } }
+        val low = Vector3f(points.minOf { it.x }, points.minOf { it.y }, points.minOf { it.z })
+        val high = Vector3f(points.maxOf { it.x }, points.maxOf { it.y }, points.maxOf { it.z })
+        return Part(Vector3f(low).add(high).mul(0.5f), high.sub(low).mul(0.5f), Quaternionf())
+    }
+    private fun modelPoint(x: Double, y: Double, z: Double) = Vector3f(
+        ((x / 16 - 0.5) * 0.25 * layout.scale.x).toFloat(),
+        (((y / 16 - 0.5) * 0.25 + 0.1875) * layout.scale.y + layout.lift).toFloat(),
+        ((z / 16 - 0.5) * 0.25 * layout.scale.z).toFloat())
+    private fun rotatedModelPoint(x: Double, y: Double, z: Double, angle: Double = 22.5, pivotZ: Double = 8.51535): Vector3f {
+        val a = Math.toRadians(angle)
+        return modelPoint(x, (y + 0.75) * cos(a) - (z - pivotZ) * sin(a) - 0.75,
+            (y + 0.75) * sin(a) + (z - pivotZ) * cos(a) + pivotZ)
+    }
+    private fun squaredDistance(value: Double, min: Double, max: Double): Double = (value - value.coerceIn(min, max)).let { it * it }
 }
 
 /** The shared cart owns its model, cargo, native carry pose and cleanup for every hauling job. */
@@ -65,9 +269,11 @@ internal class OriginOddJobCart(
     private data class Cart(val request: UUID, val world: World, val display: PacketItemDisplay,
         val cargo: MutableMap<Int, OriginWorkshopProp> = mutableMapOf(),
         val handles: MutableList<PacketDisplay> = mutableListOf(),
-        var point: OriginWorkshopPoint, var yaw: Float, var attached: Boolean = false)
+        var point: OriginWorkshopPoint, var yaw: Float, var pitch: Float = 0f,
+        var velocityX: Double = 0.0, var velocityZ: Double = 0.0, var velocityY: Double = 0.0)
     private val carts = mutableMapOf<UUID, Cart>()
     private val space = PaperSpatialSpace()
+    private val motion = layout?.let(::OriginOddJobCartMotion)
     private var owner: PaperPacketDisplays? = null
     private var model: ItemStack? = null
 
@@ -94,7 +300,7 @@ internal class OriginOddJobCart(
                 display.itemDisplayTransform = spec.context
                 display.billboard = Display.Billboard.FIXED
                 display.viewRange = 0.5f; display.displayWidth = 3f; display.displayHeight = 2f
-                display.interpolationDelay = -1; display.interpolationDuration = 1; display.teleportDuration = 0
+                display.interpolationDelay = -1; display.interpolationDuration = 1; display.teleportDuration = 1
                 display.transformation = Transformation(Vector3f(), Quaternionf(), Vector3f(spec.scale), Quaternionf())
                 if (privateToWorker) display.showTo(player)
             } catch (failure: Exception) { display.remove(); throw failure }
@@ -136,54 +342,59 @@ internal class OriginOddJobCart(
         carts[playerId]?.takeIf { it.request == requestId }?.cargo?.remove(index)
 
     private fun follow(player: Player, cart: Cart) {
-        val spec = requireNotNull(layout)
         val at = player.location
-        // A player's body yaw may face sideways while looking/steering; packet passengers do not inherit it.
-        val pose = originForgeCartCarryPose(at.yaw.toDouble())
-        val desired = OriginWorkshopPoint(at.x + pose.center.x, at.y, at.z + pose.center.z)
-        val desiredYaw = at.yaw + 180f
-        if (canMove(cart, desired, desiredYaw)) {
-            cart.point = desired
-            cart.yaw = desiredYaw
+        val offset = originForgeCartCarryPose(at.yaw.toDouble()).center
+        val desired = OriginWorkshopPoint(at.x + offset.x, at.y, at.z + offset.z)
+        val from = OriginOddJobCartPose(cart.point, cart.yaw, cart.pitch, cart.velocityX, cart.velocityZ, cart.velocityY)
+        if (hypot(desired.x - cart.point.x, desired.z - cart.point.z) <= 4.0 && abs(at.y - cart.point.y) <= 3.0) {
+            // One small, loaded-only native snapshot per cart tick, shared by all
+            // contact, steering and sweep checks. Never query a distant goal.
+            val bounds = BoundingBox(minOf(cart.point.x - 1.8, at.x - 0.3), cart.point.y - 1.3,
+                minOf(cart.point.z - 1.8, at.z - 0.3), maxOf(cart.point.x + 1.8, at.x + 0.3),
+                maxOf(cart.point.y, at.y) + 2.4, maxOf(cart.point.z + 1.8, at.z + 0.3))
+            if (space.known(cart.world, bounds)) {
+                val blocks = mutableListOf<BoundingBox>()
+                for (x in floor(bounds.minX).toInt() until ceil(bounds.maxX).toInt())
+                    for (y in floor(bounds.minY).toInt() until ceil(bounds.maxY).toInt())
+                        for (z in floor(bounds.minZ).toInt() until ceil(bounds.maxZ).toInt()) {
+                            blocks += cart.world.getBlockAt(x, y, z).collisionShape.boundingBoxes.map {
+                                it.clone().shift(x.toDouble(), y.toDouble(), z.toDouble())
+                            }
+                        }
+                val ground = blocks.filter { it.minX <= at.x && it.maxX >= at.x && it.minZ <= at.z && it.maxZ >= at.z &&
+                    it.maxY <= at.y + 0.1 && it.maxY >= at.y - 1.5 }.maxOfOrNull { it.maxY }
+                if (ground != null) {
+                    val next = requireNotNull(motion).next(from, desired, at.yaw + 180f, ground, blocks, cart.cargo)
+                    cart.point = next.point; cart.yaw = next.yaw; cart.pitch = next.pitch
+                    cart.velocityX = next.velocityX; cart.velocityZ = next.velocityZ; cart.velocityY = next.velocityY
+                }
+            }
         }
-        val center = OriginWorkshopPoint(cart.point.x - at.x, cart.point.y - at.y, cart.point.z - at.z)
-        val rotation = Quaternionf().rotationY(Math.toRadians(180.0 - cart.yaw).toFloat())
-        if (!cart.attached) cart.display.teleport(at.clone().apply { yaw = 0f; pitch = 0f })
-        cart.display.transformation = Transformation(
-            Vector3f(center.x.toFloat(), (center.y + spec.lift - player.height).toFloat(), center.z.toFloat()),
-            Quaternionf(rotation).rotateY(Math.PI.toFloat()), Vector3f(spec.scale), Quaternionf())
-        cart.display.attachTo(player)
-        cart.attached = true
-        cart.cargo.forEach { (index, prop) ->
-            val offset = originForgeCartLoadOffset(index)
-            rotation.transform(offset)
-            prop.carry(player, OriginWorkshopCarryPose(OriginWorkshopPoint(center.x + offset.x,
-                center.y + offset.y, center.z + offset.z), Quaternionf(rotation).rotateX(Math.toRadians(22.5).toFloat())))
-        }
-    }
-
-    private fun canMove(cart: Cart, desired: OriginWorkshopPoint, yaw: Float): Boolean {
-        val from = cart.point
-        // A blocked cart stays put; returning to it resumes motion without a long scan or tunnelling.
-        if (abs(desired.x - from.x) > 4 || abs(desired.z - from.z) > 4 || abs(desired.y - from.y) > 1.5) return false
-        // The client interpolates directly between these poses, so validate that same swept path.
-        return space.clearBounds(cart.world,
-            originOddJobCartSweptBounds(from, cart.yaw, desired, yaw, requireNotNull(layout)))
+        render(cart)
     }
 
     private fun park(cart: Cart) {
+        cart.velocityX = 0.0; cart.velocityZ = 0.0; cart.velocityY = 0.0
+        render(cart)
+    }
+
+    private fun render(cart: Cart) {
         val spec = requireNotNull(layout)
-        val at = cart.point.location(cart.world)
+        val pose = OriginOddJobCartPose(cart.point, cart.yaw, cart.pitch)
+        val rotation = pose.rotation()
+        // World pose owns translation and tilt. A player passenger would move
+        // a blocked cart between snapshots, then jerk backwards at each update.
+        val lift = rotation.transform(Vector3f(0f, spec.lift.toFloat(), 0f))
         cart.display.detach()
-        cart.attached = false
-        cart.display.transformation = Transformation(Vector3f(), Quaternionf(), Vector3f(spec.scale), Quaternionf())
-        cart.display.teleport(at.clone().add(0.0, spec.lift, 0.0).apply { yaw = cart.yaw })
-        val rotation = Quaternionf().rotationY(Math.toRadians(180.0 - cart.yaw).toFloat())
-        val cargoRotation = Quaternionf(rotation).rotateX(Math.toRadians(22.5).toFloat())
+        cart.display.teleport(cart.point.location(cart.world).add(lift.x.toDouble(), lift.y.toDouble(), lift.z.toDouble()))
+        cart.display.transformation = Transformation(Vector3f(), Quaternionf(rotation).rotateY(Math.PI.toFloat()),
+            Vector3f(spec.scale), Quaternionf())
         cart.cargo.forEach { (index, prop) ->
-            val offset = originForgeCartLoadOffset(index)
-            rotation.transform(offset)
-            prop.move(at.clone().add(offset.x.toDouble(), offset.y.toDouble(), offset.z.toDouble()), cargoRotation)
+            val offset = rotation.transform(originForgeCartLoadOffset(index))
+            prop.move(cart.point.location(cart.world).add(offset.x.toDouble(), offset.y.toDouble(), offset.z.toDouble()),
+                Quaternionf(rotation).rotateX(Math.toRadians(22.5).toFloat()))
+            prop.pieces.forEach { it.display?.interpolationDuration = 1 }
+            prop.itemDisplay?.interpolationDuration = 1
         }
     }
 

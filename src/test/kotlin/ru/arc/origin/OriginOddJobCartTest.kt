@@ -1,10 +1,12 @@
 package ru.arc.origin
 
+import com.google.gson.GsonBuilder
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.doubles.shouldBeLessThan
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.World
@@ -13,174 +15,248 @@ import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.util.BoundingBox
 import org.bukkit.util.Transformation
+import org.joml.Quaternionf
 import org.joml.Vector3f
 import ru.arc.paper.display.PacketBlockDisplay
 import ru.arc.paper.display.PacketDisplay
 import ru.arc.paper.display.PacketItemDisplay
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.testing.MockBukkitTestRuntime
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.UUID
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.hypot
+
+private data class CartMotionFrame(val tick: Int, val worker: OriginWorkshopPoint, val pose: OriginOddJobCartPose)
+private data class CartMotionExample(val id: String, val blocks: List<BoundingBox>, val frames: List<CartMotionFrame>)
 
 class OriginOddJobCartTest : StringSpec({
-    lateinit var paper: MockBukkitTestRuntime
-    lateinit var cart: OriginOddJobCart
-    lateinit var player: Player
-    lateinit var at: Location
-    lateinit var world: World
-    val request = UUID.randomUUID()
-    val id = UUID.randomUUID()
     val layout = OriginForgeCartLayout(OriginWorkshopPoint(0.0, 70.0, 0.0), 180f,
         "test:cart", Vector3f(3f), 0.5625)
-    val obstacles = mutableMapOf<Triple<Int, Int, Int>, BoundingBox>()
-    val transforms = linkedMapOf<PacketDisplay, Transformation>()
+    val floor = BoundingBox(-3.0, 69.0, -10.0, 3.0, 70.0, 200.0)
+    fun platform(from: Double, to: Double, height: Double) = BoundingBox(-2.0, 70.0, from, 2.0, 70.0 + height, to)
+    fun height(blocks: List<BoundingBox>, z: Double): Double = blocks.filter { z >= it.minZ && z < it.maxZ }
+        .maxOf { it.maxY }
+    fun drive(id: String, blocks: List<BoundingBox>, start: OriginOddJobCartPose, end: Double,
+        speed: Double = 0.12, settle: Int = 80): CartMotionExample {
+        val motion = OriginOddJobCartMotion(layout)
+        val cargo = (0..2).associateWith { mockk<OriginWorkshopProp> {
+            every { pieces } returns originForgeCargoPieces(OriginForgeCargo.IRON).map { OriginWorkshopPropPiece(null, it) }
+        } }
+        val count = ceil(abs(end - start.point.z) / speed).toInt()
+        val sign = if (end >= start.point.z) 1 else -1
+        var pose = start
+        val frames = mutableListOf<CartMotionFrame>()
+        for (tick in 0..count + settle) {
+            val targetZ = start.point.z + sign * minOf(tick * speed, abs(end - start.point.z))
+            val worker = OriginWorkshopPoint(0.0, height(blocks, targetZ - 1), targetZ - 1)
+            if (tick > 0) pose = motion.next(pose, OriginWorkshopPoint(0.0, worker.y, targetZ), 180f, worker.y, blocks, cargo)
+            frames += CartMotionFrame(tick, worker, pose)
+        }
+        return CartMotionExample(id, blocks, frames)
+    }
+    fun start(z: Double = 0.0, y: Double = 70.0) = OriginOddJobCartPose(OriginWorkshopPoint(0.0, y, z), 180f)
+    fun bounded(example: CartMotionExample) {
+        example.frames.zipWithNext().forEach { (a, b) ->
+            hypot(b.pose.point.x - a.pose.point.x, b.pose.point.z - a.pose.point.z) shouldBeLessThan 0.361
+            abs(b.pose.point.y - a.pose.point.y) shouldBeLessThan 0.251
+            abs(b.pose.pitch - a.pose.pitch).toDouble() shouldBeLessThan 3.501
+        }
+    }
+    fun settled(example: CartMotionExample, z: Double, y: Double) {
+        val last = example.frames.last().pose
+        abs(last.point.z - z) shouldBeLessThan 0.025
+        abs(last.point.y - y) shouldBeLessThan 0.012
+        abs(last.pitch).toDouble() shouldBeLessThan 0.1
+        // The authored wheel center is 0.375 above the ground and radius 0.375.
+        for (x in listOf(-0.5390625f, 0.5390625f)) {
+            val wheel = last.rotation().transform(Vector3f(x, 0.375f, 0.140625f))
+            abs(last.point.y + wheel.y - 0.375 - y) shouldBeLessThan 0.012
+        }
+    }
+
+    "source pose export includes continuous slab step descent reverse and wall motion at twenty hertz" {
+        val began = System.nanoTime()
+        val terraces = listOf(floor, platform(2.0, 4.0, 0.5), platform(4.0, 7.0, 1.0), platform(7.0, 9.0, 0.5))
+        val ascent = drive("slab-step-flat", terraces, start(), 11.0)
+        val reverse = drive("reverse-descent", terraces, start(6.0, 71.0), 0.0)
+        val single = drive("one-block", listOf(floor, platform(2.0, 8.0, 1.0)), start(), 6.0)
+        val wall = drive("wall", listOf(floor, platform(2.0, 3.0, 2.0)), start(), 3.5)
+        val stairs = (0..7).map { platform(2.0 + it * 0.75, 2.75 + it * 0.75, (it + 1) * 0.5) } + platform(8.0, 16.0, 4.0)
+        val hill = drive("stairs-walking", listOf(floor) + stairs, start(), 13.0, speed = 0.21585)
+        val examples = listOf(ascent, reverse, single, wall, hill)
+        val output = Path.of("build/odd-jobs-preview/cart-motion.json")
+        Files.createDirectories(output.parent)
+        Files.writeString(output, GsonBuilder().setPrettyPrinting().create().toJson(mapOf(
+            "evidence" to "Actual OriginOddJobCartMotion output at 20 Hz; synthetic native collision boxes, not a live world or native client recording.",
+            "millisecondsPerTick" to 50, "model" to layout, "examples" to examples,
+            "measurement" to mapOf("solverAndFixtureElapsedMs" to (System.nanoTime() - began) / 1_000_000.0,
+                "frames" to examples.sumOf { it.frames.size }, "nativeQueriesPerFrame" to "Bounded loaded collision snapshot; exercised separately by CartDisplayFixture"),
+            "cargo" to (0..2).map { slot -> mapOf("offset" to originForgeCartLoadOffset(slot),
+                "pieces" to originForgeCargoPieces(OriginForgeCargo.IRON)) })))
+        examples.forEach(::bounded)
+        settled(ascent, 11.0, 70.0)
+        settled(reverse, 0.0, 70.0)
+        settled(single, 6.0, 71.0)
+        settled(hill, 13.0, 74.0)
+        (single.frames.minOf { it.pose.pitch } < -8f) shouldBe true
+        // It tips while the front is still beside the riser, before the axle is on top.
+        single.frames.any { it.pose.pitch < -8f && it.pose.point.z < 2 && it.pose.point.y > 70.05 } shouldBe true
+        wall.frames.maxOf { it.pose.point.z } shouldBeLessThan 1.5
+        wall.frames.maxOf { it.pose.point.y } shouldBeLessThan 70.02
+    }
+
+    "ordinary walking and sprinting do not accumulate a gap beyond the four metre safety guard" {
+        var pose = start()
+        val motion = OriginOddJobCartMotion(layout)
+        var target = 0.0
+        repeat(450) { tick ->
+            target += if (tick < 225) 0.21585 else 0.2806
+            pose = motion.next(pose, OriginWorkshopPoint(0.0, 70.0, target), 180f, 70.0, listOf(floor))
+            (target - pose.point.z) shouldBeLessThan 1.0
+        }
+        (pose.point.z > 110.0) shouldBe true
+    }
+
+    "walking up consecutive half block steps catches up on the summit without resetting the cart" {
+        val stairs = (0..7).map { platform(2.0 + it * 0.75, 2.75 + it * 0.75, (it + 1) * 0.5) } + platform(8.0, 16.0, 4.0)
+        val example = drive("stairs", listOf(floor) + stairs, start(), 13.0, speed = 0.21585)
+        example.frames.maxOf { abs(it.worker.z + 1 - it.pose.point.z) } shouldBeLessThan 4.0
+        example.frames.maxOf { abs(it.worker.y - it.pose.point.y) } shouldBeLessThan 3.0
+        settled(example, 13.0, 74.0)
+    }
+
+    "a low headroom passage and a full height wall cannot be climbed or tunnelled through" {
+        val wall = listOf(floor, platform(2.0, 2.04, 2.0))
+        val example = drive("thin-wall", wall, start(), 3.5)
+        example.frames.maxOf { it.pose.point.z } shouldBeLessThan 1.5
+        example.frames.maxOf { it.pose.point.y } shouldBeLessThan 70.02
+        val lowRoof = BoundingBox(-2.0, 71.15, 1.0, 2.0, 72.0, 4.0)
+        val underRoof = drive("roof", listOf(floor, platform(2.0, 4.0, 0.5), lowRoof), start(), 3.5)
+        underRoof.frames.maxOf { it.pose.point.z } shouldBeLessThan 2.0
+    }
+
+    "unsupported space is rejected instead of levitating toward the worker" {
+        val motion = OriginOddJobCartMotion(layout)
+        motion.next(start(), OriginWorkshopPoint(0.0, 70.0, 0.3), 180f, 70.0, emptyList()) shouldBe start()
+    }
+
+    "turning is bounded and cannot sweep the handles through a thin post" {
+        val motion = OriginOddJobCartMotion(layout)
+        val post = BoundingBox(0.78, 70.0, -0.85, 0.82, 72.0, -0.55)
+        var pose = start()
+        repeat(50) {
+            val next = motion.next(pose, pose.point, 270f, 70.0, listOf(floor, post))
+            abs(next.yaw - pose.yaw).toDouble() shouldBeLessThan 6.001
+            pose = next
+        }
+        (pose.yaw < 270f) shouldBe true
+    }
+
+    "native collision snapshot is bounded and an unloaded or distant destination reads no blocks" {
+        CartDisplayFixture(layout).use { f ->
+            val initial = f.cart.point(f.player.uniqueId, f.request)!!
+            (f.blockReads in 1..320) shouldBe true
+            f.loaded = false; f.blockReads = 0; f.at.z += 0.2
+            f.cart.follow(f.player, f.request)
+            f.blockReads shouldBe 0
+            f.loaded = true; f.at.z = 100.0
+            f.cart.follow(f.player, f.request)
+            f.blockReads shouldBe 0
+            f.cart.point(f.player.uniqueId, f.request) shouldBe initial
+        }
+    }
+
+    "chassis and every cargo piece share one tilted world pose and retain their handles when parked" {
+        CartDisplayFixture(layout).use { f ->
+            for (x in -2..1) for (z in 2..7) f.obstacles[Triple(x, 70, z)] = BoundingBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
+            val handles = f.transforms.keys.toList()
+            var sawTilt = false
+            repeat(95) { tick ->
+                f.at.z = minOf(tick * 0.09, 5.0) - 1
+                f.at.y = if (f.at.z in 2.0..8.0) 71.0 else 70.0
+                f.cart.follow(f.player, f.request)
+                val chassis = f.transforms.getValue(handles.first())
+                val bodyRotation = Quaternionf(chassis.leftRotation).rotateY(-Math.PI.toFloat())
+                if (abs(bodyRotation.transform(Vector3f(0f, 0f, 1f)).y) > 0.1f) sawTilt = true
+                val point = f.cart.point(f.player.uniqueId, f.request)!!
+                val cargoRotation = Quaternionf(bodyRotation).rotateX(Math.toRadians(22.5).toFloat())
+                val offset = bodyRotation.transform(originForgeCartLoadOffset(0))
+                handles.drop(1).forEachIndexed { index, display ->
+                    val geometry = f.cargo[index]
+                    val expected = cargoRotation.transform(Vector3f(geometry.center.x.toFloat(), geometry.center.y.toFloat(), geometry.center.z.toFloat()))
+                        .add(offset).add(point.x.toFloat(), point.y.toFloat(), point.z.toFloat())
+                    val transform = f.transforms.getValue(display)
+                    val center = transform.leftRotation.transform(Vector3f(transform.scale).mul(0.5f))
+                        .add(transform.translation)
+                    val anchor = f.locations.getValue(display)
+                    center.add(anchor.x.toFloat(), anchor.y.toFloat(), anchor.z.toFloat())
+                    center.distance(expected).toDouble() shouldBeLessThan 0.0001
+                    abs(Quaternionf(transform.leftRotation).dot(cargoRotation)).toDouble().let { abs(it - 1) } shouldBeLessThan 0.00001
+                }
+            }
+            sawTilt shouldBe true
+            val summit = requireNotNull(f.cart.point(f.player.uniqueId, f.request))
+            abs(summit.z - 5.0) shouldBeLessThan 0.025
+            abs(summit.y - 71.0) shouldBeLessThan 0.012
+            val finalBody = Quaternionf(f.transforms.getValue(handles.first()).leftRotation).rotateY(-Math.PI.toFloat())
+            abs(finalBody.transform(Vector3f(0f, 0f, 1f)).y).toDouble() shouldBeLessThan 0.002
+            f.transforms.keys.toList() shouldBe handles
+            val before = f.locations.mapValues { it.value.clone() }
+            val rotations = f.transforms.mapValues { Quaternionf(it.value.leftRotation) }
+            f.cart.sync(f.player, f.request, false, listOf(f.cargo))
+            f.locations shouldBe before
+            f.transforms.mapValues { it.value.leftRotation } shouldBe rotations
+            handles.forEach { display ->
+                verify(exactly = 0) { display.attachTo(any<Player>()) }
+                verify { display.teleportDuration = 1 }
+                verify { display.interpolationDuration = 1 }
+            }
+        }
+    }
+})
+
+private class CartDisplayFixture(layout: OriginForgeCartLayout) : AutoCloseable {
+    private val paper = MockBukkitTestRuntime.open()
+    val request: UUID = UUID.randomUUID()
+    val world: World = mockk(relaxed = true)
+    val player: Player = mockk(relaxed = true)
+    var at: Location = Location(world, 0.0, 70.0, -1.0)
     var loaded = true
     var blockReads = 0
-    beforeEach {
-        paper = MockBukkitTestRuntime.open()
-        loaded = true; blockReads = 0; obstacles.clear(); transforms.clear()
-        world = mockk(relaxed = true)
+    val obstacles = mutableMapOf<Triple<Int, Int, Int>, BoundingBox>()
+    val transforms = linkedMapOf<PacketDisplay, Transformation>()
+    val locations = linkedMapOf<PacketDisplay, Location>()
+    val cargo = originForgeCargoPieces(OriginForgeCargo.IRON)
+    val cart: OriginOddJobCart
+    init {
         every { world.uid } returns UUID.randomUUID()
         every { world.minHeight } returns -64
         every { world.maxHeight } returns 320
         every { world.isChunkLoaded(any<Int>(), any<Int>()) } answers { loaded }
-        // The real shared collision checker consumes explicit native VoxelShapes. MockBukkit has none.
         every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
             blockReads++
             val key = Triple(firstArg<Int>(), secondArg<Int>(), thirdArg<Int>())
             val box = obstacles[key] ?: if (key.second == 69) BoundingBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0) else null
             mockk<Block> { every { collisionShape } returns mockk { every { boundingBoxes } returns listOfNotNull(box) } }
         }
-        at = Location(world, 0.0, 70.0, -1.0)
-        player = mockk(relaxed = true)
-        every { player.uniqueId } returns id
+        every { player.uniqueId } returns UUID.randomUUID()
         every { player.world } returns world
         every { player.location } answers { at.clone() }
         every { player.height } returns 1.8
         val owner = mockk<PaperPacketDisplays>(relaxed = true)
-        fun track(display: PacketDisplay) {
+        fun track(display: PacketDisplay, at: Location) {
             every { display.isValid } returns true
+            locations[display] = at.clone()
             every { display.transformation = any() } answers { transforms[display] = firstArg() }
+            every { display.teleport(any()) } answers { locations[display] = firstArg<Location>().clone() }
         }
-        every { owner.spawnItem(any(), any()) } answers { mockk<PacketItemDisplay>(relaxed = true).also(::track) }
-        every { owner.spawnBlock(any(), any()) } answers { mockk<PacketBlockDisplay>(relaxed = true).also(::track) }
+        every { owner.spawnItem(any(), any()) } answers { mockk<PacketItemDisplay>(relaxed = true).also { track(it, firstArg()) } }
+        every { owner.spawnBlock(any(), any()) } answers { mockk<PacketBlockDisplay>(relaxed = true).also { track(it, firstArg()) } }
         cart = OriginOddJobCart(layout, { ItemStack(Material.MINECART) }, { owner })
-        cart.sync(player, request, true, listOf(originForgeCargoPieces(OriginForgeCargo.IRON)))
+        cart.sync(player, request, true, listOf(cargo))
     }
-    afterEach { cart.close(); paper.close() }
-
-    fun anchors() = transforms.values.map { pose ->
-        Vector3f(pose.translation).add(at.x.toFloat(), (at.y + player.height).toFloat(), at.z.toFloat())
-    }
-
-    "a full block stops the cart and every cargo part at the last safe world pose" {
-        val before = anchors()
-        val rotations = transforms.values.map { it.leftRotation }
-        obstacles[Triple(0, 70, 2)] = BoundingBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
-        at.z = 0.2
-        cart.follow(player, request)
-        cart.point(id, request) shouldBe Location(world, 0.0, 70.0, 0.0)
-        before.zip(anchors()).forEach { (a, b) -> a.distance(b).toDouble() shouldBeLessThan 1e-5 }
-        transforms.values.map { it.leftRotation } shouldBe rotations
-        // Releasing uses that same safe pose for both the chassis and its cargo.
-        val parked = linkedMapOf<PacketDisplay, Location>()
-        transforms.keys.forEach { display -> every { display.teleport(any()) } answers { parked[display] = firstArg<Location>().clone() } }
-        cart.sync(player, request, false, listOf(originForgeCargoPieces(OriginForgeCargo.IRON)))
-        parked.values.first() shouldBe Location(world, 0.0, 70.5625, 0.0, 180f, 0f)
-        before.zip(transforms.map { (display, pose) ->
-            val anchor = parked.getValue(display)
-            Vector3f(pose.translation).add(anchor.x.toFloat(), anchor.y.toFloat(), anchor.z.toFloat())
-        }).forEach { (a, b) -> a.distance(b).toDouble() shouldBeLessThan 1e-5 }
-    }
-
-    "a clear endpoint beyond a wall cannot tunnel across the blocked path" {
-        obstacles[Triple(0, 70, 1)] = BoundingBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
-        at.z = 2.5
-        val endpoint = originOddJobCartSweptBounds(OriginWorkshopPoint(0.0, 70.0, 3.5), 180f,
-            OriginWorkshopPoint(0.0, 70.0, 3.5), 180f, layout)
-        (endpoint.minZ > 2.0) shouldBe true
-        cart.follow(player, request)
-        cart.point(id, request) shouldBe Location(world, 0.0, 70.0, 0.0)
-    }
-
-    "a slab follows the worker's real rise and descent without auto climbing" {
-        obstacles[Triple(0, 70, 1)] = BoundingBox(0.0, 0.0, 0.0, 1.0, 0.5, 1.0)
-        at.z = 0.2
-        cart.follow(player, request)
-        cart.point(id, request) shouldBe Location(world, 0.0, 70.0, 0.0)
-        at.y = 70.5; at.z = -1.0
-        cart.follow(player, request)
-        cart.point(id, request) shouldBe Location(world, 0.0, 70.5, 0.0)
-        at.z = 0.2
-        cart.follow(player, request)
-        cart.point(id, request) shouldBe Location(world, 0.0, 70.5, 1.2)
-        at.z = -1.4
-        cart.follow(player, request)
-        at.y = 70.0
-        cart.follow(player, request)
-        abs(cart.point(id, request)!!.z + 0.4) shouldBeLessThan 1e-6
-        cart.point(id, request)!!.y shouldBe 70.0
-    }
-
-    "a diagonal rising keyframe cannot cross a block along its actual interpolation path" {
-        obstacles[Triple(0, 70, 1)] = BoundingBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
-        at.y = 71.2; at.z = 2.5
-        cart.follow(player, request)
-        cart.point(id, request) shouldBe Location(world, 0.0, 70.0, 0.0)
-    }
-
-    "turning cannot sweep the handles through an obstacle clear of both endpoint poses" {
-        obstacles[Triple(1, 70, -1)] = BoundingBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
-        val before = transforms.values.first().leftRotation
-        at = Location(world, 0.0, 70.0, 1.0, 180f, 0f)
-        cart.follow(player, request)
-        transforms.values.first().leftRotation shouldBe before
-    }
-
-    "unloaded space and a distant worker keep the cart in place without loading or scanning chunks" {
-        loaded = false; blockReads = 0
-        at.z += 0.2
-        cart.follow(player, request)
-        blockReads shouldBe 0
-        loaded = true; at.z = 100.0
-        cart.follow(player, request)
-        blockReads shouldBe 0
-        cart.point(id, request) shouldBe Location(world, 0.0, 70.0, 0.0)
-    }
-
-    "asymmetric cart bounds match native carry and parked cardinal orientations" {
-        for (yaw in listOf(180f, 215f, 270f, 319f, 360f, 90f)) {
-            val bounds = originOddJobCartSweptBounds(layout.start, yaw, layout.start, yaw, layout)
-            abs(bounds.minY - 70.00001) shouldBeLessThan 1e-6
-            val rotation = org.joml.Quaternionf().rotationY(Math.toRadians(180.0 - yaw).toFloat())
-            // ItemDisplay's native Y+180 cancels the carry transform's extra Y+180.
-            val carriedRotation = org.joml.Quaternionf(rotation).rotateY(Math.PI.toFloat()).rotateY(Math.PI.toFloat())
-            val handles = carriedRotation.transform(Vector3f(0f, 0f, -1.0846796f))
-            bounds.contains(handles.x.toDouble(), 70.5, handles.z.toDouble()) shouldBe true
-            val front = rotation.transform(Vector3f(0f, 0f, 0.913591f))
-            bounds.contains(front.x.toDouble(), 70.5, front.z.toDouble()) shouldBe true
-            for (x in listOf(-0.5859375f, 0.5859375f)) for (z in listOf(-1.0846796f, 0.913591f)) {
-                val corner = carriedRotation.transform(Vector3f(x, 0f, z))
-                bounds.clone().expand(1e-6).contains(corner.x.toDouble(), 70.5, corner.z.toDouble()) shouldBe true
-            }
-            if (yaw % 90f == 0f)
-                abs(if (yaw == 180f || yaw == 360f) bounds.widthX - 1.171875 else bounds.widthZ - 1.171875) shouldBeLessThan 1e-6
-        }
-    }
-
-    "an exact half turn covers both arcs and the float quaternion slerp used by the client" {
-        val bounds = originOddJobCartSweptBounds(layout.start, 180f, layout.start, 360f, layout).expand(1e-5)
-        val first = org.joml.Quaternionf().rotateY(Math.PI.toFloat())
-        val last = org.joml.Quaternionf().rotateY(-Math.PI.toFloat()).rotateY(Math.PI.toFloat())
-        for (step in 0..32) {
-            val t = step / 32f
-            val rotations = listOf(org.joml.Quaternionf(first).slerp(last, t).rotateY(Math.PI.toFloat()),
-                org.joml.Quaternionf().rotateY(t * Math.PI.toFloat()),
-                org.joml.Quaternionf().rotateY(-t * Math.PI.toFloat()))
-            for (rotation in rotations) for (x in listOf(-0.5859375f, 0.5859375f)) for (z in listOf(-1.0846796f, 0.913591f)) {
-                val corner = rotation.transform(Vector3f(x, 0f, z))
-                bounds.contains(corner.x.toDouble(), 70.5, corner.z.toDouble()) shouldBe true
-            }
-        }
-    }
-})
+    override fun close() { cart.close(); paper.close() }
+}

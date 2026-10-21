@@ -54,6 +54,75 @@ class OriginOddJobsGameTest : StringSpec({
     beforeEach { f = OddJobsFixture() }
     afterEach { f.close() }
 
+    "the other half of the same stock chest works for forging and hauling and respects a block veto" {
+        for (variant in listOf(OriginOddJobVariant.FORGE_NEW, OriginOddJobVariant.HAUL_COPPER)) {
+            f.close(); f = OddJobsFixture(doubleStocks = true)
+            failOnUnsupportedMockBukkitOperation {
+                f.begin(349, variant)
+                val job = f.game.currentJob(f.player.uniqueId)!!
+                val source = f.stations.getValue(if (variant == OriginOddJobVariant.FORGE_NEW) OriginOddJobStationId.BLANK else OriginOddJobStationId.ORE_STOCK)
+                val other = originOddJobStationBlocks(source.block).first { it != source.block }
+                val hit = other.location.add(0.5, 0.5, 0.5)
+                val at = hit.clone().add(3.7, -0.5, 0.0).apply {
+                    setDirection(hit.toVector().subtract(clone().add(0.0, f.player.eyeHeight, 0.0).toVector()))
+                }
+                f.player.teleport(at)
+                (f.player.eyeLocation.distanceSquared(source.point) > f.config.range * f.config.range) shouldBe true
+                f.world.obstruction = RayTraceResult(hit.toVector(), other, BlockFace.NORTH)
+                fun click(result: Event.Result) = PlayerInteractEvent(f.player, Action.RIGHT_CLICK_BLOCK, null, other,
+                    BlockFace.NORTH, EquipmentSlot.HAND).also { it.setUseInteractedBlock(result); f.game.onBlock(it) }
+                click(Event.Result.DENY).useInteractedBlock() shouldBe Event.Result.DENY
+                f.game.currentJob(f.player.uniqueId)!!.stage shouldBe job.stage
+                @Suppress("UNNECESSARY_SAFE_CALL") // MockBukkit's closed view can omit its top inventory.
+                (f.player.openInventory.topInventory?.holder as? OriginOddJobSupplies.Stock) shouldBe null
+                f.now += 700
+                click(Event.Result.DEFAULT).useInteractedBlock() shouldBe Event.Result.DENY
+                if (variant == OriginOddJobVariant.FORGE_NEW) {
+                    val stock = f.player.openInventory.topInventory.holder as OriginOddJobSupplies.Stock
+                    stock.jobId shouldBe job.id
+                    stock.block shouldBe source.block
+                    f.stockClick(); f.scheduler.tick()
+                    f.requireStage(OriginOddJobStage.FORGE_HEAT, "blank selection stays reachable from the far half")
+                    stock.storage.getItem(4) shouldBe null
+                    f.player.inventory.contents.filterNotNull().count { it.type == Material.STRUCTURE_VOID } shouldBe 1
+                } else {
+                    f.requireStage(OriginOddJobStage.HAUL_LOAD, "opposite chest half supplies the cargo")
+                    f.player.inventory.itemInMainHand.type shouldBe Material.STRUCTURE_VOID
+                }
+            }
+        }
+    }
+
+    "stock selection rechecks connected chest reach before and after the inventory transaction" {
+        for (moveBeforeClick in listOf(false, true)) {
+            f.close(); f = OddJobsFixture(doubleStocks = true)
+            failOnUnsupportedMockBukkitOperation {
+                f.startForge()
+                val source = f.stations.getValue(OriginOddJobStationId.BLANK)
+                val other = originOddJobStationBlocks(source.block).first { it != source.block }
+                val hit = other.location.add(0.5, 0.5, 0.5)
+                val at = hit.clone().add(3.7, -0.5, 0.0).apply {
+                    setDirection(hit.toVector().subtract(clone().add(0.0, f.player.eyeHeight, 0.0).toVector()))
+                }
+                f.player.teleport(at)
+                f.world.obstruction = RayTraceResult(hit.toVector(), other, BlockFace.NORTH)
+                val event = PlayerInteractEvent(f.player, Action.RIGHT_CLICK_BLOCK, null, other, BlockFace.NORTH, EquipmentSlot.HAND)
+                event.setUseInteractedBlock(Event.Result.DEFAULT)
+                f.now += 700
+                f.game.onBlock(event)
+                val stock = f.player.openInventory.topInventory.holder as OriginOddJobSupplies.Stock
+                if (moveBeforeClick) f.player.setLocation(at.clone().add(10.0, 0.0, 0.0))
+                f.stockClick()
+                if (!moveBeforeClick) f.player.setLocation(at.clone().add(10.0, 0.0, 0.0))
+                f.player.openInventory.topInventory shouldBe stock.storage
+                f.scheduler.tick()
+                f.requireStage(OriginOddJobStage.FORGE_BLANK, "leaving either half's reach cannot take the blank")
+                stock.storage.getItem(4)!!.amount shouldBe 1
+                f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+            }
+        }
+    }
+
     "every employer opens an ordinary right click confirmation and never starts before acceptance" {
         failOnUnsupportedMockBukkitOperation {
             for (id in listOf(440, 349)) {
@@ -212,9 +281,14 @@ class OriginOddJobsGameTest : StringSpec({
             f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
             val cart = f.cartDisplays.first()
             verify { cart.isGlowing = true }
+            val loadedDisplays = f.cartDisplays.toList()
             f.strokeCart()
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_PUSH
-            f.cartDisplays.forEach { verify { it.attachTo(f.player) } }
+            f.cartDisplays shouldBe loadedDisplays
+            f.cartDisplays.forEach {
+                verify(exactly = 0) { it.attachTo(f.player) }
+                verify { it.teleport(match { pose -> pose.world?.uid == f.world.uid }); it.teleportDuration = 1 }
+            }
             val destination = f.stations.getValue(OriginOddJobStationId.HAUL_DELIVERY)
             verify { f.visuals.destination(f.player, request, destination.point.clone().add(0.0, 0.05, 0.0), "Разгрузка сырья") }
             val outline = originOddJobDestinationPieces()
@@ -230,7 +304,7 @@ class OriginOddJobsGameTest : StringSpec({
             reaches(-halfLength + 0.0001, halfWidth - 0.0001,
                 destination.copy(point = destination.point.clone().apply { yaw = 90f })) shouldBe true
             f.payments shouldBe emptyList()
-            // No authored lane: the cart stays attached even when the player walks around the yard.
+            // No authored lane: walking around the yard keeps the same cart and active hauling order.
             f.player.teleport(Location(f.world, -4.0, 70.0, 9.0, 90f, 0f)); f.scheduler.tick()
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.HAUL_PUSH
             f.payments shouldBe emptyList()
@@ -724,7 +798,7 @@ class OriginOddJobsGameTest : StringSpec({
     }
 })
 
-internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
+internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Boolean = false) : AutoCloseable {
     val paper = MockBukkitTestRuntime.open()
     private val itemFactory = paper.server.itemFactory
     val world = OddJobWorld().also { it.name = "rc_origin_spawn"; paper.server.addWorld(it); it.getChunkAt(0, 0) }
@@ -925,7 +999,9 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
             }
             val ground = id == OriginOddJobStationId.HAUL_DELIVERY
             val block = world.getBlockAt(index + 1, if (ground) 69 else 70, 3).also { it.type = material }
-            id to OriginOddJobStation(Location(world, block.x + 0.5, if (ground) 70.0 else 71.02, 3.5), block, setOf(material))
+            val resolved = if (doubleStocks && id in setOf(OriginOddJobStationId.BLANK, OriginOddJobStationId.ORE_STOCK))
+                oddJobTestDoubleChest(world, block.x, block.y, block.z, material).first() else block
+            id to OriginOddJobStation(Location(world, block.x + 0.5, if (ground) 70.0 else 71.02, 3.5), resolved, setOf(material))
         }.toMap()
         game = OriginOddJobsGame(config, world.name, if (deferStations) emptyMap() else stations, rewards, visuals, LifecycleTaskScope(scheduler),
             acquire = { venue ->

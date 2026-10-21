@@ -19,6 +19,7 @@ import org.joml.Vector3f
 import ru.arc.origin.scene.OriginScenePlan
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import java.nio.file.Files
+import kotlin.math.hypot
 import kotlin.math.abs
 
 class OriginOddJobForgeTest : StringSpec({
@@ -61,22 +62,23 @@ class OriginOddJobForgeTest : StringSpec({
             f.bodyYawOverride = 200.30119324f
             val at = Location(f.world, 2.0, 70.0, 5.0, viewYaw, 0f)
             f.player.teleport(at)
-            f.forge.sync(f.player, job)
+            repeat(100) { f.forge.sync(f.player, job) }
             val angle = Math.toRadians(viewYaw.toDouble())
             val forward = Vector3f((-kotlin.math.sin(angle)).toFloat(), 0f, kotlin.math.cos(angle).toFloat())
             val carried = requireNotNull(transform)
-            val offset = Vector3f(carried.translation).apply { y = 0f }
-            abs(offset.dot(forward).toDouble() - 1) shouldBeLessThan 1e-6
+            val worldPose = requireNotNull(releasedAt)
+            val offset = Vector3f((worldPose.x - at.x).toFloat(), 0f, (worldPose.z - at.z).toFloat())
+            abs(offset.dot(forward).toDouble() - 1) shouldBeLessThan 0.001
             // Model handles are -Z; native ItemDisplay adds Y+180 before the authored left rotation.
             val handles = carried.leftRotation.transform(Vector3f(0f, 0f, 1f))
             abs(handles.dot(forward).toDouble() + 1) shouldBeLessThan 1e-6
             f.forge.sync(f.player, job.copy(stage = OriginOddJobStage.HAUL_UNLOAD))
             val parked = requireNotNull(releasedAt)
-            parked.yaw shouldBe viewYaw + 180f
-            parked.toVector().subtract(at.toVector()).let {
-                abs(it.x - forward.x) shouldBeLessThan 1e-6
-                abs(it.z - forward.z) shouldBeLessThan 1e-6
-            }
+            parked shouldBe worldPose
+            val handleTip = carried.leftRotation.transform(Vector3f(0f, 0f, 1.041f))
+            val handleAt = parked.clone().add(handleTip.x.toDouble(), 0.0, handleTip.z.toDouble())
+            // Once settled, the authored grips meet the worker, facing their view rather than body yaw.
+            hypot(handleAt.x - at.x, handleAt.z - at.z) shouldBeLessThan 0.05
             f.payments shouldBe emptyList()
         } }
     }

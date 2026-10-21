@@ -54,7 +54,7 @@ internal class OriginOddJobMountyard(
     private val routeTimeoutMillis: Long = 60_000,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : AutoCloseable {
-    private data class RideControls(val trait: Controllable, val wasEnabled: Boolean?, val movementSpeed: Double?)
+    private data class RideControls(val trait: Controllable, val wasEnabled: Boolean?, val movementSpeed: Double?, val tamed: Boolean)
     private data class LeadMetadata(val key: NPC.Metadata, val value: Any?, val persistent: Boolean)
     private data class NativeLead(val ai: Boolean, val aware: Boolean, val metadata: List<LeadMetadata>)
 
@@ -84,6 +84,7 @@ internal class OriginOddJobMountyard(
         var leftYard = false
         var lessonRouteIndex = -1
         var lessonArrived = false
+        var remountAttempts = 0
         var recovery = OriginYardRecovery.HORSE
         var via = emptyList<Location>()
     }
@@ -352,8 +353,11 @@ internal class OriginOddJobMountyard(
     fun tick(player: Player, job: OriginOddJobSession, now: Long): OriginYardTick {
         val care = active[player.uniqueId]?.takeIf { it.requestId == job.id } ?: return OriginYardTick.FAILED
         val lesson = job.stage == OriginOddJobStage.YARD_LESSON_WALK
-        if (!owns(care) || (if (lesson) !mountedRider(care) else care.entity.passengers.isNotEmpty())) return OriginYardTick.FAILED
-        if (lesson && (care.stage != job.stage || job.yard?.routeIndex != care.lessonRouteIndex)) return OriginYardTick.FAILED
+        if (!owns(care)) return OriginYardTick.FAILED
+        if (lesson) {
+            if (care.stage != job.stage || job.yard?.routeIndex != care.lessonRouteIndex) return OriginYardTick.FAILED
+            if (!mountedRider(care)) return remountLessonRider(care)
+        } else if (care.entity.passengers.isNotEmpty()) return OriginYardTick.FAILED
         if (originYardTieMask(job) != null) {
             if (!held(care)) return OriginYardTick.FAILED
             care.resources.hold(care.actor)
@@ -476,18 +480,53 @@ internal class OriginOddJobMountyard(
         val passenger = requireNotNull(care.riderEntity)
         if (passenger.vehicle != null || care.entity.passengers.isNotEmpty()) return false
         care.resources.clearMovementPose(requireNotNull(care.rider))
+        val snapshot = care.rideControls
         val previous = care.actor.getTraitNullable(Controllable::class.java)
+        if (snapshot != null && previous !== snapshot.trait) return false
         val controls = previous ?: care.actor.getOrAddTrait(Controllable::class.java)
-        care.rideControls = RideControls(controls, previous?.isEnabled, care.entity.getAttribute(Attribute.MOVEMENT_SPEED)?.baseValue)
+        if (snapshot == null) care.rideControls = RideControls(controls, previous?.isEnabled,
+            care.entity.getAttribute(Attribute.MOVEMENT_SPEED)?.baseValue, care.entity.isTamed)
         // Retain the mounted control snapshot independently of the temporary player lead.
+        care.entity.isTamed = true
         controls.setEnabled(true)
         care.mounted = care.entity.addPassenger(passenger)
-        if (!care.mounted) restoreRideControls(care)
+        if (!care.mounted && snapshot == null) restoreRideControls(care)
         return care.mounted
+    }
+
+    private fun remountLessonRider(care: Care): OriginYardTick {
+        care.lessonArrived = false
+        val passenger = care.riderEntity
+        val reason = when {
+            !ownsRider(care) || passenger == null || care.rideControls == null -> "rider-unavailable"
+            passenger.vehicle != null -> "rider-vehicle"
+            care.entity.passengers.isNotEmpty() -> "horse-occupied"
+            passenger.world.uid != care.entity.world.uid -> "rider-world"
+            passenger.location.distanceSquared(care.entity.location) > 16.0 -> "rider-distance"
+            !passenger.hasLineOfSight(care.entity) -> "rider-obstructed"
+            care.remountAttempts >= 3 -> "remount-exhausted"
+            else -> null
+        }
+        if (reason != null) {
+            warn("ORIGIN_ODD_JOBS phase=YARD_LESSON_REMOUNT_FAILED npc={} rider={} attempts={} reason={}",
+                care.actor.id, care.rider?.id, care.remountAttempts, reason)
+            return OriginYardTick.FAILED
+        }
+        care.remountAttempts++
+        val mounted = mountRider(care)
+        info("ORIGIN_ODD_JOBS phase=YARD_LESSON_REMOUNT npc={} rider={} attempt={} mounted={}",
+            care.actor.id, care.rider?.id, care.remountAttempts, mounted)
+        if (!mounted && care.remountAttempts >= 3) {
+            warn("ORIGIN_ODD_JOBS phase=YARD_LESSON_REMOUNT_FAILED npc={} rider={} attempts={} reason=mount-rejected",
+                care.actor.id, care.rider?.id, care.remountAttempts)
+            return OriginYardTick.FAILED
+        }
+        return OriginYardTick.WAITING
     }
 
     private fun restoreRideControls(care: Care) {
         val snapshot = care.rideControls ?: return
+        if (ownsPersistentActor(care) && owns(care)) care.entity.isTamed = snapshot.tamed
         // Traits belong to the persistent NPC, even after its current entity despawns or is replaced.
         if (ownsPersistentActor(care) &&
             care.actor.getTraitNullable(Controllable::class.java) === snapshot.trait) {

@@ -146,12 +146,8 @@ internal fun originOddJobTargetPieces(size: OriginWorkshopGamePartSize = OriginW
 
 /** Bukkit resolves the connected inventory; touching single chests must remain separate targets. */
 internal fun originOddJobDoubleChestBounds(block: Block): BoundingBox? {
-    val data = block.blockData as? org.bukkit.block.data.type.Chest ?: return null
-    if (data.type == org.bukkit.block.data.type.Chest.Type.SINGLE) return null
-    val chest = (block.state as? Chest)?.inventory?.holder as? DoubleChest ?: return null
-    val left = (chest.leftSide as? Chest)?.block ?: return null
-    val right = (chest.rightSide as? Chest)?.block ?: return null
-    return BoundingBox.of(left).union(BoundingBox.of(right))
+    val blocks = originOddJobStationBlocks(block)
+    return if (blocks.size == 2) BoundingBox.of(blocks[0]).union(BoundingBox.of(blocks[1])) else null
 }
 
 /** Outside edges shared by the visible ground frame and cart delivery acceptance. */

@@ -100,6 +100,20 @@ internal fun originClearAuctionJobHologram(venue: OriginOddJobVenue) {
     OriginNpcHolograms.patchHologram(npc.id, emptyList(), viewRange = -1)
 }
 
+/** Stock selection remains reachable from either connected chest half after the native click. */
+internal fun originOddJobStationInReach(player: Player, station: OriginOddJobStation, range: Double): Boolean {
+    if (player.world.uid != station.point.world?.uid) return false
+    val eye = player.eyeLocation
+    val blocks = originOddJobStationBlocks(station.block)
+    if (blocks.size == 1) return eye.distanceSquared(station.point) <= range * range
+    return blocks.any { block ->
+        val dx = eye.x - eye.x.coerceIn(block.x.toDouble(), block.x + 1.0)
+        val dy = eye.y - eye.y.coerceIn(block.y.toDouble(), block.y + 1.0)
+        val dz = eye.z - eye.z.coerceIn(block.z.toDouble(), block.z + 1.0)
+        dx * dx + dy * dy + dz * dz <= range * range
+    }
+}
+
 /** The same hit volume covers the small station bracket, its label and the real clicked block. */
 internal fun originOddJobAimed(player: Player, station: OriginOddJobStation, range: Double, clicked: Block?, virtualTarget: Boolean = false): Boolean {
     if (player.world.uid != station.point.world?.uid) return false
@@ -107,17 +121,24 @@ internal fun originOddJobAimed(player: Player, station: OriginOddJobStation, ran
         val hit = player.world.rayTraceBlocks(player.eyeLocation, player.eyeLocation.direction, range, FluidCollisionMode.NEVER, true)?.hitBlock
         return hit == clicked
     }
-    if (!virtualTarget && clicked != null && (clicked.world.uid != station.block.world.uid || clicked.x != station.block.x ||
-            clicked.y != station.block.y || clicked.z != station.block.z)) return false
+    val blocks = if (virtualTarget) listOf(station.block) else originOddJobStationBlocks(station.block)
+    fun contains(block: Block): Boolean = blocks.any { it.world.uid == block.world.uid && it.x == block.x && it.y == block.y && it.z == block.z }
+    if (!virtualTarget && clicked != null && !contains(clicked)) return false
+    if (!virtualTarget && clicked != null && blocks.size == 2) {
+        val eye = player.eyeLocation
+        val hit = player.world.rayTraceBlocks(eye, eye.direction, range, FluidCollisionMode.NEVER, true) ?: return false
+        return hit.hitBlock?.let(::contains) == true && hit.hitPosition.distanceSquared(eye.toVector()) <= range * range
+    }
     val eye = player.eyeLocation
     val ray = eye.direction
     val p = station.point
     val distance = originWorkshopRayAabbHit(OriginWorkshopVec3(eye.x, eye.y, eye.z), OriginWorkshopVec3(ray.x, ray.y, ray.z),
-        OriginWorkshopAabb(p.x - 0.65, p.y - 0.8, p.z - 0.65, p.x + 0.65, p.y + 0.95, p.z + 0.65), range) ?: return false
+        OriginWorkshopAabb(p.x - 0.65 + blocks.minOf { it.x - station.block.x }, p.y - 0.8,
+            p.z - 0.65 + blocks.minOf { it.z - station.block.z }, p.x + 0.65 + blocks.maxOf { it.x - station.block.x }, p.y + 0.95,
+            p.z + 0.65 + blocks.maxOf { it.z - station.block.z }), range) ?: return false
     val blocker = player.world.rayTraceBlocks(eye, ray, distance + 0.02, FluidCollisionMode.NEVER, true)?.hitBlock ?: return true
     if (virtualTarget) return false // Packet props have no native clicked block; only earlier world collisions obstruct them.
-    return blocker.world.uid == station.block.world.uid && blocker.x == station.block.x &&
-        blocker.y == station.block.y && blocker.z == station.block.z ||
+    return contains(blocker) ||
         station.accessBlocks.any { it == blocker && it.type == org.bukkit.Material.IRON_BARS }
 }
 
@@ -227,6 +248,11 @@ internal class OriginOddJobsGame(
         if (event.hand != EquipmentSlot.HAND) return
         val left = event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR
         if (!left && event.action != Action.RIGHT_CLICK_BLOCK && event.action != Action.RIGHT_CLICK_AIR) return
+        if (!left && event.useInteractedBlock() == org.bukkit.event.Event.Result.DENY &&
+            event.clickedBlock?.type in setOf(org.bukkit.Material.CHEST, org.bukkit.Material.TRAPPED_CHEST, org.bukkit.Material.BARREL)) {
+            if (supplies.isWorkpiece(event.item)) event.setUseItemInHand(org.bukkit.event.Event.Result.DENY)
+            return
+        }
         if (!left && progress.current(event.player.uniqueId)?.kind == OriginOddJobKind.MOUNTYARD &&
             event.clickedBlock?.let(yard::isStallGate) == true) {
             // Preserve native block access and any protection denial, while suppressing use of the loaned tool.
@@ -304,13 +330,13 @@ internal class OriginOddJobsGame(
             if (stock.playerId != player.uniqueId || event.rawSlot != 4 || !supplies.isWorkpiece(event.currentItem)) return
             val job = progress.current(player.uniqueId)?.takeIf { it.id == stock.jobId && it.stage in setOf(OriginOddJobStage.FORGE_BLANK, OriginOddJobStage.ENGRAVE_BLANK) } ?: return
             val station = stations[OriginOddJobStationId.BLANK] ?: return
-            if (!valid(player, job) || player.eyeLocation.distanceSquared(station.point) > config.range * config.range) return
+            if (!valid(player, job) || !originOddJobStationInReach(player, station, config.range)) return
             if (!supplies.hasSpace(player)) { feedback(player, "inventory-full"); return }
             // Bukkit inventory mutation/closure runs after the click transaction has completed.
             tasks.runLater(1) {
                 val current = progress.current(player.uniqueId)?.takeIf { it.id == job.id && it.stage == job.stage } ?: return@runLater
                 if (supplies.stock(player.openInventory) !== stock || !valid(player, current) ||
-                    player.eyeLocation.distanceSquared(station.point) > config.range * config.range || !supplies.hasSpace(player)) return@runLater
+                    !originOddJobStationInReach(player, station, config.range) || !supplies.hasSpace(player)) return@runLater
                 stock.storage.setItem(4, null)
                 apply(player, progress.act(player.uniqueId, OriginOddJobAction.BLANK, clock()))
             }
@@ -560,7 +586,7 @@ internal class OriginOddJobsGame(
     private fun contextNear(player: Player, job: OriginOddJobSession?, venue: OriginOddJobVenue): Boolean {
         if (job == null) return near(player, venue.npcId)
         val station = originOddJobStation(job.stage)?.let(stations::get)
-        if (station != null) return player.world.uid == station.point.world?.uid && player.eyeLocation.distanceSquared(station.point) <= config.range * config.range
+        if (station != null) return originOddJobStationInReach(player, station, config.range)
         return near(player, if (job.stage == OriginOddJobStage.AUCTION_RECEIPT) config.handoffNpcId else venue.npcId)
     }
 
