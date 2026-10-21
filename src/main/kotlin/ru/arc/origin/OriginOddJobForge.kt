@@ -47,11 +47,11 @@ internal data class OriginForgeCartLayout(
     }
 }
 
-/** One metre behind the worker: the cart's handles face the player, independent of a preset route. */
+/** One metre ahead, like Savva's ambient cart; the model's -Z handles point back to the worker. */
 internal fun originForgeCartCarryPose(bodyYaw: Double): OriginWorkshopCarryPose {
     val yaw = Math.toRadians(bodyYaw)
-    return OriginWorkshopCarryPose(OriginWorkshopPoint(sin(yaw), 0.0, -cos(yaw)),
-        Quaternionf().rotationY((Math.PI - yaw).toFloat()))
+    return OriginWorkshopCarryPose(OriginWorkshopPoint(-sin(yaw), 0.0, cos(yaw)),
+        Quaternionf().rotationY(-yaw.toFloat()))
 }
 
 /** One leased, client-only cart. Cargo and cart share the player's native passenger attachment. */
@@ -126,7 +126,7 @@ internal class OriginOddJobForge(
         val pose = originForgeCartCarryPose(player.bodyYaw.toDouble())
         val at = player.location
         cart.point = OriginWorkshopPoint(at.x + pose.center.x, at.y, at.z + pose.center.z)
-        cart.yaw = player.bodyYaw
+        cart.yaw = player.bodyYaw + 180f
         if (!cart.attached) cart.display.teleport(at.clone().apply { yaw = 0f; pitch = 0f })
         cart.display.transformation = Transformation(
             Vector3f(pose.center.x.toFloat(), (spec.lift - player.height).toFloat(), pose.center.z.toFloat()),

@@ -857,7 +857,7 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     fun dragCart(step: Double = 0.22) {
         val stage = OriginOddJobStage.HAUL_PUSH
         val start = player.location
-        val destination = stations.getValue(OriginOddJobStationId.BLANK).block.location.clone().add(0.5, 0.0, 1.5)
+        val destination = stations.getValue(OriginOddJobStationId.BLANK).block.location.clone().add(0.5, 0.0, -0.5)
         val distance = kotlin.math.hypot(destination.x - start.x, destination.z - start.z)
         val ticks = kotlin.math.ceil(distance / step).toInt().coerceAtLeast(1)
         repeat(ticks) { tick ->

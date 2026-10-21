@@ -10,24 +10,68 @@ import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerTeleportEvent
+import org.bukkit.util.Transformation
+import org.joml.Matrix4f
 import org.joml.Vector3f
 import ru.arc.origin.scene.OriginScenePlan
+import ru.arc.paper.display.PacketDisplay
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import java.nio.file.Files
 import kotlin.math.abs
 
 class OriginOddJobForgeTest : StringSpec({
-    "cart attachment follows the worker heading behind the player without a route projection" {
-        for (yaw in listOf(0.0, 90.0, 180.0, 270.0)) {
+    "cart stays one block ahead with its handles towards the worker through turns" {
+        for (yaw in listOf(0.0, 45.0, 90.0, 180.0, 270.0, -90.0)) {
             val pose = originForgeCartCarryPose(yaw)
             val angle = Math.toRadians(yaw)
-            abs(pose.center.x - kotlin.math.sin(angle)) shouldBeLessThan 1e-6
-            abs(pose.center.z + kotlin.math.cos(angle)) shouldBeLessThan 1e-6
+            abs(pose.center.x + kotlin.math.sin(angle)) shouldBeLessThan 1e-6
+            abs(pose.center.z - kotlin.math.cos(angle)) shouldBeLessThan 1e-6
             pose.center.y shouldBe 0.0
             val forward = Vector3f((-kotlin.math.sin(angle)).toFloat(), 0f, kotlin.math.cos(angle).toFloat())
-            val back = Vector3f(pose.center.x.toFloat(), 0f, pose.center.z.toFloat())
-            abs(back.dot(forward).toDouble() + 1) shouldBeLessThan 1e-6
+            val offset = Vector3f(pose.center.x.toFloat(), 0f, pose.center.z.toFloat())
+            abs(offset.dot(forward).toDouble() - 1) shouldBeLessThan 1e-6
+            val handles = pose.rotation.transform(Vector3f(0f, 0f, -1f))
+            abs(handles.dot(forward).toDouble() + 1) shouldBeLessThan 1e-6
         }
+    }
+
+    "cart and every cargo piece keep their world pose when released for unloading" {
+        OddJobsFixture().use { f -> failOnUnsupportedMockBukkitOperation {
+            f.begin(351, OriginOddJobVariant.HAUL_IRON)
+            f.stroke(OriginOddJobStationId.ORE_STOCK); f.strokeCart(); f.strokeCart()
+            val job = f.game.currentJob(f.player.uniqueId)!!
+            val transforms = mutableMapOf<PacketDisplay, Transformation>()
+            val anchors = mutableMapOf<PacketDisplay, Location>()
+            f.cartDisplays.forEach { display ->
+                every { display.transformation = any() } answers { transforms[display] = firstArg() }
+                every { display.teleport(any()) } answers { anchors[display] = firstArg<Location>().clone() }
+                every { display.attachTo(f.player) } answers {
+                    anchors[display] = f.player.location.add(0.0, f.player.height, 0.0).apply { yaw = 0f; pitch = 0f }
+                }
+            }
+            fun worldPoses() = transforms.mapValues { (display, transform) ->
+                val at = anchors.getValue(display)
+                Matrix4f().translation(at.x.toFloat(), at.y.toFloat(), at.z.toFloat())
+                    .rotateY(-Math.toRadians(at.yaw.toDouble()).toFloat())
+                    .translate(transform.translation).rotate(transform.leftRotation)
+                    .scale(transform.scale).rotate(transform.rightRotation)
+            }
+            for (yaw in listOf(0f, 45f, 90f, 180f, 270f)) {
+                f.player.teleport(Location(f.world, 2.0, 70.0, 5.0, yaw, 0f))
+                f.forge.sync(f.player, job)
+                val carried = worldPoses()
+                f.forge.sync(f.player, job.copy(stage = OriginOddJobStage.HAUL_UNLOAD))
+                val parked = worldPoses()
+                carried.size shouldBe f.cartDisplays.size
+                for ((display, before) in carried) {
+                    for (point in listOf(Vector3f(), Vector3f(1f, 0f, 0f), Vector3f(0f, 1f, 0f), Vector3f(0f, 0f, 1f))) {
+                        val from = before.transformPosition(Vector3f(point))
+                        val to = parked.getValue(display).transformPosition(Vector3f(point))
+                        from.distance(to).toDouble() shouldBeLessThan 5e-5
+                    }
+                }
+            }
+        } }
     }
 
     "a new repair order starts at stock and never resurrects an item on the anvil" {
@@ -101,9 +145,9 @@ class OriginOddJobForgeTest : StringSpec({
                 block, setOf(Material.CHEST))
 
             fun arrives(distance: Double, floorY: Double): Boolean {
-                // At yaw zero the cart follows one block behind the worker.
+                // At yaw zero the cart is one block ahead of the worker.
                 f.player.teleport(Location(f.world, block.x + 0.5 + distance, floorY,
-                    block.z + 1.5, 0f, 0f))
+                    block.z - 0.5, 0f, 0f))
                 return f.forge.tick(f.player, job, destination)
             }
 
