@@ -49,6 +49,29 @@ class OriginScenePlanTest : FreeSpec({
         }
     }
 
+    "new work anchors merge into a legacy scene while preserving its authored list and overrides" {
+        val root = Files.createTempDirectory("origin-scenes-work-upgrade")
+        val file = root.resolve("modules/origin-scenes.yml")
+        Files.createDirectories(file.parent)
+        val yaml = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(
+            requireNotNull(javaClass.getResourceAsStream("/modules/origin-scenes.yml")).reader())
+        val original = yaml.getStringList("scenes.mount-yard.anchor-ids")
+        yaml.set("scenes.mount-yard.work-anchor-ids", null)
+        yaml.set("scenes.mount-yard.anchors.job-clean-cart", "61.5,70,-132.5")
+        yaml.set("scenes.mount-yard.operator-note", "keep-this-value")
+        yaml.save(file.toFile())
+        val plan = OriginScenePlan.load(root)
+        plan.scene("mount-yard").anchors.getValue("job-clean-cart").x shouldBe 61.5
+        plan.scene("mount-yard").anchors.containsKey("job-clean-unload") shouldBe true
+        val upgraded = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(file.toFile())
+        upgraded.getStringList("scenes.mount-yard.anchor-ids") shouldBe original
+        upgraded.getStringList("scenes.mount-yard.work-anchor-ids").contains("job-clean-cart") shouldBe true
+        upgraded.getString("scenes.mount-yard.operator-note") shouldBe "keep-this-value"
+        val first = Files.readString(file)
+        OriginScenePlan.load(root)
+        Files.readString(file) shouldBe first
+    }
+
     "bundled cycles retain authored step ids and derive a watchdog budget" {
         val cycle = OriginScenePlan.load(Files.createTempDirectory("origin-scenes-duration-test"))
             .scene("forge")

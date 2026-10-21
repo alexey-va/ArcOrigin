@@ -20,7 +20,7 @@ class OriginOddJobsProgressTest : StringSpec({
         board.offers(OriginWorkShiftPhase.CLOSING).count { it.id == selected.id } shouldBe 1
         board.accept(selected.id) shouldBe selected
         board.nextAvailable(OriginWorkShiftPhase.OPENING) { false } shouldBe null
-        board.offers(OriginWorkShiftPhase.OPENING).all { it.variant.isYardPreparation() } shouldBe true
+        board.offers(OriginWorkShiftPhase.OPENING).all { it.variant.isYardPreparation() || it.variant == OriginOddJobVariant.YARD_CLEANUP } shouldBe true
     }
     "new forge shifts randomize the starting craft and its variant" {
         val starts = List(120) { seed ->
@@ -127,6 +127,64 @@ class OriginOddJobsProgressTest : StringSpec({
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
         jobs.current(id)!!.yard!!.animalId shouldBe 423
         jobs.current(id)!!.quality shouldBe 100
+    }
+    "lesson needs every field checkpoint and the home point before it can be accepted once" {
+        val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
+        jobs.begin(id, offer(OriginOddJobVariant.YARD_LESSON), 0) shouldBe null
+        val job = jobs.begin(id, offer(OriginOddJobVariant.YARD_LESSON), 0,
+            yardTarget = OriginYardWork(422, "Буран", routeTotal = 9))!!
+        val preparation = listOf(OriginOddJobAction.TACK, OriginOddJobAction.LEAD, OriginOddJobAction.ARRIVE,
+            OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.BRUSH,
+            OriginOddJobAction.GROOM, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM,
+            OriginOddJobAction.TACK, OriginOddJobAction.SADDLE, OriginOddJobAction.UNTIE,
+            OriginOddJobAction.UNTIE, OriginOddJobAction.ARRIVE, OriginOddJobAction.HANDOFF)
+        preparation.forEach { jobs.act(id, it, 1) }
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_LESSON_WALK
+        repeat(9) { index ->
+            jobs.current(id)!!.yard!!.routeIndex shouldBe index
+            jobs.act(id, OriginOddJobAction.RETURN, 2).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+            jobs.finish(id, job.id) shouldBe null
+            jobs.act(id, OriginOddJobAction.ARRIVE, 3)
+        }
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
+        jobs.act(id, OriginOddJobAction.RETURN, 4)
+        jobs.finish(id, job.id)!!.stage shouldBe OriginOddJobStage.PAYOUT
+        jobs.finish(id, job.id) shouldBe null
+    }
+    "cleaning cannot pay at collection or unloading and requires the empty cart back in its parking" {
+        val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
+        val job = jobs.begin(id, offer(OriginOddJobVariant.YARD_CLEANUP), 0)!!
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.CLEAN_TOOL
+        jobs.act(id, OriginOddJobAction.PICKUP, 1)
+        jobs.act(id, OriginOddJobAction.ATTACH_CART, 2)
+        jobs.act(id, OriginOddJobAction.CART_ARRIVE, 3).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.PARK_CART, 4)
+        repeat(3) { index ->
+            jobs.act(id, OriginOddJobAction.LOAD, 5).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+            jobs.act(id, OriginOddJobAction.SCOOP, 6)
+            jobs.act(id, OriginOddJobAction.SCOOP, 7).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+            jobs.act(id, OriginOddJobAction.LOAD, 8)
+            jobs.current(id)!!.cleaning!!.collected shouldBe index + 1
+            jobs.finish(id, job.id) shouldBe null
+        }
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.CLEAN_CART
+        jobs.act(id, OriginOddJobAction.UNLOAD, 9).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.ATTACH_CART, 10)
+        jobs.act(id, OriginOddJobAction.PARK_CART, 11).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.CART_ARRIVE, 12)
+        jobs.act(id, OriginOddJobAction.UNLOAD, 13)
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.CLEAN_RETURN
+        jobs.act(id, OriginOddJobAction.PARK_CART, 14).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.RETURN, 15).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.finish(id, job.id) shouldBe null
+        jobs.act(id, OriginOddJobAction.CART_ARRIVE, 16)
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.CLEAN_PARK
+        jobs.act(id, OriginOddJobAction.PARK_CART, 17)
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
+        jobs.act(id, OriginOddJobAction.RETURN, 18)
+        jobs.act(id, OriginOddJobAction.PARK_CART, 19).reason() shouldBe OriginOddJobRejection.PAYOUT_PENDING
+        jobs.finish(id, job.id)!!.kind.rewardKind shouldBe OriginSideJobKind.MOUNTYARD
+        jobs.finish(id, job.id) shouldBe null
     }
     "stable assignments never include a hidden rush penalty" {
         val dispatch = OriginOddJobDispatch(OriginOddJobKind.MOUNTYARD, Random(7))

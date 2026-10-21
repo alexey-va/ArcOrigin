@@ -367,6 +367,90 @@ class OriginOddJobsGameTest : StringSpec({
             }
         }
     }
+    "lesson waits for explicit mounting then all escorted field arrivals before one accepted order" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(440, OriginOddJobVariant.YARD_LESSON)
+            val job = f.game.currentJob(f.player.uniqueId)!!
+            val animal = requireNotNull(job.yard).animalId
+            job.yard.routeTotal shouldBe 3
+            f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
+            repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(animal, sneaking = false) }
+            f.stroke(OriginOddJobStationId.SADDLE_RACK); f.clickNpc(animal, sneaking = false)
+            f.strokeTie(); f.strokeTie(); f.game.tick(f.now)
+            f.requireStage(OriginOddJobStage.YARD_HANDOFF, "horse reaches mounting place")
+            f.game.tick(f.now); f.game.tick(f.now)
+            f.requireStage(OriginOddJobStage.YARD_HANDOFF, "lesson must wait for explicit NPC click")
+            f.payments shouldBe emptyList()
+            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("lead")
+            f.clickNpc(requireNotNull(f.config.yardRider).npcId, sneaking = false)
+            f.requireStage(OriginOddJobStage.YARD_LESSON_WALK, "mounted lesson begins")
+            f.game.tick(f.now)
+            f.game.currentJob(f.player.uniqueId)!!.yard!!.routeIndex shouldBe 0
+            f.lessonArrival = true
+            repeat(3) { index ->
+                f.payments shouldBe emptyList()
+                f.game.currentJob(f.player.uniqueId)!!.yard!!.routeIndex shouldBe index
+                f.game.tick(f.now)
+            }
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            f.payments.count { it.id == job.id } shouldBe 1
+            f.game.tick(f.now); f.game.tick(f.now)
+            f.payments.count { it.id == job.id } shouldBe 1
+        }
+    }
+    "cleaning uses shovel and cart stages and accepts only the returned empty cart" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(440, OriginOddJobVariant.YARD_CLEANUP)
+            val job = f.game.currentJob(f.player.uniqueId)!!
+            verify(exactly = 0) { f.yard.begin(f.player, any(), any()) }
+            f.stroke(OriginOddJobStationId.BRUSH)
+            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("iron_shovel")
+            f.strokeCleaning()
+            f.requireStage(OriginOddJobStage.CLEAN_PUSH, "empty cart attached")
+            f.cleaningParkReady = false; f.strokeCleaning()
+            f.requireStage(OriginOddJobStage.CLEAN_PUSH, "cart cannot park away from stall")
+            f.cleaningParkReady = true; f.strokeCleaning()
+            repeat(3) { index ->
+                f.strokeCleaning(left = true)
+                f.requireStage(OriginOddJobStage.CLEAN_LOAD, "shovel holds a portion")
+                f.strokeCleaning()
+                f.game.currentJob(f.player.uniqueId)!!.cleaning!!.collected shouldBe index + 1
+            }
+            f.payments shouldBe emptyList()
+            f.strokeCleaning()
+            f.requireStage(OriginOddJobStage.CLEAN_PUSH, "loaded cart attached")
+            f.cleaningArrival = true; f.game.tick(f.now); f.cleaningArrival = false
+            f.requireStage(OriginOddJobStage.CLEAN_UNLOAD, "cart at unloading pad")
+            f.strokeCleaning()
+            f.requireStage(OriginOddJobStage.CLEAN_RETURN, "empty cart still needs return")
+            f.payments shouldBe emptyList()
+            f.game.tick(f.now)
+            f.requireStage(OriginOddJobStage.CLEAN_RETURN, "waiting until cart is actually home")
+            f.cleaningArrival = true; f.game.tick(f.now); f.cleaningArrival = false
+            f.requireStage(OriginOddJobStage.CLEAN_PARK, "home arrival needs parking")
+            f.payments shouldBe emptyList()
+            f.strokeCleaning(); f.game.tick(f.now)
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            f.payments.count { it.id == job.id } shouldBe 1
+            f.released shouldBe f.leases
+            verify { f.cleaning.clear(f.player.uniqueId, job.id) }
+            f.game.tick(f.now)
+            f.payments.count { it.id == job.id } shouldBe 1
+        }
+    }
+    "revoking a cleaning scene removes work supplies and cannot accept unfinished manure" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(440, OriginOddJobVariant.YARD_CLEANUP)
+            val job = f.game.currentJob(f.player.uniqueId)!!
+            f.stroke(OriginOddJobStationId.BRUSH); f.strokeCleaning(); f.strokeCleaning(); f.strokeCleaning(left = true)
+            f.worksiteRevocations.getValue(f.leases.single().token).invoke()
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            f.payments shouldBe emptyList()
+            f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+            verify { f.cleaning.clear(f.player.uniqueId, job.id) }
+            f.released shouldBe f.leases
+        }
+    }
     "automatic rider handoff cannot credit a horse when its receiver is no longer nearby" {
         failOnUnsupportedMockBukkitOperation {
             f.begin(440, OriginOddJobVariant.YARD_SADDLE)
@@ -619,7 +703,8 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
         override fun getBodyYaw(): Float = bodyYawOverride ?: location.yaw
         override fun getHeight(): Double = 1.8
     }.also(paper.server::addPlayer)
-    val config = oddJobTestConfig().copy(yardRider = OriginYardRider(490, UUID.fromString("00000000-0000-0000-0000-000000000490"), "Мирон"))
+    val config = oddJobTestConfig().copy(yardRider = OriginYardRider(490, UUID.fromString("00000000-0000-0000-0000-000000000490"), "Мирон"),
+        yardRideAnchorIds = listOf("field-0", "field-1"))
     val yardCatalog = oddJobTestYardCatalog()
     val scheduler = TestTaskScheduler()
     val ready = SideJobRewardStatus(true, 20, 0, false)
@@ -654,6 +739,14 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
     val registry = mockk<NPCRegistry>()
     val actors = mutableMapOf<Int, NPC>()
     val yard = mockk<OriginOddJobMountyard>(relaxed = true)
+    val cleaning = mockk<OriginOddJobStableCleaning>(relaxed = true)
+    var cleaningArrival = false
+    var cleaningParkReady = true
+    var lessonArrival = false
+    private val cleaningStation by lazy {
+        val block = world.getBlockAt(5, 69, 8)
+        OriginOddJobStation(Location(world, 5.5, 70.4, 8.5), block, setOf(Material.STONE))
+    }
     val tieStations = listOf(0 to -90f, 10 to 90f).map { (x, yaw) ->
         val block = world.getBlockAt(x, 71, 7).also { it.type = Material.STONE_BRICKS }
         OriginOddJobStation(Location(world, if (x == 0) 1.06 else 9.94, 71.4, 7.5, yaw, 0f), block, setOf(Material.STONE_BRICKS))
@@ -768,9 +861,24 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
         every { yard.tick(any(), any(), any()) } answers { when (secondArg<OriginOddJobSession>().stage) {
             OriginOddJobStage.YARD_EATING, OriginOddJobStage.YARD_DRINKING, OriginOddJobStage.YARD_HANDED -> OriginYardTick.CARED
             OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_DELIVER -> OriginYardTick.ARRIVED
+            OriginOddJobStage.YARD_LESSON_WALK -> if (lessonArrival) OriginYardTick.ARRIVED else OriginYardTick.WAITING
             else -> OriginYardTick.WAITING
         } }
         every { yard.clear(any(), any(), any()) } answers { thirdArg<() -> Unit>().invoke() }
+        every { cleaning.available(any()) } returns true
+        every { cleaning.supportsAnimal(any()) } returns true
+        every { cleaning.station(any(), any()) } answers {
+            if (secondArg<OriginOddJobSession>().variant == OriginOddJobVariant.YARD_CLEANUP) cleaningStation else null
+        }
+        every { cleaning.target(any(), any()) } answers {
+            if (secondArg<OriginOddJobSession>().variant == OriginOddJobVariant.YARD_CLEANUP) cleaningStation.point.clone() else null
+        }
+        every { cleaning.destination(any(), any()) } returns null
+        every { cleaning.canPark(any(), any()) } answers { cleaningParkReady }
+        every { cleaning.tick(any(), any()) } answers {
+            if (cleaningArrival && secondArg<OriginOddJobSession>().stage in setOf(OriginOddJobStage.CLEAN_PUSH, OriginOddJobStage.CLEAN_RETURN))
+                OriginOddJobAction.CART_ARRIVE else null
+        }
         stations = OriginOddJobStationId.entries.mapIndexed { index, id ->
             val material = when (id) {
                 OriginOddJobStationId.HAY -> Material.HAY_BLOCK
@@ -806,7 +914,7 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
                     }
                     error("Requested test variant is outside this employer's catalog")
                 }
-            }, yardCatalog = yardCatalog, forge = forge, yard = yard,
+            }, yardCatalog = yardCatalog, forge = forge, yard = yard, cleaning = cleaning,
             onWorksiteRevoked = { lease, cleanup -> worksiteRevocations[lease.token] = cleanup; true })
     }
 
@@ -868,6 +976,14 @@ internal class OddJobsFixture(deferStations: Boolean = false) : AutoCloseable {
         game.onBlock(event)
         event.useInteractedBlock() shouldBe Event.Result.DENY
         event.useItemInHand() shouldBe Event.Result.DENY
+    }
+    fun strokeCleaning(left: Boolean = false) {
+        now += 700
+        val point = cleaningStation.point
+        val at = point.clone().add(0.0, -0.4, -2.2)
+        at.setDirection(point.toVector().subtract(at.clone().add(0.0, player.eyeHeight, 0.0).toVector()))
+        player.teleport(at)
+        game.work(player, left, null) shouldBe true
     }
     fun dragCart(step: Double = 0.22) {
         val stage = OriginOddJobStage.HAUL_PUSH

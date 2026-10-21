@@ -84,6 +84,8 @@ internal class OriginOddJobMountyard(
         var rideControls: RideControls? = null
         var leftStall = false
         var leftYard = false
+        var lessonRouteIndex = -1
+        var lessonArrived = false
         var recovery = OriginYardRecovery.HORSE
         var via = emptyList<Location>()
     }
@@ -183,6 +185,14 @@ internal class OriginOddJobMountyard(
 
     private fun owns(care: Care): Boolean = care.ownsLease() && npc(care.actor.id)?.entity === care.entity
     private fun ownsRider(care: Care): Boolean = owns(care) && care.riderEntity != null && riderNpc()?.entity === care.riderEntity
+    private fun mountedRider(care: Care): Boolean = care.mounted && ownsRider(care) &&
+        care.riderEntity?.vehicle === care.entity && care.entity.passengers.singleOrNull() === care.riderEntity
+    private fun workerHolding(care: Care, playerId: UUID): Boolean = care.entity.isLeashed && care.entity.leashHolder.uniqueId == playerId
+
+    private fun lessonDestination(care: Care, index: Int): Location? {
+        val key = if (index == rideAnchorIds.size) "job-handoff" else rideAnchorIds.getOrNull(index) ?: return null
+        return scene?.anchors?.get(key)?.inWorld(care.entity.world)
+    }
 
     fun station(playerId: UUID, job: OriginOddJobSession): OriginOddJobStation? {
         val side = originYardTieTarget(job.stage) ?: return null
@@ -212,8 +222,31 @@ internal class OriginOddJobMountyard(
         if (!owns(care)) return false
         val stage = when {
             job.stage == OriginOddJobStage.RETURN && job.variant == OriginOddJobVariant.YARD_RATIONS -> OriginOddJobStage.YARD_EATING
+            job.stage == OriginOddJobStage.RETURN && job.variant == OriginOddJobVariant.YARD_LESSON -> OriginOddJobStage.RETURN
             job.stage == OriginOddJobStage.RETURN && job.variant.isYardPreparation() -> OriginOddJobStage.YARD_HANDED
             else -> job.stage
+        }
+        if (stage == OriginOddJobStage.YARD_LESSON_WALK) {
+            val work = job.yard ?: return false
+            if (job.variant != OriginOddJobVariant.YARD_LESSON || work.routeTotal != rideAnchorIds.size + 1 ||
+                work.routeIndex !in 0 until work.routeTotal) return false
+            val destination = lessonDestination(care, work.routeIndex) ?: return false
+            if (care.stage == stage) {
+                if (work.routeIndex == care.lessonRouteIndex) return true
+                if (work.routeIndex != care.lessonRouteIndex + 1 || !care.lessonArrived ||
+                    !mountedRider(care) || !workerHolding(care, player.uniqueId)) return false
+                care.lessonRouteIndex = work.routeIndex
+                care.lessonArrived = false
+                care.destination = destination
+                return true
+            }
+            if (work.routeIndex != 0) return false
+        }
+        if (stage == OriginOddJobStage.RETURN && job.variant == OriginOddJobVariant.YARD_LESSON && care.stage != stage) {
+            val work = job.yard ?: return false
+            if (care.stage != OriginOddJobStage.YARD_LESSON_WALK || !care.lessonArrived ||
+                care.lessonRouteIndex != rideAnchorIds.size || work.routeTotal != rideAnchorIds.size + 1 || work.routeIndex != work.routeTotal ||
+                !mountedRider(care) || !workerHolding(care, player.uniqueId)) return false
         }
         if (care.stage == stage) return true
         routes.stop(care.actor)
@@ -279,18 +312,9 @@ internal class OriginOddJobMountyard(
                 if (!startNativeLead(care, player)) return false
             }
             OriginOddJobStage.YARD_HANDED -> {
-                if (previousStage != OriginOddJobStage.YARD_HANDOFF || !ownsRider(care)) return false
-                val passenger = requireNotNull(care.riderEntity)
+                if (previousStage != OriginOddJobStage.YARD_HANDOFF) return false
                 val route = rideAnchorIds.map { scene?.anchors?.get(it)?.inWorld(care.entity.world) ?: return false }
-                if (route.isEmpty() || passenger.vehicle != null || care.entity.passengers.isNotEmpty()) return false
-                care.resources.clearMovementPose(requireNotNull(care.rider))
-                val previous = care.actor.getTraitNullable(Controllable::class.java)
-                val controls = previous ?: care.actor.getOrAddTrait(Controllable::class.java)
-                care.rideControls = RideControls(controls, previous?.isEnabled, care.entity.getAttribute(Attribute.MOVEMENT_SPEED)?.baseValue)
-                // Retain the mounted control snapshot independently of the temporary player lead.
-                controls.setEnabled(true)
-                care.mounted = care.entity.addPassenger(passenger)
-                if (!care.mounted) { restoreRideControls(care); return false }
+                if (route.isEmpty() || !mountRider(care)) return false
                 care.leftYard = true
                 care.destination = scene?.anchors?.get("job-handoff")?.inWorld(care.entity.world) ?: return false
                 care.via = route
@@ -298,6 +322,18 @@ internal class OriginOddJobMountyard(
                 care.finishInBackground = job.stage == OriginOddJobStage.RETURN
                 care.careStartedAt = now
                 care.entity.world.spawnParticle(Particle.HEART, care.entity.location.add(0.0, 1.4, 0.0), 3, 0.2, 0.1, 0.2)
+            }
+            OriginOddJobStage.YARD_LESSON_WALK -> {
+                if (previousStage != OriginOddJobStage.YARD_HANDOFF || !mountRider(care)) return false
+                care.destination = lessonDestination(care, 0) ?: return false
+                care.lessonRouteIndex = 0
+                care.lessonArrived = false
+                care.leftYard = true
+                if (!startNativeLead(care, player)) return false
+            }
+            OriginOddJobStage.RETURN -> if (job.variant == OriginOddJobVariant.YARD_LESSON) {
+                dismount(care)
+                restoreSaddle(care)
             }
             else -> Unit
         }
@@ -314,22 +350,25 @@ internal class OriginOddJobMountyard(
 
     fun tick(player: Player, job: OriginOddJobSession, now: Long): OriginYardTick {
         val care = active[player.uniqueId]?.takeIf { it.requestId == job.id } ?: return OriginYardTick.FAILED
-        if (!owns(care) || care.entity.passengers.isNotEmpty()) return OriginYardTick.FAILED
+        val lesson = job.stage == OriginOddJobStage.YARD_LESSON_WALK
+        if (!owns(care) || (if (lesson) !mountedRider(care) else care.entity.passengers.isNotEmpty())) return OriginYardTick.FAILED
+        if (lesson && (care.stage != job.stage || job.yard?.routeIndex != care.lessonRouteIndex)) return OriginYardTick.FAILED
         if (originYardTieMask(job.stage) != null) {
             if (!held(care)) return OriginYardTick.FAILED
             care.resources.hold(care.actor)
             care.crossTies?.render(care.entity.location, care.entity.height)
             return OriginYardTick.WAITING
         }
-        val leading = job.stage in setOf(OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_DELIVER)
+        val leading = job.stage in setOf(OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_DELIVER, OriginOddJobStage.YARD_LESSON_WALK)
         if (leading) {
             if (!inStall(care.actor.id, care.entity)) care.leftStall = true
             if (job.stage == OriginOddJobStage.YARD_DELIVER) care.leftYard = true
             if (care.nativeLead == null) return OriginYardTick.FAILED
-            if (!care.entity.isLeashed || care.entity.leashHolder.uniqueId != player.uniqueId) return OriginYardTick.WAITING
+            if (!workerHolding(care, player.uniqueId)) return OriginYardTick.WAITING
             care.leashHolder = player.uniqueId
-            return if (care.entity.location.distanceSquared(requireNotNull(care.destination)) <= 1.0) OriginYardTick.ARRIVED
-                else OriginYardTick.WAITING
+            val arrived = care.entity.location.distanceSquared(requireNotNull(care.destination)) <= 1.0
+            if (lesson) care.lessonArrived = arrived
+            return if (arrived) OriginYardTick.ARRIVED else OriginYardTick.WAITING
         }
         return tickCare(care, now)
     }
@@ -361,6 +400,7 @@ internal class OriginOddJobMountyard(
     }
 
     private fun startRoute(care: Care): Boolean {
+        if (care.stage == OriginOddJobStage.YARD_LESSON_WALK) return false
         care.resources.clearMovementPose(care.actor)
         care.routeStarted = routes.navigate(care.actor, requireNotNull(care.destination), profile(care), via = care.via, faceOnArrival = true)
         return care.routeStarted
@@ -436,6 +476,21 @@ internal class OriginOddJobMountyard(
         if (care.mounted && ownsRider(care) && care.riderEntity?.vehicle === care.entity) requireNotNull(care.riderEntity).leaveVehicle()
         care.mounted = false
         restoreRideControls(care)
+    }
+
+    private fun mountRider(care: Care): Boolean {
+        if (!ownsRider(care)) return false
+        val passenger = requireNotNull(care.riderEntity)
+        if (passenger.vehicle != null || care.entity.passengers.isNotEmpty()) return false
+        care.resources.clearMovementPose(requireNotNull(care.rider))
+        val previous = care.actor.getTraitNullable(Controllable::class.java)
+        val controls = previous ?: care.actor.getOrAddTrait(Controllable::class.java)
+        care.rideControls = RideControls(controls, previous?.isEnabled, care.entity.getAttribute(Attribute.MOVEMENT_SPEED)?.baseValue)
+        // Retain the mounted control snapshot independently of the temporary player lead.
+        controls.setEnabled(true)
+        care.mounted = care.entity.addPassenger(passenger)
+        if (!care.mounted) restoreRideControls(care)
+        return care.mounted
     }
 
     private fun restoreRideControls(care: Care) {

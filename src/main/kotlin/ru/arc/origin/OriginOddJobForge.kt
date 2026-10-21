@@ -1,26 +1,20 @@
 package ru.arc.origin
 
 import dev.lone.itemsadder.api.CustomStack
-import org.bukkit.Color
 import org.bukkit.Location
 import org.bukkit.World
-import org.bukkit.entity.Display
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
-import org.bukkit.util.Transformation
 import org.joml.Quaternionf
 import org.joml.Vector3f
 import ru.arc.origin.scene.OriginSceneDefinition
 import ru.arc.origin.scene.OriginSceneItemDisplayContext
 import ru.arc.origin.scene.OriginSceneStep
-import ru.arc.paper.display.PacketItemDisplay
-import ru.arc.paper.display.PacketDisplay
 import ru.arc.paper.display.PaperPacketDisplays
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.floor
 import kotlin.math.sin
 
 /** The job has its own parking point and reuses Savva's measured model and ground correction. */
@@ -53,127 +47,38 @@ internal fun originForgeCartCarryPose(viewYaw: Double): OriginWorkshopCarryPose 
         Quaternionf().rotationY(-yaw.toFloat()))
 }
 
-/** One leased, client-only cart. Cargo and cart share the player's native passenger attachment. */
+/** Forge haul keeps its existing completion rules while using the common physical cart owner. */
 internal class OriginOddJobForge(
-    private val layout: OriginForgeCartLayout? = null,
-    private val resolveItem: (String) -> ItemStack? = { CustomStack.getInstance(it)?.itemStack?.clone() },
-    private val createOwner: () -> PaperPacketDisplays = { PaperPacketDisplays(ArcOriginPlugin.instance, "forge-cart") },
+    layout: OriginForgeCartLayout? = null,
+    resolveItem: (String) -> ItemStack? = { CustomStack.getInstance(it)?.itemStack?.clone() },
+    createOwner: () -> PaperPacketDisplays = { PaperPacketDisplays(ArcOriginPlugin.instance, "forge-cart") },
 ) : AutoCloseable {
-    private data class Cart(val request: UUID, val world: World, val display: PacketItemDisplay,
-        val cargo: MutableMap<Int, OriginWorkshopProp> = mutableMapOf(),
-        val handles: MutableList<PacketDisplay> = mutableListOf(),
-        var point: OriginWorkshopPoint, var yaw: Float, var attached: Boolean = false)
-    private val carts = mutableMapOf<UUID, Cart>()
-    private var owner: PaperPacketDisplays? = null
-    private var model: ItemStack? = null
-
-    fun available(world: World): Boolean {
-        val spec = layout ?: return false
-        if (model == null) model = runCatching { resolveItem(spec.itemId) }.getOrNull()
-        return model != null && world.isChunkLoaded(floor(spec.start.x).toInt() shr 4, floor(spec.start.z).toInt() shr 4)
-    }
-
+    private val cart = OriginOddJobCart(layout, resolveItem, createOwner)
+    fun available(world: World): Boolean = cart.available(world)
     fun sync(player: Player, job: OriginOddJobSession) {
         if (job.kind != OriginOddJobKind.FORGE_HAUL) return
-        val spec = requireNotNull(layout)
-        val old = carts[player.uniqueId]
-        if (old != null && old.request != job.id) clear(player.uniqueId, old.request)
-        if (job.stage == OriginOddJobStage.HAUL_PUSH && old?.request != job.id) return
-        val cart = carts.getOrPut(player.uniqueId) {
-            check(available(player.world)) { "forge cart model or parking point is unavailable" }
-            val at = spec.start.location(player.world).add(0.0, spec.lift, 0.0).apply { yaw = spec.yaw }
-            val display = renderer().spawnItem(at, requireNotNull(model))
-            try { display.also {
-                it.itemDisplayTransform = spec.context
-                it.billboard = Display.Billboard.FIXED
-                it.viewRange = 0.5f; it.displayWidth = 3f; it.displayHeight = 2f
-                it.interpolationDelay = -1; it.interpolationDuration = 1; it.teleportDuration = 0
-                it.transformation = Transformation(Vector3f(), Quaternionf(), Vector3f(spec.scale), Quaternionf())
-            } } catch (failure: Exception) { display.remove(); throw failure }
-            Cart(job.id, player.world, display, point = spec.start, yaw = spec.yaw)
-        }
+        if (job.stage == OriginOddJobStage.HAUL_PUSH && !cart.exists(player.uniqueId, job.id)) return
         val loaded = job.stage in setOf(OriginOddJobStage.HAUL_ATTACH, OriginOddJobStage.HAUL_PUSH, OriginOddJobStage.HAUL_UNLOAD)
-        if (!loaded) { cart.cargo.values.forEach(OriginWorkshopProp::remove); cart.cargo.clear() }
-        else for (index in 0..2) if (index !in cart.cargo) cart.cargo[index] = OriginWorkshopProp(renderer(),
-            cart.point.location(player.world), originForgeCargoPieces(requireNotNull(job.haul).cargo), onSpawn = cart.handles::add)
-        cart.display.isGlowing = job.stage in setOf(OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.HAUL_ATTACH)
-        cart.display.glowColorOverride = Color.AQUA
-        if (job.stage == OriginOddJobStage.HAUL_PUSH) follow(player, cart) else park(cart)
+        cart.sync(player, job.id, job.stage == OriginOddJobStage.HAUL_PUSH,
+            if (loaded) List(3) { originForgeCargoPieces(requireNotNull(job.haul).cargo) } else emptyList(),
+            glowing = job.stage in setOf(OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.HAUL_ATTACH))
     }
-
     fun tick(player: Player, job: OriginOddJobSession, destination: OriginOddJobStation): Boolean {
         if (job.stage != OriginOddJobStage.HAUL_PUSH || destination.point.world?.uid != player.world.uid) return false
-        carts[player.uniqueId]?.takeIf { it.request == job.id && it.world.uid == player.world.uid }?.let { follow(player, it) }
+        cart.follow(player, job.id)
         val point = destination.point
         val yaw = Math.toRadians(point.yaw.toDouble())
-        // Delivery belongs to the worker entering the visible pad, independent of height or cart heading.
+        // Preserve the established forge delivery contract independently from cleaning's physical cart parking.
         val at = player.location
         val dx = at.x - point.x; val dz = at.z - point.z
         return abs(dx * cos(yaw) + dz * sin(yaw)) <= ODD_JOB_DESTINATION_HALF_WIDTH &&
             abs(-dx * sin(yaw) + dz * cos(yaw)) <= ODD_JOB_DESTINATION_HALF_LENGTH
     }
-
-    fun station(playerId: UUID, job: OriginOddJobSession): OriginOddJobStation? {
-        if (job.stage !in setOf(OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.HAUL_ATTACH)) return null
-        val cart = carts[playerId]?.takeIf { it.request == job.id } ?: return null
-        val p = cart.point
-        val block = cart.world.getBlockAt(floor(p.x).toInt(), floor(p.y - 0.01).toInt(), floor(p.z).toInt())
-        return OriginOddJobStation(p.location(cart.world).add(0.0, 0.65, 0.0), block, setOf(block.type))
-    }
-
+    fun station(playerId: UUID, job: OriginOddJobSession): OriginOddJobStation? =
+        if (job.stage in setOf(OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.HAUL_ATTACH)) cart.station(playerId, job.id) else null
     fun target(playerId: UUID, job: OriginOddJobSession): Location? = station(playerId, job)?.point
-
-    private fun follow(player: Player, cart: Cart) {
-        val spec = requireNotNull(layout)
-        val at = player.location
-        // A player's body yaw may face sideways while looking/steering; packet passengers do not inherit it.
-        val pose = originForgeCartCarryPose(at.yaw.toDouble())
-        cart.point = OriginWorkshopPoint(at.x + pose.center.x, at.y, at.z + pose.center.z)
-        cart.yaw = at.yaw + 180f
-        if (!cart.attached) cart.display.teleport(at.clone().apply { yaw = 0f; pitch = 0f })
-        cart.display.transformation = Transformation(
-            Vector3f(pose.center.x.toFloat(), (spec.lift - player.height).toFloat(), pose.center.z.toFloat()),
-            Quaternionf(pose.rotation).rotateY(Math.PI.toFloat()), Vector3f(spec.scale), Quaternionf())
-        cart.display.attachTo(player)
-        cart.attached = true
-        cart.cargo.forEach { (index, prop) ->
-            val offset = originForgeCartLoadOffset(index)
-            pose.rotation.transform(offset)
-            prop.carry(player, OriginWorkshopCarryPose(OriginWorkshopPoint(pose.center.x + offset.x,
-                offset.y.toDouble(), pose.center.z + offset.z), Quaternionf(pose.rotation).rotateX(Math.toRadians(22.5).toFloat())))
-        }
-    }
-
-    private fun park(cart: Cart) {
-        val spec = requireNotNull(layout)
-        val at = cart.point.location(cart.world)
-        cart.display.detach()
-        cart.attached = false
-        cart.display.transformation = Transformation(Vector3f(), Quaternionf(), Vector3f(spec.scale), Quaternionf())
-        cart.display.teleport(at.clone().add(0.0, spec.lift, 0.0).apply { yaw = cart.yaw })
-        val rotation = Quaternionf().rotationY(Math.toRadians(180.0 - cart.yaw).toFloat())
-        val cargoRotation = Quaternionf(rotation).rotateX(Math.toRadians(22.5).toFloat())
-        cart.cargo.forEach { (index, prop) ->
-            val offset = originForgeCartLoadOffset(index)
-            rotation.transform(offset)
-            prop.move(at.clone().add(offset.x.toDouble(), offset.y.toDouble(), offset.z.toDouble()), cargoRotation)
-        }
-    }
-
-    fun clear(playerId: UUID, requestId: UUID) {
-        val cart = carts[playerId]?.takeIf { it.request == requestId } ?: return
-        carts.remove(playerId)
-        cart.cargo.values.forEach(OriginWorkshopProp::remove)
-        cart.handles.filter(PacketDisplay::isValid).forEach(PacketDisplay::remove)
-        cart.display.remove()
-    }
-
-    override fun close() {
-        carts.toMap().forEach { (player, cart) -> clear(player, cart.request) }
-        owner?.close(); owner = null; model = null
-    }
-    private fun renderer() = owner ?: createOwner().also { owner = it }
-    private fun OriginWorkshopPoint.location(world: World) = Location(world, x, y, z)
+    fun clear(playerId: UUID, requestId: UUID) = cart.clear(playerId, requestId)
+    override fun close() = cart.close()
 }
 
 /** Three separate baskets follow the real 22.5-degree bed, with no overlap or floating base. */

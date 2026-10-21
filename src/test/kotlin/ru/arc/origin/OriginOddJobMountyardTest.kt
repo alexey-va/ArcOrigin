@@ -49,7 +49,7 @@ import ru.arc.paper.testing.MockBukkitTestRuntime
 import java.util.UUID
 
 class OriginOddJobMountyardTest : StringSpec({
-    "all work uses stall horses and both preparation variants rotate through the same pool" {
+    "all work uses stall horses and all preparation variants rotate through the same pool" {
         YardFixture(startJob = false).use { f ->
             val yard = f.yard
             repeat(4) { seed ->
@@ -57,6 +57,7 @@ class OriginOddJobMountyardTest : StringSpec({
                 val selected = if (seed % 2 == 0) OriginYardWork(422, "Буран") else OriginYardWork(423, "Рыжик")
                 yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_SADDLE, seed, false)) shouldBe selected
                 yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_GROOM, seed, false)) shouldBe selected
+                yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_LESSON, seed, false)) shouldBe selected
             }
             (0..3).map { seed -> yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_WATER, seed, false))!!.animalId } shouldBe listOf(422, 423, 422, 423)
         }
@@ -147,6 +148,130 @@ class OriginOddJobMountyardTest : StringSpec({
                 f.movementSpeed shouldBe 0.2
                 verify(exactly = 0) { f.horse.teleport(any<Location>()) }
             }
+        }
+    }
+    "lesson keeps the instructor mounted and player leading through every checkpoint before both native returns" {
+        YardFixture(OriginOddJobVariant.YARD_LESSON, rideAnchorIds = listOf("job-ride-turn", "job-ride-far")).use { f ->
+            var walk = f.prepareLesson()
+            f.controllableEnabled shouldBe true
+            f.yard.workerLeading(f.player.uniqueId, f.actor.id) shouldBe true
+            f.yard.leadDetached(f.player.uniqueId, walk) shouldBe false
+            clearMocks(f.horse, answers = false)
+            for ((index, destination) in f.lessonStops.withIndex()) {
+                f.yard.destination(f.player.uniqueId, walk) shouldBe destination
+                // The worker reaching a point cannot stand in for the actual horse.
+                f.playerLocation = destination.clone()
+                f.yard.tick(f.player, walk, index.toLong()) shouldBe OriginYardTick.WAITING
+                f.location = destination.clone()
+                f.yard.tick(f.player, walk, index.toLong()) shouldBe OriginYardTick.ARRIVED
+                f.passengerVehicle shouldBe f.horse
+                f.leashHolder shouldBe f.player
+                val next = requireNotNull(walk.yard).copy(routeIndex = index + 1)
+                walk = walk.copy(stage = if (next.routeIndex == next.routeTotal) OriginOddJobStage.RETURN else walk.stage, yard = next)
+                f.yard.sync(f.player, walk, f.stations, index.toLong()) shouldBe true
+            }
+            f.passengerVehicle shouldBe null
+            f.controllablePresent shouldBe false
+            f.nativeAi shouldBe false
+            f.nativeAware shouldBe false
+            f.leashHolder shouldBe null
+            verify(exactly = 0) { f.horse.addPassenger(any()) }
+            verify(exactly = 1) { f.riderEntity.leaveVehicle() }
+            verify(exactly = 1) { f.horse.setLeashHolder(null) }
+            verify(exactly = 0) { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) }
+            var released = 0
+            f.yard.clear(f.player.uniqueId, f.job.id) { released++ }
+            verify { f.routes.navigate(f.riderActor, f.riderHome, any(), any(), any(), true, any()) }
+            released shouldBe 0
+            f.riderLocation = f.riderHome.clone(); f.arrive(); f.scheduler.tick(4)
+            verify { f.routes.navigate(f.actor, f.home, any(), match { it.single().z == -138.5 }, any(), true, any()) }
+            f.location = f.home.clone(); f.arrive(); f.scheduler.tick(4)
+            released shouldBe 1
+            verify(exactly = 0) { f.horse.teleport(any<Location>()) }
+        }
+    }
+    "lesson cannot skip checkpoints or finish at handoff before visiting the route" {
+        YardFixture(OriginOddJobVariant.YARD_LESSON).use { f ->
+            val walk = f.prepareLesson()
+            // The horse starts at handoff, which is the final point, not the first.
+            f.yard.tick(f.player, walk, 0) shouldBe OriginYardTick.WAITING
+            val next = walk.copy(yard = requireNotNull(walk.yard).copy(routeIndex = 1))
+            f.yard.sync(f.player, next, f.stations, 0) shouldBe false
+            f.yard.tick(f.player, next, 0) shouldBe OriginYardTick.FAILED
+            val skipped = walk.copy(stage = OriginOddJobStage.RETURN, yard = requireNotNull(walk.yard).copy(routeIndex = 2))
+            f.yard.sync(f.player, skipped, f.stations, 0) shouldBe false
+            f.yard.destination(f.player.uniqueId, walk) shouldBe f.lessonStops.first()
+            f.passengerVehicle shouldBe f.horse
+            verify(exactly = 0) { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) }
+        }
+    }
+    "lesson waits after a native lead breaks until the worker explicitly re-grabs the mounted horse" {
+        YardFixture(OriginOddJobVariant.YARD_LESSON).use { f ->
+            val walk = f.prepareLesson()
+            clearMocks(f.horse, answers = false)
+            f.location = f.lessonStops.first().clone()
+            f.leashHolder = null
+            f.yard.leadDetached(f.player.uniqueId, walk) shouldBe true
+            repeat(3) {
+                f.yard.sync(f.player, walk, f.stations, it.toLong()) shouldBe true
+                f.yard.tick(f.player, walk, it.toLong()) shouldBe OriginYardTick.WAITING
+            }
+            verify(exactly = 0) { f.horse.setLeashHolder(f.player) }
+            f.yard.toggleWorkerLead(f.player, walk) shouldBe true
+            f.leashHolder shouldBe f.player
+            f.yard.tick(f.player, walk, 4) shouldBe OriginYardTick.ARRIVED
+            f.yard.toggleWorkerLead(f.player, walk) shouldBe true
+            f.yard.leadDetached(f.player.uniqueId, walk) shouldBe true
+            f.yard.tick(f.player, walk, 5) shouldBe OriginYardTick.WAITING
+            f.passengerVehicle shouldBe f.horse
+            verify(exactly = 0) { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) }
+        }
+    }
+    "lesson rejects a missing replaced or extra rider and a lead held by another player" {
+        for (riderState in listOf("missing", "replacement", "extra", "other-holder")) {
+            YardFixture(OriginOddJobVariant.YARD_LESSON).use { f ->
+                val walk = f.prepareLesson()
+                f.location = f.lessonStops.first().clone()
+                val other = mockk<LivingEntity>(relaxed = true)
+                when (riderState) {
+                    "missing" -> f.passengerVehicle = null
+                    "replacement" -> every { f.riderActor.entity } returns other
+                    "extra" -> every { f.horse.passengers } returns listOf(f.riderEntity, other)
+                    else -> f.leashHolder = mockk<Player> { every { uniqueId } returns UUID.randomUUID() }
+                }
+                f.yard.tick(f.player, walk, 0) shouldBe if (riderState == "other-holder") OriginYardTick.WAITING else OriginYardTick.FAILED
+                verify(exactly = 0) { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) }
+            }
+        }
+    }
+    "cancelling a mounted lesson restores originals and holds the lease through both home routes" {
+        YardFixture(OriginOddJobVariant.YARD_LESSON, initialControllable = false).use { f ->
+            f.metadata.setPersistent(NPC.Metadata.USE_MINECRAFT_AI, false)
+            f.metadata.setPersistent(NPC.Metadata.LEASH_PROTECTED, true)
+            f.prepareLesson()
+            f.location = f.lessonStops.first().clone()
+            f.movementSpeed = 0.1
+            var released = 0
+            f.yard.clear(f.player.uniqueId, f.job.id) { released++ }
+            f.passengerVehicle shouldBe null
+            f.leashHolder shouldBe null
+            f.nativeAi shouldBe false
+            f.nativeAware shouldBe false
+            f.controllableEnabled shouldBe false
+            f.movementSpeed shouldBe 0.2
+            f.metadata.get<Boolean>(NPC.Metadata.USE_MINECRAFT_AI) shouldBe false
+            f.metadata.get<Boolean>(NPC.Metadata.LEASH_PROTECTED) shouldBe true
+            val saved = MemoryDataKey().also(f.metadata::saveTo)
+            saved.keyExists(NPC.Metadata.USE_MINECRAFT_AI.key) shouldBe true
+            saved.keyExists(NPC.Metadata.LEASH_PROTECTED.key) shouldBe true
+            verify { f.equipment.setItem(EquipmentSlot.SADDLE, match { it.type == Material.AIR }) }
+            verify { f.routes.navigate(f.riderActor, f.riderHome, any(), any(), any(), true, any()) }
+            released shouldBe 0
+            f.yard.ownsAnimal(f.actor.id) shouldBe true
+            f.riderLocation = f.riderHome.clone(); f.arrive(); f.scheduler.tick(4)
+            f.location = f.home.clone(); f.arrive(); f.scheduler.tick(4)
+            released shouldBe 1
+            verify(exactly = 0) { f.horse.teleport(any<Location>()) }
         }
     }
     "a rejected passenger mount restores temporary controls immediately" {
@@ -497,7 +622,7 @@ class OriginOddJobMountyardTest : StringSpec({
 private val testYardRider = OriginYardRider(490, UUID.fromString("00000000-0000-0000-0000-000000000490"), "Мирон")
 
 private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YARD_SADDLE, id: Int = 423, gates: Boolean = false, startJob: Boolean = true,
-    initialControllable: Boolean? = null) : AutoCloseable {
+    initialControllable: Boolean? = null, rideAnchorIds: List<String> = listOf("job-ride-turn")) : AutoCloseable {
     val paper = MockBukkitTestRuntime.open()
     val scheduler = TestTaskScheduler()
     val world = mockk<World>(relaxed = true) { every { uid } returns UUID.randomUUID(); every { name } returns "rc_origin_spawn" }
@@ -601,7 +726,12 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
     }
     val stations = mapOf(OriginOddJobStationId.FEED to OriginOddJobStation(Location(world, 48.5, 70.02, -134.5), mockk(), setOf(Material.PACKED_MUD)))
     val job = OriginOddJobsProgress(240_000).begin(player.uniqueId, OriginOddJobOffer(UUID.randomUUID(), variant, 8, false), 0,
-        yardTarget = OriginYardWork(id, catalog.animals.first { it.npcId == id }.name))!!
+        yardTarget = OriginYardWork(id, catalog.animals.first { it.npcId == id }.name,
+            routeTotal = if (variant == OriginOddJobVariant.YARD_LESSON) rideAnchorIds.size + 1 else 0))!!
+    val lessonStops = rideAnchorIds.map { key -> when (key) {
+        "job-ride-far" -> Location(world, 53.5, 70.0, -113.5)
+        else -> Location(world, 59.5, 70.0, -119.5)
+    } } + Location(world, 67.5, 70.0, -122.5)
     val yard: OriginOddJobMountyard
     init {
         mockkStatic(CitizensAPI::class)
@@ -657,10 +787,11 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
             mapOf("job-rider-home" to OriginScenePoint(riderHome.x, riderHome.y, riderHome.z),
                 "job-handoff" to OriginScenePoint(67.5, 70.0, -122.5),
                 "job-ride-turn" to OriginScenePoint(59.5, 70.0, -119.5),
+                "job-ride-far" to OriginScenePoint(53.5, 70.0, -113.5),
                 "job-stall-$id-exit" to if (id == 422) OriginScenePoint(52.5, 70.0, -136.5) else OriginScenePoint(72.5, 70.0, -138.5),
                 "job-stall-423-gate-1" to OriginScenePoint(72.0, 70.0, -137.0)), emptyMap(), emptyMap(), emptyList())
         yard = OriginOddJobMountyard(world.name, catalog, listOf(422, 423), 422, testYardRider, scene, routes = routes,
-            tasks = LifecycleTaskScope(scheduler), createDisplays = { renderer }, rideAnchorIds = listOf("job-ride-turn"),
+            tasks = LifecycleTaskScope(scheduler), createDisplays = { renderer }, rideAnchorIds = rideAnchorIds,
             gateAnchorIds = if (gates) listOf("job-stall-423-gate-1") else emptyList(), clock = { now })
         if (startJob) yard.begin(player, job) { leaseValid } shouldBe true
     }
@@ -675,6 +806,12 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
     fun prepareDelivery(): OriginOddJobSession {
         prepareTies(); sync(OriginOddJobStage.YARD_UNTIE_SECOND)
         return sync(OriginOddJobStage.YARD_DELIVER)
+    }
+    fun prepareLesson(): OriginOddJobSession {
+        prepareDelivery()
+        location = Location(world, 67.5, 70.0, -122.5)
+        sync(OriginOddJobStage.YARD_HANDOFF)
+        return sync(OriginOddJobStage.YARD_LESSON_WALK)
     }
     fun liveRopes(): Int = blocks.count { it.isValid && materials[it] == Material.STRIPPED_OAK_WOOD }
     fun arrive(success: Boolean = true) { navigating = false; outcome = NpcRouteOutcome(success, if (success) "FINISHED" else "STALLED", null) }

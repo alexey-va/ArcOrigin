@@ -83,7 +83,54 @@ internal object OddJobsPreviewExport {
             "evidence" to "Source parking, GROUND model scale, basket geometry and native player attachment poses. Offline mesh preview; native lighting, world and ItemsAdder delivery are not observed.")
         Files.writeString(output.resolveSibling("cart.json"), GsonBuilder().setPrettyPrinting().create().toJson(cart))
         writeCrossTies(output.resolveSibling("cross-ties.json"))
+        writeCleaning(output.resolveSibling("cleaning.json"))
     }
+    private fun writeCleaning(output: Path) {
+        val plan = OriginScenePlan.load(Files.createTempDirectory("cleaning-preview"))
+        val layout = requireNotNull(OriginStableCleaningLayout.from(plan.scene("mount-yard"), OriginForgeCartLayout.from(plan.scene("forge"))))
+        val portion = originStableManurePieces()
+        fun pieces(geometry: List<OriginWorkshopWorkpiecePiece>, prefix: String, offset: OriginWorkshopPoint,
+            rotation: org.joml.Quaternionf = org.joml.Quaternionf(), xRotation: Double = 0.0) = geometry.mapIndexed { index, piece ->
+            val at = rotation.transform(org.joml.Vector3f(piece.center.x.toFloat(), piece.center.y.toFloat(), piece.center.z.toFloat()))
+            mapOf("key" to "$prefix-$index", "material" to piece.material.name,
+                "x" to offset.x + at.x, "y" to offset.y + at.y, "z" to offset.z + at.z,
+                "width" to piece.size.x, "height" to piece.size.y, "depth" to piece.size.z, "rotationX" to xRotation)
+        }
+        val stall = layout.stalls.getValue(422)
+        val floor = stall.piles.flatMapIndexed { i, point -> pieces(portion, "floor-$i", OriginWorkshopPoint(
+            point.x - stall.cart.x, point.y - stall.cart.y, point.z - stall.cart.z)) }
+        fun cargo(count: Int) = (0 until count).flatMap { index ->
+            val offset = originForgeCartLoadOffset(index)
+            pieces(portion, "cargo-$index", OriginWorkshopPoint(offset.x.toDouble(), offset.y.toDouble(), offset.z.toDouble()),
+                org.joml.Quaternionf().rotationX(Math.toRadians(22.5).toFloat()), 22.5)
+        }
+        val scoop = originStableScoopPose(0.0, false)
+        val dumped = (0..2).flatMap { index ->
+            val at = originStableUnloadOffset(index)
+            pieces(portion, "dump-$index", OriginWorkshopPoint(at.x.toDouble(), at.y.toDouble(), at.z.toDouble()))
+        }
+        fun camera(x: Double, y: Double, z: Double, tx: Double, ty: Double, tz: Double) = mapOf(
+            "position" to mapOf("x" to x, "y" to y, "z" to z), "target" to mapOf("x" to tx, "y" to ty, "z" to tz), "fovDegrees" to 70)
+        val states = listOf(
+            mapOf("id" to "clean-floor", "title" to "Стойло Бурана · три порции и припаркованная тачка", "pieces" to floor,
+                "cartRotationY" to (180.0 - stall.cart.yaw), "camera" to camera(-2.3, 1.62, -2.0, -2.3, 0.25, 1.3)),
+            mapOf("id" to "clean-scoop", "title" to "Порция перед игроком · источник положения из runtime", "pieces" to pieces(portion, "scoop", scoop.center),
+                "hideCart" to true, "camera" to camera(0.0, 1.62, 0.0, 0.15, 1.1, 1.0)),
+            mapOf("id" to "clean-loaded-one", "title" to "Загрузка · одна порция в кузове", "pieces" to cargo(1)),
+            mapOf("id" to "clean-loaded-full", "title" to "Полная тачка · три порции в кузове", "pieces" to cargo(3)),
+            mapOf("id" to "clean-unloaded", "title" to "Выгрузка · пустая тачка и видимый груз на земле", "pieces" to dumped),
+            mapOf("id" to "clean-return", "title" to "Возврат · пустая тачка", "pieces" to emptyList<Any>()),
+        )
+        val result = mapOf("states" to states,
+            "model" to mapOf("itemId" to layout.cart.itemId, "scale" to listOf(layout.cart.scale.x, layout.cart.scale.y, layout.cart.scale.z),
+                "lift" to layout.cart.lift, "context" to layout.cart.context.name),
+            "anchors" to layout,
+            "camera" to camera(0.0, 1.62, -1.0, 0.0, 0.65, 0.15),
+            "coordinates" to mapOf("space" to "cart-ground-contact", "unit" to "block"),
+            "evidence" to "Production manure geometry, cargo-bed offsets, scoop pose and source stall anchors. Native hand/shovel pose, world geometry, lighting and client motion are not simulated.")
+        Files.writeString(output, GsonBuilder().setPrettyPrinting().create().toJson(result))
+    }
+
     private fun writeCrossTies(output: Path) {
         val pad = ORIGIN_YARD_CARE_PAD
         val anchors = listOf(ORIGIN_YARD_TIE_FIRST, ORIGIN_YARD_TIE_SECOND)

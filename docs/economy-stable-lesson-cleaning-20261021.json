@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "title": "Stable riding lesson and cart cleanup variants 2026-10-21",
+  "assumptions": [
+    "Source default: OriginSideJobRewardPolicy defaults to 20 Vault per order and 100 completed orders per player UUID per UTC date. Live classic ArcOrigin is enabled/ok at version 0.1.53; its active origin-side-job-rewards.yml read 2026-10-21 has the same values and SHA-256 51473a9539fcd0aeb7cf8e3109ad756c6396b8a361ab6e65faadb99c893aae87.",
+    "The policy is shared by WAITER, MOUNTYARD, FORGE and AUCTION. Accepted complete orders accrue into the shift balance and a finished shift makes one settlement. The lesson and cleaning sequences are MOUNTYARD variants: one instructor-led horse route through eight existing field points plus return; one three-pile cleanup requiring scoop/load, unload at the pad and an empty-cart return. Steps and partial orders do not add separate paid events.",
+    "No reward amount, currency, daily order limit or settlement rule changes. No tokens, player XP, EliteMobs crystals, redeemable item, permanent tool, entitlement, cost, tax or money multiplier is added. Shovel/cart props are work markers and are not inventory rewards or sellable items.",
+    "Low/base/high sensitivity only, not telemetry: 5/20/50 participating UUIDs; 0.25/1/2 active hours per UUID-day; assume 40/40/50 total completed side-job orders per active hour, giving 10/40/100 shared-policy orders per UUID-day. These counts are carried forward as a comparison envelope, not inferred from the route steps. Before and after use the same counts to isolate the unchanged rate; actual variant cadence is unknown.",
+    "The event counts are total orders across the shared waiter, mountyard, forge and auction policy, not separate quotas for each job or new variant. The per-UUID daily cap is 100 orders / 2,000 Vault across those types. Participants are scenario inputs, not observed online players. No global weekly budget exists; weekly values assume each participant repeats the chosen daily scenario on all seven days.",
+    "Fresh read-only classic ARC ledger, schema v2, network-shared server-player shards, exact 168-hour boundary: since 2026-10-14T19:29:23.421Z, generated 2026-10-21T19:29:23.422Z; coverage 3,546 records, 35,273 operations, 29 players, 3,546 enriched records. Per-currency Vault mint 67,714,058.47226338 and burn 2,754,018.039999998; tokens mint 63 and burn 21. The aggregate totals are mixed-currency legacy data and are not summed for this assessment.",
+    "Vault ledger is not an ordinary-player cadence baseline: admin_command minted 67,001,499 Vault from two players, with 99.9978% of that source's mint attributed to one player. Source coverage leaves 146 operations and 191,244.75 absolute amount unclassified; classified amount ratio is 99.9089%. The jobsRewards breakdown returned ArcEcoJobs components only and does not identify Origin side-job orders. No player-hour proxy is used as a task-duration measurement.",
+    "EconomyShopGUI SELL remains a current separate source and its future SELL-to-contract transition is outside this change. The ledger attributed 59,464.73 Vault shop income, but ranked adminShopSales is truncated and incomplete. No temporary job marker is counted as shop or contract income. No price or progression cost changes, so no days-to-save or disposable-income estimate is introduced."
+  ],
+  "participants": [
+    5,
+    20,
+    50
+  ],
+  "scenario_order": [
+    "low",
+    "base",
+    "high"
+  ],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "flows": [
+        {
+          "id": "origin_shared_side_job_order_mint",
+          "kind": "mint",
+          "source": "ArcOrigin OriginSideJobRewardPolicy / OriginSideJobRewards; active classic config plugins/ARC/modules/origin-side-job-rewards.yml",
+          "basis": "Unchanged 20 Vault per accepted whole order; shared 100-order UUID/UTC-day cap. Low/base/high counts are assumed total side-job orders across all job types, not measured variant cadence.",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "20",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              10,
+              40,
+              100
+            ],
+            "player_daily_cap": {
+              "value": "2000",
+              "unit": "major"
+            }
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "20",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              10,
+              40,
+              100
+            ],
+            "player_daily_cap": {
+              "value": "2000",
+              "unit": "major"
+            }
+          }
+        }
+      ]
+    },
+    "tokens": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "origin_shared_side_job_tokens",
+          "kind": "mint",
+          "source": "ArcOrigin side-job reward contract",
+          "basis": "No token award before or after; tokens remain a separate unit.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              10,
+              40,
+              100
+            ]
+          },
+          "after": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              10,
+              40,
+              100
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

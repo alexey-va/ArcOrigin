@@ -73,8 +73,10 @@ class OriginOddJobsSurfaceTest : StringSpec({
         val config = oddJobTestConfig()
         val screen = originOddJobsScreen(config, config.venues.first(), null, 20,
             SideJobRewardStatus(true, 5, 20_000, false), 0)
+        val withoutDeadline = originOddJobsScreen(config, config.venues.first(), null, 20,
+            SideJobRewardStatus(true, 5, 0, false), 0)
         screen.buttons.first().id.value shouldBe "odd_job_start"
-        screen.body.joinToString(" ") { plain(it.text) }.contains("через") shouldBe false
+        screen.body.map { plain(it.text) } shouldBe withoutDeadline.body.map { plain(it.text) }
     }
     "working employers never expose task selection or per-order cancellation" {
         val config = oddJobTestConfig()
@@ -101,9 +103,11 @@ class OriginOddJobsSurfaceTest : StringSpec({
     "guidance resolves every stage and the ready state persists without automatic heat damage" {
         val config = oddJobTestConfig()
         for (variant in OriginOddJobVariant.entries) {
-            val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(), OriginOddJobOffer(UUID.randomUUID(), variant, 8, false), 0)!!
+            val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(), OriginOddJobOffer(UUID.randomUUID(), variant, 8, false), 0,
+                yardTarget = OriginYardWork(422, "Буран", routeTotal = 9))!!
             for (stage in OriginOddJobStage.entries.filter { it.name.startsWith(when (variant.kind) {
-                OriginOddJobKind.MOUNTYARD -> "YARD"; OriginOddJobKind.FORGE -> "FORGE"; OriginOddJobKind.AUCTION -> "AUCTION"
+                OriginOddJobKind.MOUNTYARD -> if (variant == OriginOddJobVariant.YARD_CLEANUP) "CLEAN" else "YARD"
+                OriginOddJobKind.FORGE -> "FORGE"; OriginOddJobKind.AUCTION -> "AUCTION"
                 OriginOddJobKind.FORGE_HAUL -> "HAUL"; OriginOddJobKind.FORGE_ENGRAVE -> "ENGRAVE"
             }) } + listOf(OriginOddJobStage.RETURN, OriginOddJobStage.PAYOUT)) {
                 val guide = originOddJobGuide(config, job.copy(stage = stage), 0)
@@ -115,6 +119,37 @@ class OriginOddJobsSurfaceTest : StringSpec({
             OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.FORGE_NEW, 8, false), 0)!!.copy(stage = OriginOddJobStage.FORGE_HEATING)
         originOddJobGuide(config, forge, 60_000) shouldBe config.line("guide.forge-heat-ready")
         originOddJobProgress(forge, 60_000) shouldBe 0.4f
+    }
+    "lesson progress grows through preparation and the complete field route" {
+        val progress = OriginOddJobsProgress(240_000)
+        val player = UUID.randomUUID()
+        val job = progress.begin(player, OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_LESSON, 8, false), 0,
+            yardTarget = OriginYardWork(422, "Буран", routeTotal = 9))!!
+        val values = mutableListOf(originOddJobProgress(job, 0))
+        val actions = listOf(
+            OriginOddJobAction.TACK, OriginOddJobAction.LEAD, OriginOddJobAction.ARRIVE,
+            OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.BRUSH,
+            OriginOddJobAction.GROOM, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM,
+            OriginOddJobAction.TACK, OriginOddJobAction.SADDLE, OriginOddJobAction.UNTIE,
+            OriginOddJobAction.UNTIE, OriginOddJobAction.ARRIVE, OriginOddJobAction.HANDOFF,
+        ) + List(9) { OriginOddJobAction.ARRIVE } + OriginOddJobAction.RETURN
+        for ((index, action) in actions.withIndex()) {
+            val current = (progress.act(player, action, index + 1L) as OriginOddJobStep.Changed).job
+            values += originOddJobProgress(current, index + 1L)
+            if (current.stage == OriginOddJobStage.YARD_LESSON_WALK && current.yard!!.routeIndex == 0) values.last() shouldBe 0.5f
+        }
+        values.zipWithNext().all { (before, after) -> after >= before } shouldBe true
+        values.last() shouldBe 1f
+    }
+    "taking a full cleaning cart does not reset physical work progress" {
+        val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(),
+            OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_CLEANUP, 8, false), 0)!!
+        val before = originOddJobProgress(job.copy(stage = OriginOddJobStage.CLEAN_LOAD,
+            cleaning = OriginYardCleaningWork(collected = 2)), 0)
+        val attached = originOddJobProgress(job.copy(stage = OriginOddJobStage.CLEAN_CART,
+            cleaning = OriginYardCleaningWork(collected = 3)), 0)
+        (attached > before) shouldBe true
+        attached shouldBe 0.6f
     }
     "station resolution uses loaded real blocks including the trough one block away from its old anchor" {
         MockBukkitTestRuntime.open().use {

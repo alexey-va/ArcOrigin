@@ -835,6 +835,7 @@ scenes:
       445: {"home": "45.5,70,-141.5,-90,0", "denied-denizen-flags": []}
       446: {"home": "73.5,70,-141.5,90,0", "denied-denizen-flags": []}
     anchor-ids: ["tack-table", "buran-approach", "ryzhik-approach", "buran-graze", "buran-turn", "ryzhik-graze", "ryzhik-turn", "iney-turn", "bay-turn", "yard-center", "saddler-stand", "saddle-rack-stand", "helper-hay", "helper-barrels", "water-source", "job-feed-floor", "job-feed-approach", "job-care-pad", "job-tie-first", "job-tie-second", "job-handoff", "brush-source", "saddle-source", "helper-feed", "feed-floor", "hay-source", "cat-nap", "cat-watch", "dog-patrol", "dog-watch", "goat-hay", "goat-turn", "llama-turn", "llama-watch", "donkey-graze", "packing-crates", "packing-stand", "packing-target", "caravan-helper", "caravan-person-mid", "caravan-animal-mid", "caravan-person-front", "caravan-animal-front", "home-369", "home-440", "home-441", "home-442", "home-443", "home-444", "home-445", "home-446", "helper-water", "water-trough", "caravan-person-exit", "caravan-animal-exit", "home-422", "home-423", "home-415", "caravan-person-corner", "caravan-animal-corner", "home-412", "home-413", "home-414", "iney-field-point-0", "iney-field-point-1", "iney-field-point-2", "iney-field-point-3", "iney-field-point-4", "iney-field-point-5", "iney-field-point-6", "iney-field-point-7", "bay-field-point-0", "bay-field-point-1", "bay-field-point-2", "bay-field-point-3", "bay-field-point-4", "bay-field-point-5", "bay-field-point-6", "bay-field-point-7", "bay-field-point-8", "job-rider-home", "job-stall-422-exit", "job-stall-423-exit", "job-stall-422-gate-1", "job-stall-422-gate-2", "job-stall-422-gate-3", "job-stall-423-gate-1", "job-stall-423-gate-2", "job-stall-423-gate-3", "job-delivery-0", "job-delivery-1", "job-delivery-2", "job-delivery-3", "job-ride-0", "job-ride-1", "job-ride-2", "job-ride-3", "job-ride-4", "job-ride-5", "job-ride-6", "job-ride-7"]
+    work-anchor-ids: ["job-clean-cart", "job-clean-unload", "job-clean-422-cart", "job-clean-422-0", "job-clean-422-1", "job-clean-422-2", "job-clean-423-cart", "job-clean-423-0", "job-clean-423-1", "job-clean-423-2"]
     anchors:
       tack-table: "60.5,70.0,-122.5"
       buran-approach: "49.5,70.0,-136.5"
@@ -858,6 +859,16 @@ scenes:
       job-tie-second: "63.94,71.4,-127.5,90,0"
       job-handoff: "67.5,70,-122.5,0,0"
       job-rider-home: "67.5,70,-120.5,180,0"
+      job-clean-cart: "60.5,70,-132.5,0,0"
+      job-clean-unload: "65.5,70,-121.5,0,0"
+      job-clean-422-cart: "52.5,70,-135.5,-90,0"
+      job-clean-422-0: "47.3,70.02,-133.5"
+      job-clean-422-1: "48.2,70.02,-133.5"
+      job-clean-422-2: "49.1,70.02,-133.5"
+      job-clean-423-cart: "72.5,70,-138.5,180,0"
+      job-clean-423-0: "71.2,70.02,-135.5"
+      job-clean-423-1: "72.1,70.02,-135.5"
+      job-clean-423-2: "73.0,70.02,-135.5"
       job-stall-422-exit: "52.5,70,-135.5,-90,0"
       job-stall-423-exit: "72.5,70,-138.5,180,0"
       job-stall-422-gate-1: "50.5,70,-136.5"

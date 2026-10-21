@@ -66,10 +66,14 @@ internal class OriginOddJobSupplies(private val text: (String) -> String = { it 
     fun canTransfer(player: Player, job: OriginOddJobSession): Boolean = when (job.stage) {
         OriginOddJobStage.HAUL_PICKUP, OriginOddJobStage.ENGRAVE_BLANK, OriginOddJobStage.ENGRAVE_COLLECT -> hasSpace(player)
         OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.ENGRAVE_PLACE -> has(player, job)
-        OriginOddJobStage.YARD_HAY, OriginOddJobStage.YARD_BUCKET, OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_LEAD_RACK -> hasSpace(player)
+        OriginOddJobStage.YARD_HAY, OriginOddJobStage.YARD_BUCKET, OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_LEAD_RACK, OriginOddJobStage.CLEAN_TOOL -> hasSpace(player)
         OriginOddJobStage.YARD_TACK -> has(player, job) || hasSpace(player)
         OriginOddJobStage.YARD_FEED, OriginOddJobStage.YARD_WELL, OriginOddJobStage.YARD_WATER, OriginOddJobStage.YARD_GROOM,
         OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_DELIVER -> has(player, job)
+        OriginOddJobStage.YARD_LESSON_WALK, OriginOddJobStage.CLEAN_CART, OriginOddJobStage.CLEAN_PUSH,
+        OriginOddJobStage.CLEAN_SCOOP, OriginOddJobStage.CLEAN_LOAD, OriginOddJobStage.CLEAN_UNLOAD,
+        OriginOddJobStage.CLEAN_RETURN, OriginOddJobStage.CLEAN_PARK -> has(player, job)
+        OriginOddJobStage.YARD_HANDOFF -> job.variant != OriginOddJobVariant.YARD_LESSON || has(player, job)
         OriginOddJobStage.FORGE_INSPECT, OriginOddJobStage.FORGE_HEATING -> has(player, job) || hasSpace(player)
         OriginOddJobStage.FORGE_HAMMER -> job.forge?.remainingStrikes != 1 || hasSpace(player)
         OriginOddJobStage.FORGE_HEAT, OriginOddJobStage.FORGE_PLACE, OriginOddJobStage.FORGE_QUENCH -> has(player, job)
@@ -80,7 +84,8 @@ internal class OriginOddJobSupplies(private val text: (String) -> String = { it 
         if (job.kind == OriginOddJobKind.MOUNTYARD) {
             val model = yardItem(job)
             if (model == null) { clear(player, closeStock = false); return true }
-            return putInHand(player, job, item(player, job, text("mountyard.items.$model"), model))
+            val label = if (job.stage == OriginOddJobStage.CLEAN_LOAD) "loaded_shovel" else model
+            return putInHand(player, job, item(player, job, text("mountyard.items.$label"), model))
         }
         if (job.kind == OriginOddJobKind.FORGE_HAUL) {
             if (job.stage != OriginOddJobStage.HAUL_LOAD) { clear(player, closeStock = false); return true }
@@ -116,6 +121,10 @@ internal class OriginOddJobSupplies(private val text: (String) -> String = { it 
         OriginOddJobStage.YARD_WELL -> "bucket"
         OriginOddJobStage.YARD_WATER -> "water_bucket"
         OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_DELIVER -> "lead"
+        OriginOddJobStage.YARD_HANDOFF, OriginOddJobStage.YARD_LESSON_WALK -> if (job.variant == OriginOddJobVariant.YARD_LESSON) "lead" else null
+        OriginOddJobStage.CLEAN_CART, OriginOddJobStage.CLEAN_PUSH, OriginOddJobStage.CLEAN_SCOOP,
+        OriginOddJobStage.CLEAN_LOAD, OriginOddJobStage.CLEAN_UNLOAD, OriginOddJobStage.CLEAN_RETURN,
+        OriginOddJobStage.CLEAN_PARK -> "iron_shovel"
         OriginOddJobStage.YARD_GROOM -> "brush"
         OriginOddJobStage.YARD_TACK -> "brush"
         OriginOddJobStage.YARD_SADDLE -> "saddle"

@@ -510,7 +510,8 @@ internal data class OriginScenePlan(
                     deniedDenizenFlags = source.stringList("$root.actors.$actorId.denied-denizen-flags").toSet(),
                 )
             }
-            val anchors = distinctIds(source.stringList("$root.anchor-ids"), "$root.anchor-ids").associateWith { anchorId ->
+            // Separate additive work anchors merge into existing installations without replacing authored lists.
+            val anchors = distinctIds(source.stringList("$root.anchor-ids") + source.stringList("$root.work-anchor-ids"), "$root.anchor-ids/work-anchor-ids").associateWith { anchorId ->
                 point(source.string("$root.anchors.$anchorId"), "$root.anchors.$anchorId")
             }
             val propSurfaces = distinctIds(source.stringList("$root.prop-surface-ids"), "$root.prop-surface-ids").associateWith { surfaceId ->

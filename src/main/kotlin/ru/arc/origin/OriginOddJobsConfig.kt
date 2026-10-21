@@ -107,7 +107,7 @@ internal fun originOddJobStation(stage: OriginOddJobStage): OriginOddJobStationI
     OriginOddJobStage.YARD_FEED -> OriginOddJobStationId.FEED
     OriginOddJobStage.YARD_BUCKET -> OriginOddJobStationId.WELL
     OriginOddJobStage.YARD_WELL -> OriginOddJobStationId.WATER
-    OriginOddJobStage.YARD_BRUSH -> OriginOddJobStationId.BRUSH
+    OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.CLEAN_TOOL -> OriginOddJobStationId.BRUSH
     OriginOddJobStage.YARD_TACK, OriginOddJobStage.YARD_LEAD_RACK -> OriginOddJobStationId.SADDLE_RACK
     OriginOddJobStage.FORGE_BLANK -> OriginOddJobStationId.BLANK
     OriginOddJobStage.FORGE_HEAT, OriginOddJobStage.FORGE_HEATING -> OriginOddJobStationId.FIRE
@@ -211,6 +211,10 @@ internal fun originOddJobGuide(config: OriginOddJobsConfig, job: OriginOddJobSes
             now - job.stageStartedAt >= originOddJobHeatReady(job) -> "forge-heat-ready"
             else -> "forge-heating"
         }
+        OriginOddJobStage.YARD_HANDOFF -> if (job.variant == OriginOddJobVariant.YARD_LESSON) "yard-lesson-mount" else "yard-handoff"
+        OriginOddJobStage.YARD_DELIVER -> if (job.variant == OriginOddJobVariant.YARD_LESSON) "yard-lesson-meet" else "yard-deliver"
+        OriginOddJobStage.CLEAN_PUSH -> if (job.cleaning?.let { it.collected == it.total } == true) "clean-push-full" else "clean-push"
+        OriginOddJobStage.CLEAN_CART -> if ((job.cleaning?.collected ?: 0) > 0) "clean-cart-full" else "clean-cart"
         OriginOddJobStage.RETURN -> when (job.kind) {
             OriginOddJobKind.FORGE -> "forge-return"
             OriginOddJobKind.MOUNTYARD -> "yard-complete"
@@ -226,6 +230,9 @@ internal fun originOddJobGuide(config: OriginOddJobsConfig, job: OriginOddJobSes
         "cargo" to (job.haul?.cargo?.title ?: ""),
         "word" to (job.engraving?.word ?: ""), "letters" to ((job.engraving?.strokes ?: 0) / 2),
         "percent" to (((now - job.stageStartedAt).coerceAtLeast(0) * 100 / originOddJobHeatReady(job)).coerceAtMost(100)),
+        "route-point" to ((y?.routeIndex ?: 0) + 1).coerceAtMost((y?.routeTotal ?: 1).coerceAtLeast(1)),
+        "route-total" to (y?.routeTotal ?: 0), "collected" to (job.cleaning?.collected ?: 0),
+        "clean-total" to (job.cleaning?.total ?: 0),
         "brush" to (y?.brushStrokes ?: 0), "brush-total" to ODD_JOB_GROOM_STROKES,
         "seconds" to waiterSeconds(originOddJobHeatReady(job) - (now - job.stageStartedAt)))
 }

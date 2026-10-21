@@ -111,6 +111,8 @@ tasks.withType<KotlinCompile>().configureEach {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    // MockBukkit/MockK suites retain instrumented class metadata across the existing ten-class forks.
+    maxHeapSize = "2g"
     jvmArgs("-Djdk.attach.allowAttachSelf=true", "-XX:+EnableDynamicAgentLoading")
     forkEvery = 10
 }
