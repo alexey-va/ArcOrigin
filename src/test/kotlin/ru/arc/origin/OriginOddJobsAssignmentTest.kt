@@ -60,6 +60,7 @@ class OriginOddJobsAssignmentTest : StringSpec({
         failOnUnsupportedMockBukkitOperation {
             f.startForge(); f.finishForge()
             f.stations.getValue(OriginOddJobStationId.BLANK).block.type = Material.AIR
+            f.stations.getValue(OriginOddJobStationId.HAUL_DELIVERY).block.type = Material.AIR
             f.payments.single().callback(SideJobRewardOutcome.CREDITED)
             f.game.tick(f.now); f.scheduler.executeImmediate()
             f.now += 15_000
