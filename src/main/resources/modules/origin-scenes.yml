@@ -829,13 +829,13 @@ scenes:
       440: {"home": "58.271554682646666,70.0,-134.4177784196765,40.942657,5.549939", "denied-denizen-flags": []}
       461: {"home": "67.5,70,-120.5,180,0", "denied-denizen-flags": []}
       441: {"home": "66.5,70,-141.5,-90,0", "denied-denizen-flags": []}
-      442: {"home": "69.5,70,-141.5,180,0", "denied-denizen-flags": []}
+      442: {"home": "48.5,70,-142.0,-90,0", "denied-denizen-flags": [], "stall-gate-anchor-ids": ["stall-442-gate-1", "stall-442-gate-2"]}
       443: {"home": "52.5,70,-121.5,90,0", "denied-denizen-flags": []}
       444: {"home": "57.5,70,-125.5,180,0", "denied-denizen-flags": []}
       445: {"home": "45.5,70,-141.5,-90,0", "denied-denizen-flags": []}
-      446: {"home": "73.5,70,-141.5,90,0", "denied-denizen-flags": []}
+      446: {"home": "68.5,70,-134.5,-90,0", "denied-denizen-flags": [], "stall-gate-anchor-ids": ["job-stall-423-gate-1", "job-stall-423-gate-2", "job-stall-423-gate-3"]}
     anchor-ids: ["tack-table", "buran-approach", "ryzhik-approach", "buran-graze", "buran-turn", "ryzhik-graze", "ryzhik-turn", "iney-turn", "bay-turn", "yard-center", "saddler-stand", "saddle-rack-stand", "helper-hay", "helper-barrels", "water-source", "job-feed-floor", "job-feed-approach", "job-care-pad", "job-tie-first", "job-tie-second", "job-handoff", "brush-source", "saddle-source", "helper-feed", "feed-floor", "hay-source", "cat-nap", "cat-watch", "dog-patrol", "dog-watch", "goat-hay", "goat-turn", "llama-turn", "llama-watch", "donkey-graze", "packing-crates", "packing-stand", "packing-target", "caravan-helper", "caravan-person-mid", "caravan-animal-mid", "caravan-person-front", "caravan-animal-front", "home-369", "home-440", "home-441", "home-442", "home-443", "home-444", "home-445", "home-446", "helper-water", "water-trough", "caravan-person-exit", "caravan-animal-exit", "home-422", "home-423", "home-415", "caravan-person-corner", "caravan-animal-corner", "home-412", "home-413", "home-414", "iney-field-point-0", "iney-field-point-1", "iney-field-point-2", "iney-field-point-3", "iney-field-point-4", "iney-field-point-5", "iney-field-point-6", "iney-field-point-7", "bay-field-point-0", "bay-field-point-1", "bay-field-point-2", "bay-field-point-3", "bay-field-point-4", "bay-field-point-5", "bay-field-point-6", "bay-field-point-7", "bay-field-point-8", "job-rider-home", "job-stall-422-exit", "job-stall-423-exit", "job-stall-422-gate-1", "job-stall-422-gate-2", "job-stall-422-gate-3", "job-stall-423-gate-1", "job-stall-423-gate-2", "job-stall-423-gate-3", "job-delivery-0", "job-delivery-1", "job-delivery-2", "job-delivery-3", "job-ride-0", "job-ride-1", "job-ride-2", "job-ride-3", "job-ride-4", "job-ride-5", "job-ride-6", "job-ride-7"]
-    work-anchor-ids: ["job-clean-cart", "job-clean-unload", "job-clean-422-cart", "job-clean-422-0", "job-clean-422-1", "job-clean-422-2", "job-clean-423-cart", "job-clean-423-0", "job-clean-423-1", "job-clean-423-2"]
+    work-anchor-ids: ["job-clean-cart", "job-clean-unload", "job-clean-422-cart", "job-clean-422-0", "job-clean-422-1", "job-clean-422-2", "job-clean-423-cart", "job-clean-423-0", "job-clean-423-1", "job-clean-423-2", "stall-442-gate-1", "stall-442-gate-2", "stall-442-exit", "caravan-animal-load"]
     anchors:
       tack-table: "60.5,70.0,-122.5"
       buran-approach: "49.5,70.0,-136.5"
@@ -902,7 +902,7 @@ scenes:
       goat-turn: "45.5,70,-137.5,180,0"
       llama-turn: "71.5,70,-143.5,90,0"
       llama-watch: "73.5,70,-138.5,180,0"
-      donkey-graze: "68.5,70,-139.5,180,0"
+      donkey-graze: "48.5,70,-141.5,-90,0"
       packing-crates: "66.5,70,-139.5,180,0"
       packing-stand: "68.0,70,-141.5,-90,0"
       packing-target: "69.5,69.7,-141.5"
@@ -914,11 +914,15 @@ scenes:
       home-369: "54.6336,70,-119.518,180,0"
       home-440: "58.271554682646666,70.0,-134.4177784196765,40.942657,5.549939"
       home-441: "66.5,70,-141.5,-90,0"
-      home-442: "69.5,70,-141.5,180,0"
+      home-442: "48.5,70,-142.0,-90,0"
+      stall-442-gate-1: "50.5,70,-142.5"
+      stall-442-gate-2: "50.5,70,-141.5"
+      stall-442-exit: "52.5,70,-142.0,-90,0"
+      caravan-animal-load: "69.5,70,-141.5,180,0"
       home-443: "52.5,70,-121.5,90,0"
       home-444: "57.5,70,-125.5,180,0"
       home-445: "45.5,70,-141.5,-90,0"
-      home-446: "73.5,70,-141.5,90,0"
+      home-446: "68.5,70,-134.5,-90,0"
       helper-water: "58.5,70,-121.5,90,0"
       water-trough: "57.5,70.9,-121.5"
       caravan-person-exit: "65.5,70,-143.5,0,0"
@@ -1174,11 +1178,12 @@ scenes:
         initial-delay-seconds: 17
         cooldown-min-seconds: 35
         cooldown-max-seconds: 55
-        step-ids: ["crate", "call", "donkey-stand", "animal-still", "tom", "packer", "check", "brush", "groom", "approve", "face", "load-0-pad", "work-0", "load-1-left-pack", "load-1-right-pack", "load-1-left-lid", "load-1-right-lid", "work-1", "load-2-blanket", "load-2-strap-front", "load-2-strap-back", "work-2", "load-3-left-lock", "load-3-right-lock", "work-3", "ready", "snort", "show-load", "out-exit", "out-corner", "out-middle", "out-front", "inspect-load", "line", "rest", "return-middle", "return-corner", "return-exit", "return", "unload-work-3", "unload-3-left-lock", "unload-3-right-lock", "unload-work-2", "unload-2-blanket", "unload-2-strap-front", "unload-2-strap-back", "unload-work-1", "unload-1-left-pack", "unload-1-right-pack", "unload-1-left-lid", "unload-1-right-lid", "unload-work-0", "unload-0-pad", "finish"]
+        step-ids: ["crate", "call", "donkey-exit", "donkey-stand", "animal-still", "tom", "packer", "check", "brush", "groom", "approve", "face", "load-0-pad", "work-0", "load-1-left-pack", "load-1-right-pack", "load-1-left-lid", "load-1-right-lid", "work-1", "load-2-blanket", "load-2-strap-front", "load-2-strap-back", "work-2", "load-3-left-lock", "load-3-right-lock", "work-3", "ready", "snort", "show-load", "out-exit", "out-corner", "out-middle", "out-front", "inspect-load", "line", "rest", "return-middle", "return-corner", "return-exit", "return", "unload-work-3", "unload-3-left-lock", "unload-3-right-lock", "unload-work-2", "unload-2-blanket", "unload-2-strap-front", "unload-2-strap-back", "unload-work-1", "unload-1-left-pack", "unload-1-right-pack", "unload-1-left-lid", "unload-1-right-lid", "unload-work-0", "unload-0-pad", "finish", "stable-entrance", "stable-home"]
         steps:
           crate: {"type": "MOVE", "actor-id": 441, "anchor": "packing-crates", "route-profile": "yard", "timeout-ticks": 500}
           call: {"type": "SPEECH", "actor-id": 441, "text": "Том, проверь Репея. Я пока уложу поклажу."}
-          donkey-stand: {"type": "MOVE", "actor-id": 442, "anchor": "home-442", "route-profile": "yard", "timeout-ticks": 500}
+          donkey-exit: {"type": "MOVE", "actor-id": 442, "anchor": "stall-442-exit", "route-profile": "yard", "timeout-ticks": 500}
+          donkey-stand: {"type": "MOVE", "actor-id": 442, "anchor": "caravan-animal-load", "route-profile": "yard", "timeout-ticks": 500}
           animal-still: {"type": "POSE", "actor-id": 442, "state": "STAND"}
           tom: {"type": "MOVE", "actor-id": 370, "anchor": "caravan-helper", "route-profile": "yard", "timeout-ticks": 500}
           packer: {"type": "MOVE", "actor-id": 441, "anchor": "packing-stand", "route-profile": "yard", "timeout-ticks": 500}
@@ -1214,7 +1219,7 @@ scenes:
           return-middle: {"type": "MOVE_GROUP", "actor-ids": ["441", "442"], "anchors": ["caravan-person-mid", "caravan-animal-mid"], "route-profile": "caravan", "timeout-ticks": 700}
           return-corner: {"type": "MOVE_GROUP", "actor-ids": ["441", "442"], "anchors": ["caravan-person-corner", "caravan-animal-corner"], "route-profile": "caravan", "timeout-ticks": 700}
           return-exit: {"type": "MOVE_GROUP", "actor-ids": ["441", "442"], "anchors": ["caravan-person-exit", "caravan-animal-exit"], "route-profile": "caravan", "timeout-ticks": 700}
-          return: {"type": "MOVE_GROUP", "actor-ids": ["441", "442"], "anchors": ["packing-stand", "home-442"], "route-profile": "caravan", "timeout-ticks": 700}
+          return: {"type": "MOVE_GROUP", "actor-ids": ["441", "442"], "anchors": ["packing-stand", "caravan-animal-load"], "route-profile": "caravan", "timeout-ticks": 700}
           unload-work-3: {"type": "SWING", "actor-id": 441, "repetitions": 3, "period-ticks": 13}
           unload-3-left-lock: {"type": "REMOVE_DISPLAY", "key": "cargo-left-lock"}
           unload-3-right-lock: {"type": "REMOVE_DISPLAY", "key": "cargo-right-lock"}
@@ -1230,6 +1235,8 @@ scenes:
           unload-work-0: {"type": "SWING", "actor-id": 441, "repetitions": 3, "period-ticks": 13}
           unload-0-pad: {"type": "REMOVE_DISPLAY", "key": "cargo-pad"}
           finish: {"type": "SPEECH", "actor-id": 441, "text": "Отдыхай, Репей. До следующего выхода всё уложено."}
+          stable-entrance: {"type": "MOVE", "actor-id": 442, "anchor": "stall-442-exit", "route-profile": "yard", "timeout-ticks": 700}
+          stable-home: {"type": "MOVE", "actor-id": 442, "anchor": "home-442", "route-profile": "yard", "timeout-ticks": 500}
       cat-round:
         actor-ids: ["443"]
         initial-delay-seconds: 5
@@ -1285,15 +1292,18 @@ scenes:
         initial-delay-seconds: 21
         cooldown-min-seconds: 12
         cooldown-max-seconds: 25
-        step-ids: ["stand", "out", "look", "voice", "observe", "turn", "rest", "up"]
+        step-ids: ["stand", "exit", "out", "look", "voice", "observe", "turn", "rest", "return-entrance", "home", "up"]
         steps:
           stand: {"type": "POSE", "actor-id": 446, "state": "STAND"}
+          exit: {"type": "MOVE", "actor-id": 446, "anchor": "job-stall-423-exit", "route-profile": "yard", "timeout-ticks": 500}
           out: {"type": "MOVE", "actor-id": 446, "anchor": "llama-turn", "route-profile": "yard", "timeout-ticks": 500}
           look: {"type": "LOOK_AT_ANCHOR", "actor-id": 446, "anchor": "llama-watch"}
           voice: {"type": "SOUND", "actor-id": 446, "sound": "ENTITY_LLAMA_AMBIENT", "volume": 0.32, "pitch": 1.0}
           observe: {"type": "WAIT", "ticks": 100}
           turn: {"type": "MOVE", "actor-id": 446, "anchor": "llama-watch", "route-profile": "yard", "timeout-ticks": 500}
           rest: {"type": "WAIT", "ticks": 160}
+          return-entrance: {"type": "MOVE", "actor-id": 446, "anchor": "job-stall-423-exit", "route-profile": "yard", "timeout-ticks": 500}
+          home: {"type": "MOVE", "actor-id": 446, "anchor": "home-446", "route-profile": "yard", "timeout-ticks": 500}
           up: {"type": "POSE", "actor-id": 446, "state": "STAND"}
       donkey-rest:
         actor-ids: ["442"]

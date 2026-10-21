@@ -33,6 +33,7 @@ internal data class OriginSceneActor(
     val id: Int,
     val home: OriginScenePoint,
     val deniedDenizenFlags: Set<String>,
+    val stallGateAnchorIds: List<String> = emptyList(),
 )
 
 /** Native animal pose operations supported by the configured entity type. */
@@ -221,6 +222,9 @@ internal data class OriginSceneDefinition(
             "scene $id has duplicate cycle ids"
         }
         actors.forEach { (actorId, actor) ->
+            require(actor.stallGateAnchorIds.all(anchors::containsKey)) {
+                "Scene $id actor $actorId references an unknown stall gate anchor"
+            }
             require(actorId >= 0 && actor.id == actorId) { "scene $id has invalid actor id $actorId" }
         }
         require(anchors.keys.all(String::isNotBlank)) { "scene $id has a blank anchor id" }
@@ -508,6 +512,7 @@ internal data class OriginScenePlan(
                     id = actorId,
                     home = point(source.string("$root.actors.$actorId.home"), "$root.actors.$actorId.home"),
                     deniedDenizenFlags = source.stringList("$root.actors.$actorId.denied-denizen-flags").toSet(),
+                    stallGateAnchorIds = distinctIds(source.stringList("$root.actors.$actorId.stall-gate-anchor-ids"), "$root.actors.$actorId.stall-gate-anchor-ids"),
                 )
             }
             // Separate additive work anchors merge into existing installations without replacing authored lists.

@@ -24,6 +24,22 @@ import ru.arc.npc.NpcRouteRotation
 import ru.arc.npc.npcRouteYaw
 import ru.arc.npc.smoothNpcRotation
 
+/** Open only authored fence gates; leave them open so recovery never closes across a player. */
+internal fun openOriginSceneStallGates(world: World, points: List<OriginScenePoint>): Boolean {
+    val gates = points.map { point ->
+        val at = point.inWorld(world)
+        if (!world.isChunkLoaded(at.blockX shr 4, at.blockZ shr 4)) return false
+        val block = at.block
+        val gate = block.blockData as? org.bukkit.block.data.type.Gate ?: return false
+        block to gate
+    }
+    gates.forEach { (block, gate) -> if (!gate.isOpen) {
+        gate.isOpen = true
+        block.setBlockData(gate, true)
+    } }
+    return true
+}
+
 /** A failure retained by [OriginSceneResources] for an explicit cleanup retry. */
 internal data class OriginSceneCleanupFailure(
     val resource: String,

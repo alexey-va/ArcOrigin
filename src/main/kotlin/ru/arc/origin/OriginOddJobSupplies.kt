@@ -69,7 +69,9 @@ internal class OriginOddJobSupplies(private val text: (String) -> String = { it 
         OriginOddJobStage.YARD_HAY, OriginOddJobStage.YARD_BUCKET, OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_LEAD_RACK, OriginOddJobStage.CLEAN_TOOL -> hasSpace(player)
         OriginOddJobStage.YARD_TACK -> has(player, job) || hasSpace(player)
         OriginOddJobStage.YARD_FEED, OriginOddJobStage.YARD_WELL, OriginOddJobStage.YARD_WATER, OriginOddJobStage.YARD_GROOM,
-        OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_DELIVER -> has(player, job)
+        OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_LEAD_OUT,
+        OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_HORSE_FIRST,
+        OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_TIE_HORSE_SECOND, OriginOddJobStage.YARD_DELIVER -> has(player, job)
         OriginOddJobStage.YARD_LESSON_WALK, OriginOddJobStage.CLEAN_CART, OriginOddJobStage.CLEAN_PUSH,
         OriginOddJobStage.CLEAN_SCOOP, OriginOddJobStage.CLEAN_LOAD, OriginOddJobStage.CLEAN_UNLOAD,
         OriginOddJobStage.CLEAN_RETURN, OriginOddJobStage.CLEAN_PARK -> has(player, job)
@@ -120,7 +122,9 @@ internal class OriginOddJobSupplies(private val text: (String) -> String = { it 
         OriginOddJobStage.YARD_FEED -> "hay_block"
         OriginOddJobStage.YARD_WELL -> "bucket"
         OriginOddJobStage.YARD_WATER -> "water_bucket"
-        OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_DELIVER -> "lead"
+        OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_LEAD_OUT,
+        OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_HORSE_FIRST,
+        OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_TIE_HORSE_SECOND, OriginOddJobStage.YARD_DELIVER -> "lead"
         OriginOddJobStage.YARD_HANDOFF, OriginOddJobStage.YARD_LESSON_WALK -> if (job.variant == OriginOddJobVariant.YARD_LESSON) "lead" else null
         OriginOddJobStage.CLEAN_CART, OriginOddJobStage.CLEAN_PUSH, OriginOddJobStage.CLEAN_SCOOP,
         OriginOddJobStage.CLEAN_LOAD, OriginOddJobStage.CLEAN_UNLOAD, OriginOddJobStage.CLEAN_RETURN,

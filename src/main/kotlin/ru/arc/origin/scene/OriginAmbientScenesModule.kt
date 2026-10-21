@@ -503,11 +503,18 @@ private class OriginSceneService(
         }
     }
 
+    private fun openStallGates(running: ActiveOriginSceneCycle, actorId: Int, world: World): Boolean =
+        openOriginSceneStallGates(world, running.scene.actors.getValue(actorId).stallGateAnchorIds.map(running.scene.anchors::getValue))
+
     private fun move(running: ActiveOriginSceneCycle, index: Int, step: OriginSceneStep.Move) {
         val actor = npc(step.actorId)?.takeIf(NPC::isSpawned)
         val world = Bukkit.getWorld(plan.world)
         if (actor == null || world == null) {
             finish(running, "move-actor-missing")
+            return
+        }
+        if (!openStallGates(running, step.actorId, world)) {
+            finish(running, "stall-gate-unavailable")
             return
         }
         val moves = consecutiveOriginSceneMoves(running.cycle.steps, index)
@@ -557,6 +564,10 @@ private class OriginSceneService(
             return
         }
         val resolvedRoutes = routes.filterNotNull()
+        if (!resolvedRoutes.all { openStallGates(running, it.actor.id, world) }) {
+            finish(running, "stall-gate-unavailable")
+            return
+        }
         val profile = running.scene.routeProfiles.getValue(step.routeProfile)
         resolvedRoutes.forEach { route ->
             running.resources.clearMovementPose(route.actor)
@@ -1021,6 +1032,10 @@ private class OriginSceneService(
         originSceneReturnActorIds(running.cycle.actorIds, running.mountedPairs, keepMounted).forEach { actorId ->
             val actor = npc(actorId)?.takeIf(NPC::isSpawned) ?: return@forEach
             val home = running.scene.actors.getValue(actorId).home.inWorld(world)
+            if (!openStallGates(running, actorId, world)) {
+                teleportHome(running, actorId, world)
+                return@forEach
+            }
             val profile = selectOriginSceneHomeProfile(running.scene.routeProfiles, running.cycle, actorId, home)
             if (profile == null) {
                 teleportHome(running, actorId, world)

@@ -1,0 +1,585 @@
+{
+  "title": "ArcOrigin stable care variety and order-flow assessment 2026-10-22",
+  "assumptions": [
+    "Source baseline is ArcOrigin commit b124baa523c06ce90f5dbf417a1c962dfb0ac77f, pluginVersion 0.1.54; the planned target version is 0.1.55. Source defaults remain 20 Vault per accepted whole order and SIDE_JOB_DAILY_LIMIT=100 orders per player UUID per UTC date.",
+    "The active classic runtime read on 2026-10-22 still reports ArcOrigin 0.1.53 enabled/ok. Its live plugins/ARC/modules/origin-side-job-rewards.yml sets reward-per-order=20 and daily-order-limit=100. Source baseline, planned target, and live state are recorded separately; this assessment does not claim either source version is deployed.",
+    "WAITER, MOUNTYARD, FORGE and AUCTION share the same per-UUID UTC-day order quota and shift settlement. Existing mounted lesson and cart cleanup variants remain MOUNTYARD; care variety is also inside the same policy. Repey the donkey and Plyusha the llama ambient placement/routing add no paid order or reward.",
+    "Care-order specification: feeding and water orders vary the assigned horse; after water delivery the next order becomes available immediately while the horse drinks for 3.5 seconds under an actor lease. Cross-tie preparation is a separate order type, also varying the assigned horse; its four total clicks (wall, horse, other wall in any order, horse) replace the prior two clicks, so only two clicks are added. No actual order both removes the water wait and adds tie clicks. These actions and the background drink are not separate payable events.",
+    "Economic invariance assumption and acceptance requirement: one complete accepted MOUNTYARD order credits one order once; the background water animation/actor lease cannot create or duplicate credit. No per-action payout, rate, limit, settlement, tokens, player XP, crystals, permanent item, tax, cost or multiplier is added. Verify the asynchronous callback and order-credit path after delivery; this assessment is not runtime proof.",
+    "Matched-count low/base/high sensitivities reuse 10/40/100 total accepted side-job orders per UUID-day across all four shared job types, with 5/20/50 participating UUIDs. They are comparison inputs, not telemetry and not care-variant order rates. No active-hours or orders-per-hour estimate is made. The policy ceiling remains 100 orders or 2,000 Vault per UUID-day; no network weekly cap exists.",
+    "Time sensitivities are separate by order type: a water order changes critical-path duration by -3.5 seconds if the prior wait blocked the next order; a cross-tie preparation order changes it by +2t seconds because two clicks are added over the prior two-click path. At hypothetical t=0.25/0.5/1.0 seconds including travel/response, preparation adds 0.5/1.0/2.0 seconds. No actual order receives both timing changes, and no combined cadence inference is made. Actual click/travel time, assigned-horse variation and order-type frequency are unmeasured, so no throughput or hourly-earnings claim follows.",
+    "Fresh read-only classic economy ledger is schema v2, ledgerScope=network-shared server-player shards, exact 168-hour boundary 2026-10-14T21:14:00.565Z through 2026-10-21T21:14:00.567Z. It covers 3,533 records, 35,140 operations and 29 players; no crossing or future records/operations were excluded.",
+    "The ledger keeps currencies separate: Vault minted 67,712,925.79226337 and burned 2,754,018.039999998; tokens minted 63 and burned 21. Legacy aggregate totals are mixed-currency and are not combined. admin_command minted 67,001,499 Vault from two players; one account is 99.9978% of that source. Source classification leaves 151 records/operations and 191,265.75 absolute amount unclassified; classified operation ratio is 99.5703% and classified amount ratio is 99.9089%.",
+    "The jobsRewards breakdown identifies ArcEcoJobs components only and does not identify ArcOrigin order cadence. Ranked adminShopSales is truncated/incomplete despite 59,464.73 Vault reported shop income; this is not used as an ordinary-player cadence baseline. EconomyShopGUI SELL remains a separate current flow; the planned SELL-to-contract transition is outside this change."
+  ],
+  "scenario_order": [
+    "low",
+    "base",
+    "high"
+  ],
+  "currencies": {
+    "vault": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "200",
+            "800",
+            "2000"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "7000",
+            "112000",
+            "700000"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "7000",
+            "112000",
+            "700000"
+          ],
+          "player_daily_potential_net": [
+            "200",
+            "800",
+            "2000"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "200",
+              "800",
+              "2000"
+            ],
+            "network_weekly": [
+              "7000",
+              "112000",
+              "700000"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "origin_shared_side_job_order_mint",
+            "kind": "mint",
+            "player_daily_potential": [
+              "200",
+              "800",
+              "2000"
+            ],
+            "network_weekly_after_cap": [
+              "7000",
+              "112000",
+              "700000"
+            ],
+            "basis": "Unchanged 20 Vault for each accepted whole order; shared limit 100 orders per UUID per UTC date. Scenario counts are total orders over WAITER, MOUNTYARD, FORGE and AUCTION, not measured care-job cadence."
+          }
+        ]
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "200",
+            "800",
+            "2000"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "7000",
+            "112000",
+            "700000"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "7000",
+            "112000",
+            "700000"
+          ],
+          "player_daily_potential_net": [
+            "200",
+            "800",
+            "2000"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "200",
+              "800",
+              "2000"
+            ],
+            "network_weekly": [
+              "7000",
+              "112000",
+              "700000"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "origin_shared_side_job_order_mint",
+            "kind": "mint",
+            "player_daily_potential": [
+              "200",
+              "800",
+              "2000"
+            ],
+            "network_weekly_after_cap": [
+              "7000",
+              "112000",
+              "700000"
+            ],
+            "basis": "Unchanged 20 Vault for each accepted whole order; shared limit 100 orders per UUID per UTC date. Scenario counts are total orders over WAITER, MOUNTYARD, FORGE and AUCTION, not measured care-job cadence."
+          }
+        ]
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    "tokens": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "origin_shared_side_job_tokens",
+            "kind": "mint",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "No token award before or after; tokens remain a separate unit."
+          }
+        ]
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "origin_shared_side_job_tokens",
+            "kind": "mint",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "No token award before or after; tokens remain a separate unit."
+          }
+        ]
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    }
+  },
+  "prices": []
+}

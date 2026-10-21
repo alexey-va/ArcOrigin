@@ -49,58 +49,113 @@ import ru.arc.paper.testing.MockBukkitTestRuntime
 import java.util.UUID
 
 class OriginOddJobMountyardTest : StringSpec({
-    "all work uses stall horses and all preparation variants rotate through the same pool" {
+    "every stable variant uses the shared eligible horse pool without mutating its query history" {
         YardFixture(startJob = false).use { f ->
             val yard = f.yard
-            repeat(4) { seed ->
-                yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_RATIONS, seed, false)) shouldBe OriginYardWork(422, "Буран")
-                val selected = if (seed % 2 == 0) OriginYardWork(422, "Буран") else OriginYardWork(423, "Рыжик")
-                yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_SADDLE, seed, false)) shouldBe selected
-                yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_GROOM, seed, false)) shouldBe selected
-                yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_LESSON, seed, false)) shouldBe selected
+            for (variant in OriginOddJobVariant.entries.filter { it.kind == OriginOddJobKind.MOUNTYARD }) {
+                val offer = OriginOddJobOffer(UUID.randomUUID(), variant, 0, false)
+                repeat(3) { yard.target(offer) shouldBe OriginYardWork(422, "Буран") }
+                yard.target(offer, 422) shouldBe OriginYardWork(423, "Рыжик")
+                yard.target(offer, 423) shouldBe OriginYardWork(422, "Буран")
+                yard.target(offer) shouldBe OriginYardWork(422, "Буран")
+                (0..3).map { seed -> yard.target(offer.copy(seed = seed))!!.animalId } shouldBe listOf(422, 423, 422, 423)
             }
-            (0..3).map { seed -> yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_WATER, seed, false))!!.animalId } shouldBe listOf(422, 423, 422, 423)
+            yard.contains(442) shouldBe false
+            yard.contains(446) shouldBe false
+            yard.begin(f.player, f.job.copy(yard = OriginYardWork(442, "Не рабочая лошадь"))) shouldBe false
         }
     }
-    "feeding hay persists inside the stall until the actual route arrives and eating finishes" {
-        YardFixture(OriginOddJobVariant.YARD_RATIONS, 422).use { f ->
+    "previous busy invalid or displaced horses are excluded without excluding another eligible stall horse" {
+        YardFixture(id = 422, startJob = false).use { f ->
+            val offer = OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_RATIONS, 0, false)
+            f.leashHolder = f.player
+            f.yard.target(offer) shouldBe OriginYardWork(423, "Рыжик")
+            f.leashHolder = null
+            f.passengerVehicle = f.horse
+            f.yard.target(offer) shouldBe OriginYardWork(423, "Рыжик")
+            f.passengerVehicle = null
+            every { f.actor.uniqueId } returns UUID.randomUUID()
+            f.yard.target(offer) shouldBe OriginYardWork(423, "Рыжик")
+            f.yard.target(offer, 423) shouldBe null
+            every { f.actor.uniqueId } returns f.catalog.animals.first { it.npcId == 422 }.npcUuid
+            f.location = ORIGIN_YARD_CARE_PAD.inWorld(f.world)
+            f.yard.target(offer) shouldBe OriginYardWork(423, "Рыжик")
+            f.yard.target(offer, 423) shouldBe null
+            f.location = f.home.clone()
+            f.yard.target(offer) shouldBe OriginYardWork(422, "Буран")
+        }
+    }
+    "return marks ongoing care for background completion without restarting its timer" {
+        for ((variant, duration) in listOf(OriginOddJobVariant.YARD_RATIONS to 5_000L, OriginOddJobVariant.YARD_WATER to 3_500L)) {
+            YardFixture(variant).use { f ->
+                val stage = if (variant == OriginOddJobVariant.YARD_RATIONS) OriginOddJobStage.YARD_EATING else OriginOddJobStage.YARD_DRINKING
+                f.yard.sync(f.player, f.job.copy(stage = stage), emptyMap(), 0) shouldBe true
+                f.yard.sync(f.player, f.job.copy(stage = OriginOddJobStage.RETURN), emptyMap(), 1_000) shouldBe true
+                var released = 0
+                f.yard.clear(f.player.uniqueId, f.job.id) { released++ }
+                f.now = duration - 1; f.scheduler.tick(4)
+                released shouldBe 0
+                f.now = duration; f.scheduler.tick(4)
+                released shouldBe 1
+            }
+        }
+    }
+    "hay is placed by the assigned horse muzzle and grazing begins without a feeding route" {
+        for (id in listOf(422, 423)) YardFixture(OriginOddJobVariant.YARD_RATIONS, id).use { f ->
             val eating = f.job.copy(stage = OriginOddJobStage.YARD_EATING)
-            f.yard.sync(f.player, eating, f.stations, 0) shouldBe true
+            f.yard.sync(f.player, eating, emptyMap(), 0) shouldBe true
             f.blocks.size shouldBe 1
-            verify { f.renderer.spawnBlock(match { it.x == 48.5 && it.z == -134.5 }, any()) }
+            verify { f.renderer.spawnBlock(f.muzzleFloor(), any()) }
             verify { f.blocks.single().isVisibleByDefault = true }
-            f.yard.tick(f.player, eating, 10_000) shouldBe OriginYardTick.WAITING
-            verify(exactly = 0) { f.blocks.single().remove() }
-            f.location = Location(f.world, 48.5, 70.0, -135.5)
-            f.arrive()
-            f.yard.tick(f.player, eating, 10_000) shouldBe OriginYardTick.WAITING
             verify { anyConstructed<OriginSceneResources>().setPose(f.actor, OriginScenePose.HORSE_GRAZE) }
-            f.yard.sync(f.player, eating, f.stations, 12_000) shouldBe true
+            f.yard.tick(f.player, eating, 2_000) shouldBe OriginYardTick.WAITING
+            f.yard.sync(f.player, eating, emptyMap(), 2_000) shouldBe true
             f.blocks.size shouldBe 1
-            f.yard.tick(f.player, eating, 14_999) shouldBe OriginYardTick.WAITING
-            f.yard.tick(f.player, eating, 15_000) shouldBe OriginYardTick.CARED
+            f.yard.tick(f.player, eating, 4_999) shouldBe OriginYardTick.WAITING
+            f.yard.tick(f.player, eating, 5_000) shouldBe OriginYardTick.CARED
             verify(exactly = 1) { f.blocks.single().remove() }
+            f.location shouldBe f.home
+            verify(exactly = 0) { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) }
+            verify(exactly = 0) { f.horse.teleport(any<Location>()) }
         }
     }
-    "accepted hay finishes in the background and keeps only its animal unavailable until it returns" {
-        YardFixture(OriginOddJobVariant.YARD_RATIONS, 422).use { f ->
-            f.sync(OriginOddJobStage.YARD_FEED)
+    "accepted feeding and water keep only the assigned animal leased until background care completes" {
+        for ((variant, id, duration) in listOf(Triple(OriginOddJobVariant.YARD_RATIONS, 422, 5_000L),
+                Triple(OriginOddJobVariant.YARD_WATER, 423, 3_500L))) YardFixture(variant, id).use { f ->
+            f.sync(if (variant == OriginOddJobVariant.YARD_RATIONS) OriginOddJobStage.YARD_FEED else OriginOddJobStage.YARD_WATER)
             f.sync(OriginOddJobStage.RETURN)
+            val props = f.blocks.toList()
+            props.isNotEmpty() shouldBe true
+            verify { f.renderer.spawnBlock(f.muzzleFloor(), any()) }
+            verify { anyConstructed<OriginSceneResources>().setPose(f.actor, OriginScenePose.HORSE_GRAZE) }
             var released = 0
             f.yard.clear(f.player.uniqueId, f.job.id) { released++ }
             released shouldBe 0
-            f.yard.ownsAnimal(422) shouldBe true
-            f.yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_SADDLE, 0, false)) shouldBe OriginYardWork(423, "Рыжик")
-            f.yard.target(OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_RATIONS, 0, false)) shouldBe null
-            f.location = Location(f.world, 48.5, 70.0, -135.5)
-            f.arrive(); f.now = 1_000; f.scheduler.tick(4)
-            verify(exactly = 0) { f.blocks.single().remove() }
-            f.now = 6_000; f.scheduler.tick(4)
-            verify(exactly = 1) { f.blocks.single().remove() }
+            f.yard.ownsAnimal(id) shouldBe true
+            val other = if (id == 422) OriginYardWork(423, "Рыжик") else OriginYardWork(422, "Буран")
+            val offer = OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_RATIONS, 0, false)
+            f.yard.target(offer) shouldBe other
+            f.yard.target(offer, other.animalId) shouldBe null
+            f.now = duration - 1; f.scheduler.tick(4)
+            props.all { it.isValid } shouldBe true
             released shouldBe 0
-            f.location = f.home.clone(); f.arrive(); f.scheduler.tick(4)
+            f.now = duration; f.scheduler.tick(4)
+            props.none { it.isValid } shouldBe true
             released shouldBe 1
-            f.yard.ownsAnimal(422) shouldBe false
+            f.yard.ownsAnimal(id) shouldBe false
+            verify(exactly = 0) { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) }
+        }
+    }
+    "feeding and water require a supported clear muzzle floor before creating care props" {
+        for (variant in listOf(OriginOddJobVariant.YARD_RATIONS, OriginOddJobVariant.YARD_WATER)) {
+            for (blocked in listOf(false, true)) YardFixture(variant).use { f ->
+                val at = f.muzzleFloor()
+                if (blocked) every { at.block.isPassable } returns false
+                else every { at.clone().subtract(0.0, 0.05, 0.0).block.type } returns Material.AIR
+                f.yard.sync(f.player, f.job.copy(stage = OriginOddJobStage.RETURN), emptyMap(), 0) shouldBe false
+                f.blocks shouldBe emptyList()
+                verify(exactly = 0) { f.routes.navigate(any(), any(), any(), any(), any(), any(), any()) }
+            }
         }
     }
     "handoff mounts the separate rider and keeps the lease through the ride dismount and both returns" {
@@ -489,7 +544,7 @@ class OriginOddJobMountyardTest : StringSpec({
                 f.yard.target(OriginOddJobOffer(UUID.randomUUID(), variant, 0, false)) shouldBe OriginYardWork(423, "Рыжик")
             }
             val hay = OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_RATIONS, 0, false)
-            f.yard.target(hay) shouldBe null
+            f.yard.target(hay) shouldBe OriginYardWork(423, "Рыжик")
             f.yard.begin(f.player, f.job) shouldBe false
             verify(exactly = 0) { f.horse.teleport(any<Location>()) }
             f.location = f.home.clone()
@@ -541,17 +596,27 @@ class OriginOddJobMountyardTest : StringSpec({
             f.scheduler.pendingCount() shouldBe 0
         }
     }
-    "both physical ropes gate care and each untie removes only its own span before escort" {
-        YardFixture().use { f ->
+    "either wall order carries each end to the horse and either untie order releases its own span" {
+        for (firstWall in 0..1) for (firstUntie in 0..1) YardFixture(firstTieSide = firstWall, firstUntieSide = firstUntie).use { f ->
             f.location = ORIGIN_YARD_CARE_PAD.inWorld(f.world)
             val first = f.sync(OriginOddJobStage.YARD_TIE_FIRST)
             f.liveRopes() shouldBe 0
             f.yard.readyForCare(f.player.uniqueId, first) shouldBe false
-            f.yard.station(f.player.uniqueId, first)!!.block.x shouldBe 55
+            f.yard.tieStations(f.player.uniqueId, first).map { it.first } shouldBe listOf(0, 1)
+            val firstHorse = f.sync(OriginOddJobStage.YARD_TIE_HORSE_FIRST)
+            f.liveRopes() shouldBe 20
+            f.yard.tieStations(f.player.uniqueId, firstHorse) shouldBe emptyList()
+            f.yard.readyForCare(f.player.uniqueId, firstHorse) shouldBe false
+            f.yard.tick(f.player, firstHorse, 1) shouldBe OriginYardTick.WAITING
             val second = f.sync(OriginOddJobStage.YARD_TIE_SECOND)
             f.liveRopes() shouldBe 20
             f.yard.readyForCare(f.player.uniqueId, second) shouldBe false
-            f.yard.station(f.player.uniqueId, second)!!.block.x shouldBe 64
+            f.yard.tieStations(f.player.uniqueId, second).map { it.first } shouldBe listOf(1 - firstWall)
+            f.yard.station(f.player.uniqueId, second)!!.block.x shouldBe if (firstWall == 0) 64 else 55
+            val secondHorse = f.sync(OriginOddJobStage.YARD_TIE_HORSE_SECOND)
+            f.liveRopes() shouldBe 40
+            f.yard.readyForCare(f.player.uniqueId, secondHorse) shouldBe false
+            f.yard.tick(f.player, secondHorse, 2) shouldBe OriginYardTick.WAITING
             val brush = f.sync(OriginOddJobStage.YARD_BRUSH)
             f.liveRopes() shouldBe 40
             f.yard.readyForCare(f.player.uniqueId, brush) shouldBe true
@@ -559,12 +624,17 @@ class OriginOddJobMountyardTest : StringSpec({
             f.yard.tick(f.player, brush, 100) shouldBe OriginYardTick.WAITING
             f.blocks.size shouldBe count
             f.sync(OriginOddJobStage.YARD_GROOM); f.sync(OriginOddJobStage.YARD_TACK); f.sync(OriginOddJobStage.YARD_SADDLE)
-            f.sync(OriginOddJobStage.YARD_UNTIE_FIRST)
+            val untieFirst = f.sync(OriginOddJobStage.YARD_UNTIE_FIRST)
             f.liveRopes() shouldBe 40
+            f.yard.tieStations(f.player.uniqueId, untieFirst).map { it.first } shouldBe listOf(0, 1)
             verify { f.equipment.setItem(EquipmentSlot.SADDLE, match { it.type == Material.SADDLE }) }
-            f.sync(OriginOddJobStage.YARD_UNTIE_SECOND)
+            val untieSecond = f.sync(OriginOddJobStage.YARD_UNTIE_SECOND)
             f.liveRopes() shouldBe 20
+            f.yard.tieStations(f.player.uniqueId, untieSecond).map { it.first } shouldBe listOf(1 - firstUntie)
             verify(exactly = 0) { anyConstructed<OriginSceneResources>().releaseHold(f.actor) }
+            val stillAttached = untieSecond.copy(stage = OriginOddJobStage.YARD_DELIVER)
+            f.yard.sync(f.player, stillAttached, f.stations, 0) shouldBe false
+            f.liveRopes() shouldBe 20
             f.sync(OriginOddJobStage.YARD_DELIVER)
             f.liveRopes() shouldBe 0
             f.blocks.none { it.isValid } shouldBe true
@@ -622,7 +692,8 @@ class OriginOddJobMountyardTest : StringSpec({
 private val testYardRider = OriginYardRider(490, UUID.fromString("00000000-0000-0000-0000-000000000490"), "Мирон")
 
 private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YARD_SADDLE, id: Int = 423, gates: Boolean = false, startJob: Boolean = true,
-    initialControllable: Boolean? = null, rideAnchorIds: List<String> = listOf("job-ride-turn")) : AutoCloseable {
+    initialControllable: Boolean? = null, rideAnchorIds: List<String> = listOf("job-ride-turn"),
+    private val firstTieSide: Int = 0, private val firstUntieSide: Int = 0) : AutoCloseable {
     val paper = MockBukkitTestRuntime.open()
     val scheduler = TestTaskScheduler()
     val world = mockk<World>(relaxed = true) { every { uid } returns UUID.randomUUID(); every { name } returns "rc_origin_spawn" }
@@ -684,6 +755,7 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         every { uniqueId } returns UUID.randomUUID()
         every { world } returns this@YardFixture.world
         every { location } answers { playerLocation.clone() }
+        every { height } returns 1.8
     }
     val catalog = oddJobTestYardCatalog()
     var controllablePresent = initialControllable != null
@@ -747,10 +819,12 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         fun blockAt(x: Int, y: Int, z: Int): Block = supports.getOrPut(Triple(x, y, z)) {
             mockk<Block>(relaxed = true) {
                 every { type } returns when {
+                    y == 69 -> Material.STONE
                     x in setOf(55, 64) && y == 71 && z == -128 -> Material.STONE_BRICKS
                     x == 72 && y == 70 && z == -137 -> Material.OAK_FENCE_GATE
                     else -> Material.AIR
                 }
+                every { isPassable } answers { type.isAir }
                 every { blockData } returns if (x == 72 && y == 70 && z == -137) gateData else mockk(relaxed = true)
                 every { this@mockk.world } returns this@YardFixture.world
                 every { this@mockk.x } returns x; every { this@mockk.y } returns y; every { this@mockk.z } returns z
@@ -767,6 +841,8 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
             every { type } returns EntityType.HORSE
             every { isValid } returns true
             every { location } answers { otherHome.inWorld(this@YardFixture.world) }
+            every { isLeashed } returns false
+            every { passengers } returns emptyList()
         }
         val otherActor = mockk<NPC> {
             every { this@mockk.id } returns otherId
@@ -790,15 +866,31 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
                 "job-ride-far" to OriginScenePoint(53.5, 70.0, -113.5),
                 "job-stall-$id-exit" to if (id == 422) OriginScenePoint(52.5, 70.0, -136.5) else OriginScenePoint(72.5, 70.0, -138.5),
                 "job-stall-423-gate-1" to OriginScenePoint(72.0, 70.0, -137.0)), emptyMap(), emptyMap(), emptyList())
-        yard = OriginOddJobMountyard(world.name, catalog, listOf(422, 423), 422, testYardRider, scene, routes = routes,
+        yard = OriginOddJobMountyard(world.name, catalog, listOf(422, 423), testYardRider, scene, routes = routes,
             tasks = LifecycleTaskScope(scheduler), createDisplays = { renderer }, rideAnchorIds = rideAnchorIds,
             gateAnchorIds = if (gates) listOf("job-stall-423-gate-1") else emptyList(), clock = { now })
         if (startJob) yard.begin(player, job) { leaseValid } shouldBe true
     }
-    fun sync(stage: OriginOddJobStage): OriginOddJobSession = job.copy(stage = stage).also { yard.sync(player, it, stations, 0) shouldBe true }
+    fun sync(stage: OriginOddJobStage): OriginOddJobSession {
+        val mask = when (stage) {
+            OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_TIE_HORSE_SECOND -> 1 shl firstTieSide
+            OriginOddJobStage.YARD_UNTIE_SECOND -> 3 and (1 shl firstUntieSide).inv()
+            OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_GROOM, OriginOddJobStage.YARD_TACK,
+            OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_UNTIE_FIRST -> 3
+            else -> 0
+        }
+        val pending = when (stage) {
+            OriginOddJobStage.YARD_TIE_HORSE_FIRST -> firstTieSide
+            OriginOddJobStage.YARD_TIE_HORSE_SECOND -> 1 - firstTieSide
+            else -> null
+        }
+        return job.copy(stage = stage, yard = requireNotNull(job.yard).copy(tieMask = mask, pendingTieSide = pending))
+            .also { yard.sync(player, it, stations, 0) shouldBe true }
+    }
     fun prepareTies(): OriginOddJobSession {
         location = ORIGIN_YARD_CARE_PAD.inWorld(world)
-        listOf(OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_BRUSH,
+        listOf(OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_HORSE_FIRST,
+            OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_TIE_HORSE_SECOND, OriginOddJobStage.YARD_BRUSH,
             OriginOddJobStage.YARD_GROOM).forEach(::sync)
         sync(OriginOddJobStage.YARD_TACK); sync(OriginOddJobStage.YARD_SADDLE)
         return sync(OriginOddJobStage.YARD_UNTIE_FIRST)
@@ -813,6 +905,7 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
         sync(OriginOddJobStage.YARD_HANDOFF)
         return sync(OriginOddJobStage.YARD_LESSON_WALK)
     }
+    fun muzzleFloor(): Location = location.clone().add(location.direction.setY(0).normalize().multiply(1.1)).add(0.0, 0.02, 0.0)
     fun liveRopes(): Int = blocks.count { it.isValid && materials[it] == Material.STRIPPED_OAK_WOOD }
     fun arrive(success: Boolean = true) { navigating = false; outcome = NpcRouteOutcome(success, if (success) "FINISHED" else "STALLED", null) }
     override fun close() {

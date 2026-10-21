@@ -49,6 +49,19 @@ class OriginScenePlanTest : FreeSpec({
         }
     }
 
+    "a stall actor cannot reference an unknown gate anchor" {
+        val root = Files.createTempDirectory("origin-scenes-stall-gate-")
+        Files.createDirectories(root.resolve("modules"))
+        Files.writeString(root.resolve("modules/origin-scenes.yml"), """
+            scenes:
+              mount-yard:
+                actors:
+                  442:
+                    stall-gate-anchor-ids: [missing-stall-gate]
+        """.trimIndent())
+        shouldThrow<IllegalArgumentException> { OriginScenePlan.load(root) }
+    }
+
     "new work anchors merge into a legacy scene while preserving its authored list and overrides" {
         val root = Files.createTempDirectory("origin-scenes-work-upgrade")
         val file = root.resolve("modules/origin-scenes.yml")

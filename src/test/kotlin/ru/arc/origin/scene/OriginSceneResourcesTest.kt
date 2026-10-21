@@ -49,6 +49,31 @@ class OriginSceneResourcesTest : StringSpec({
     beforeEach { paper = MockBukkitTestRuntime.open() }
     afterEach { paper.close() }
 
+    "stall movement opens only the authored gates and rejects an obstructed gate before any change" {
+        val world = mockk<World>()
+        every { world.isChunkLoaded(any(), any()) } returns true
+        val first = mockk<Block>()
+        val second = mockk<Block>()
+        val gate = mockk<org.bukkit.block.data.type.Gate>(relaxed = true)
+        every { gate.isOpen } returns false
+        every { world.getBlockAt(any<Location>()) } answers {
+            if (firstArg<Location>().blockZ == -142) first else second
+        }
+        every { first.blockData } returns gate
+        every { first.setBlockData(any(), true) } just runs
+        every { second.blockData } returns mockk<BlockData>()
+        val one = OriginScenePoint(50.5, 70.0, -141.5)
+        val two = OriginScenePoint(50.5, 70.0, -140.5)
+        openOriginSceneStallGates(world, listOf(one, two)) shouldBe false
+        verify(exactly = 0) { first.setBlockData(any(), any()) }
+        openOriginSceneStallGates(world, listOf(one)) shouldBe true
+        verify(exactly = 1) { gate.isOpen = true }
+        verify(exactly = 1) { first.setBlockData(gate, true) }
+        openOriginSceneStallGates(world, emptyList()) shouldBe true
+        every { world.isChunkLoaded(any(), any()) } returns false
+        openOriginSceneStallGates(world, listOf(one)) shouldBe false
+    }
+
     "empty hand is captured once, including null, and repeated equip restores it" {
         val npc = mockNpc(17)
         val equipment = mockitoMock<CitizensEquipment>()

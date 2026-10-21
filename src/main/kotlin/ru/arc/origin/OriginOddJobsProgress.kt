@@ -76,7 +76,7 @@ internal class OriginOddJobDispatch(private val kind: OriginOddJobKind, private 
 
 internal enum class OriginOddJobStage {
     YARD_HAY, YARD_FEED, YARD_EATING, YARD_BUCKET, YARD_WELL, YARD_WATER, YARD_DRINKING,
-    YARD_BRUSH, YARD_GROOM, YARD_TACK, YARD_SADDLE, YARD_LEAD_RACK, YARD_LEAD, YARD_LEAD_OUT, YARD_TIE_FIRST, YARD_TIE_SECOND, YARD_UNTIE_FIRST, YARD_UNTIE_SECOND, YARD_DELIVER, YARD_HANDOFF, YARD_HANDED,
+    YARD_BRUSH, YARD_GROOM, YARD_TACK, YARD_SADDLE, YARD_LEAD_RACK, YARD_LEAD, YARD_LEAD_OUT, YARD_TIE_FIRST, YARD_TIE_HORSE_FIRST, YARD_TIE_SECOND, YARD_TIE_HORSE_SECOND, YARD_UNTIE_FIRST, YARD_UNTIE_SECOND, YARD_DELIVER, YARD_HANDOFF, YARD_HANDED,
     YARD_LESSON_WALK,
     CLEAN_TOOL, CLEAN_CART, CLEAN_PUSH, CLEAN_SCOOP, CLEAN_LOAD, CLEAN_UNLOAD, CLEAN_RETURN, CLEAN_PARK,
     FORGE_BLANK, FORGE_INSPECT, FORGE_HEAT, FORGE_HEATING, FORGE_PLACE, FORGE_HAMMER, FORGE_QUENCH,
@@ -92,7 +92,7 @@ internal enum class OriginAuctionParcel(val packing: OriginAuctionPacking, val w
 }
 internal data class OriginAuctionLot(val parcel: OriginAuctionParcel, val serial: Int, val restored: Boolean)
 internal data class OriginYardWork(val animalId: Int, val animalName: String, val brushStrokes: Int = 0,
-    val routeIndex: Int = 0, val routeTotal: Int = 0)
+    val routeIndex: Int = 0, val routeTotal: Int = 0, val tieMask: Int = 0, val pendingTieSide: Int? = null)
 internal data class OriginYardCleaningWork(val collected: Int = 0, val total: Int = 3)
 internal enum class OriginForgeProduct(val title: String) { HORSESHOE("Подкова"), HOOK("Крюк"), HINGE("Дверная петля"), BRACKET("Уголок") }
 internal enum class OriginForgeMetal(val title: String, val itemModel: String) { IRON("Железо", "iron_ingot"), COPPER("Медь", "copper_ingot") }
@@ -169,7 +169,9 @@ internal fun originOddJobProgress(job: OriginOddJobSession, now: Long): Float = 
     OriginOddJobStage.YARD_LEAD -> 0.1f
     OriginOddJobStage.YARD_LEAD_OUT -> 0.15f
     OriginOddJobStage.YARD_TIE_FIRST -> 0.23f
-    OriginOddJobStage.YARD_TIE_SECOND -> 0.28f
+    OriginOddJobStage.YARD_TIE_HORSE_FIRST -> 0.26f
+    OriginOddJobStage.YARD_TIE_SECOND -> 0.29f
+    OriginOddJobStage.YARD_TIE_HORSE_SECOND -> 0.32f
     OriginOddJobStage.YARD_UNTIE_FIRST -> 0.77f
     OriginOddJobStage.YARD_UNTIE_SECOND -> 0.81f
     OriginOddJobStage.YARD_WELL -> 0.25f
@@ -281,14 +283,28 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
             OriginOddJobStage.YARD_EATING, OriginOddJobStage.YARD_DRINKING, OriginOddJobStage.YARD_HANDED ->
                 if (action == OriginOddJobAction.CARE_DONE) next(OriginOddJobStage.RETURN) else wrong()
             OriginOddJobStage.YARD_WELL -> if (action == OriginOddJobAction.WATER) next(OriginOddJobStage.YARD_WATER) else wrong()
-            OriginOddJobStage.YARD_WATER -> if (action == OriginOddJobAction.WATER) next(OriginOddJobStage.YARD_DRINKING) else wrong()
+            OriginOddJobStage.YARD_WATER -> if (action == OriginOddJobAction.WATER) next(OriginOddJobStage.RETURN) else wrong()
             OriginOddJobStage.YARD_LEAD_RACK -> if (action == OriginOddJobAction.TACK) next(OriginOddJobStage.YARD_LEAD) else wrong()
             OriginOddJobStage.YARD_LEAD -> if (action == OriginOddJobAction.LEAD) next(OriginOddJobStage.YARD_LEAD_OUT) else wrong()
             OriginOddJobStage.YARD_LEAD_OUT -> if (action == OriginOddJobAction.ARRIVE) next(OriginOddJobStage.YARD_TIE_FIRST) else wrong()
-            OriginOddJobStage.YARD_TIE_FIRST -> if (action == OriginOddJobAction.TIE) next(OriginOddJobStage.YARD_TIE_SECOND) else wrong()
-            OriginOddJobStage.YARD_TIE_SECOND -> if (action == OriginOddJobAction.TIE) next(OriginOddJobStage.YARD_BRUSH) else wrong()
-            OriginOddJobStage.YARD_UNTIE_FIRST -> if (action == OriginOddJobAction.UNTIE) next(OriginOddJobStage.YARD_UNTIE_SECOND) else wrong()
-            OriginOddJobStage.YARD_UNTIE_SECOND -> if (action == OriginOddJobAction.UNTIE) next(OriginOddJobStage.YARD_DELIVER) else wrong()
+            OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND -> when {
+                action != OriginOddJobAction.TIE -> wrong()
+                zone !in 0..1 || requireNotNull(yard).tieMask and (1 shl zone) != 0 -> rejected(OriginOddJobRejection.WRONG_ZONE, job)
+                else -> next(if (job.stage == OriginOddJobStage.YARD_TIE_FIRST) OriginOddJobStage.YARD_TIE_HORSE_FIRST
+                    else OriginOddJobStage.YARD_TIE_HORSE_SECOND, job.copy(yard = yard.copy(pendingTieSide = zone)))
+            }
+            OriginOddJobStage.YARD_TIE_HORSE_FIRST, OriginOddJobStage.YARD_TIE_HORSE_SECOND -> {
+                val side = requireNotNull(yard).pendingTieSide
+                if (action != OriginOddJobAction.TIE || side !in 0..1) wrong()
+                else next(if (job.stage == OriginOddJobStage.YARD_TIE_HORSE_FIRST) OriginOddJobStage.YARD_TIE_SECOND
+                    else OriginOddJobStage.YARD_BRUSH, job.copy(yard = yard.copy(tieMask = yard.tieMask or (1 shl requireNotNull(side)), pendingTieSide = null)))
+            }
+            OriginOddJobStage.YARD_UNTIE_FIRST, OriginOddJobStage.YARD_UNTIE_SECOND -> when {
+                action != OriginOddJobAction.UNTIE -> wrong()
+                zone !in 0..1 || requireNotNull(yard).tieMask and (1 shl zone) == 0 -> rejected(OriginOddJobRejection.WRONG_ZONE, job)
+                else -> next(if (job.stage == OriginOddJobStage.YARD_UNTIE_FIRST) OriginOddJobStage.YARD_UNTIE_SECOND
+                    else OriginOddJobStage.YARD_DELIVER, job.copy(yard = yard.copy(tieMask = yard.tieMask and (1 shl zone).inv())))
+            }
             OriginOddJobStage.YARD_DELIVER -> if (action == OriginOddJobAction.ARRIVE) next(OriginOddJobStage.YARD_HANDOFF) else wrong()
             OriginOddJobStage.YARD_HANDOFF -> if (action == OriginOddJobAction.HANDOFF)
                 next(if (job.variant == OriginOddJobVariant.YARD_LESSON) OriginOddJobStage.YARD_LESSON_WALK else OriginOddJobStage.RETURN) else wrong()

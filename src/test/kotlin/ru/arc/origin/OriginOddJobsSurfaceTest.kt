@@ -128,13 +128,13 @@ class OriginOddJobsSurfaceTest : StringSpec({
         val values = mutableListOf(originOddJobProgress(job, 0))
         val actions = listOf(
             OriginOddJobAction.TACK, OriginOddJobAction.LEAD, OriginOddJobAction.ARRIVE,
-            OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.BRUSH,
+            OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.BRUSH,
             OriginOddJobAction.GROOM, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM,
             OriginOddJobAction.TACK, OriginOddJobAction.SADDLE, OriginOddJobAction.UNTIE,
             OriginOddJobAction.UNTIE, OriginOddJobAction.ARRIVE, OriginOddJobAction.HANDOFF,
         ) + List(9) { OriginOddJobAction.ARRIVE } + OriginOddJobAction.RETURN
         for ((index, action) in actions.withIndex()) {
-            val current = (progress.act(player, action, index + 1L) as OriginOddJobStep.Changed).job
+            val current = (progress.act(player, action, index + 1L, zone = if (progress.current(player)!!.stage in setOf(OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_UNTIE_SECOND)) 0 else 1) as OriginOddJobStep.Changed).job
             values += originOddJobProgress(current, index + 1L)
             if (current.stage == OriginOddJobStage.YARD_LESSON_WALK && current.yard!!.routeIndex == 0) values.last() shouldBe 0.5f
         }

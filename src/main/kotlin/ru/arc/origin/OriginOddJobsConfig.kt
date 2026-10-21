@@ -43,7 +43,6 @@ internal data class OriginOddJobsConfig(
     val text: ConfigSection,
     val rewardPolicy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy(),
     val yardAnimalIds: List<Int> = listOf(422, 423),
-    val yardFeedingAnimalId: Int = 422,
     val yardRider: OriginYardRider? = null,
     val yardRideAnchorIds: List<String> = emptyList(),
     val yardDeliveryAnchorIds: List<String> = emptyList(),
@@ -75,7 +74,6 @@ internal data class OriginOddJobsConfig(
             source.integer("jobs.auction.handoff-npc-id"), UUID.fromString(source.string("jobs.auction.handoff-npc-uuid")),
             source.string("jobs.auction.handoff-name"), source.section("text"), rewardPolicy,
             source.stringList("jobs.mountyard.animal-ids").map(String::toInt).also { require(it.isNotEmpty()) },
-            source.integer("jobs.mountyard.feeding-animal-id", 422),
             source.integer("jobs.mountyard.rider-npc-id", -1).takeIf { it >= 0 }?.let { id ->
                 OriginYardRider(id, UUID.fromString(source.string("jobs.mountyard.rider-npc-uuid")),
                     source.string("jobs.mountyard.rider-name", "Всадник"))
@@ -104,7 +102,6 @@ internal data class OriginOddJobStation(val point: Location, val block: Block, v
 
 internal fun originOddJobStation(stage: OriginOddJobStage): OriginOddJobStationId? = when (stage) {
     OriginOddJobStage.YARD_HAY -> OriginOddJobStationId.HAY
-    OriginOddJobStage.YARD_FEED -> OriginOddJobStationId.FEED
     OriginOddJobStage.YARD_BUCKET -> OriginOddJobStationId.WELL
     OriginOddJobStage.YARD_WELL -> OriginOddJobStationId.WATER
     OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.CLEAN_TOOL -> OriginOddJobStationId.BRUSH
@@ -121,7 +118,7 @@ internal fun originOddJobStation(stage: OriginOddJobStage): OriginOddJobStationI
 }
 
 internal fun originOddJobRequiredStations(kind: OriginOddJobKind): Set<OriginOddJobStationId> = when (kind) {
-    OriginOddJobKind.MOUNTYARD -> setOf(OriginOddJobStationId.HAY, OriginOddJobStationId.FEED, OriginOddJobStationId.WATER,
+    OriginOddJobKind.MOUNTYARD -> setOf(OriginOddJobStationId.HAY, OriginOddJobStationId.WATER,
         OriginOddJobStationId.WELL, OriginOddJobStationId.BRUSH, OriginOddJobStationId.SADDLE_RACK)
     OriginOddJobKind.FORGE -> setOf(OriginOddJobStationId.BLANK, OriginOddJobStationId.FIRE, OriginOddJobStationId.ANVIL,
         OriginOddJobStationId.QUENCH, OriginOddJobStationId.ORE_STOCK, OriginOddJobStationId.ENGRAVING, OriginOddJobStationId.HAUL_DELIVERY)

@@ -20,19 +20,30 @@ internal val ORIGIN_YARD_CARE_PAD = OriginScenePoint(60.5, 70.0, -126.5, 180f)
 internal val ORIGIN_YARD_TIE_FIRST = OriginScenePoint(56.06, 71.4, -127.5, -90f)
 internal val ORIGIN_YARD_TIE_SECOND = OriginScenePoint(63.94, 71.4, -127.5, 90f)
 
-internal fun originYardTieTarget(stage: OriginOddJobStage): Int? = when (stage) {
-    OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_UNTIE_FIRST -> 0
-    OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_UNTIE_SECOND -> 1
+internal fun originYardTieMask(job: OriginOddJobSession): Int? = when (job.stage) {
+    OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_HORSE_FIRST,
+    OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_TIE_HORSE_SECOND,
+    OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_GROOM, OriginOddJobStage.YARD_TACK,
+    OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_UNTIE_FIRST,
+    OriginOddJobStage.YARD_UNTIE_SECOND -> requireNotNull(job.yard).tieMask
     else -> null
 }
 
-internal fun originYardTieMask(stage: OriginOddJobStage): Int? = when (stage) {
-    OriginOddJobStage.YARD_TIE_FIRST -> 0
-    OriginOddJobStage.YARD_TIE_SECOND -> 1
-    OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_GROOM, OriginOddJobStage.YARD_TACK,
-    OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_UNTIE_FIRST -> 3
-    OriginOddJobStage.YARD_UNTIE_SECOND -> 2
-    else -> null
+/** Wall order is a player's choice; a carried end is not yet an attached cross-tie. */
+internal fun originYardTieTargets(job: OriginOddJobSession): List<Int> {
+    val mask = originYardTieMask(job) ?: return emptyList()
+    return when (job.stage) {
+        OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND -> (0..1).filter { mask and (1 shl it) == 0 }
+        OriginOddJobStage.YARD_UNTIE_FIRST, OriginOddJobStage.YARD_UNTIE_SECOND -> (0..1).filter { mask and (1 shl it) != 0 }
+        else -> emptyList()
+    }
+}
+
+/** Minecraft +Z is south, so the worker's right hand is on the -X side at yaw zero. */
+internal fun originYardTieHand(worker: Location, height: Double): Location {
+    val yaw = Math.toRadians(worker.yaw.toDouble())
+    return worker.clone().add(-0.28 * cos(yaw) - 0.35 * sin(yaw), height * 0.68,
+        -0.28 * sin(yaw) + 0.35 * cos(yaw))
 }
 
 /** Source geometry shared by packet rendering and the offline cross-tie preview. */
@@ -46,12 +57,13 @@ private fun tieSpan(key: String, a: Vector3f, b: Vector3f, width: Float, materia
         Quaternionf().rotationTo(Vector3f(0f, 0f, 1f), delta.normalize()).rotateZ(roll), material)
 }
 
-internal fun originYardRopePieces(side: Int, head: Vector3f, anchor: Vector3f): List<OriginYardTiePiece> = buildList {
+internal fun originYardRopePieces(side: Int, head: Vector3f, anchor: Vector3f, slack: Float = 0f): List<OriginYardTiePiece> = buildList {
     // Two crossed square strands make a narrow, solid octagonal cord, visible from every direction.
     // Ten short sections retain the vanilla wood grain instead of stretching one texture four metres.
     repeat(10) { segment ->
-        val a = Vector3f(head).lerp(anchor, segment / 10f)
-        val b = Vector3f(head).lerp(anchor, (segment + 1) / 10f)
+        fun point(t: Float) = Vector3f(head).lerp(anchor, t).apply { y -= 4 * slack * t * (1 - t) }
+        val a = point(segment / 10f)
+        val b = point((segment + 1) / 10f)
         repeat(2) { strand ->
             add(tieSpan("rope-$side-$segment-$strand", a, b, 0.038f, Material.STRIPPED_OAK_WOOD,
                 (segment * Math.PI / 8 + strand * Math.PI / 4).toFloat()))
@@ -89,7 +101,7 @@ internal fun originYardTieAimed(player: Player, station: OriginOddJobStation, ra
     return blocker == null || blocker == station.block && eye.toVector().subtract(p.toVector()).dot(p.direction) > 0
 }
 
-/** One leased horse, two surveyed wall faces, at most 62 cosmetic displays; no native leash entities. */
+/** One leased horse, two surveyed wall faces, at most 66 cosmetic displays; no native leash entities. */
 internal class OriginYardCrossTies(
     private val renderer: PaperPacketDisplays, private val player: Player, origin: Location,
     private val anchors: List<Location>,
@@ -100,7 +112,8 @@ internal class OriginYardCrossTies(
     private var closed = false
     var mask = 0
         private set
-    private var activeTarget: Int? = null
+    private var activeTargets = emptyList<Int>()
+    private var pendingSide: Int? = null
 
     private fun local(at: Location): Vector3f = Vector3f((at.x - origin.x).toFloat(), (at.y - origin.y).toFloat(), (at.z - origin.z).toFloat())
     private fun normal(side: Int): Vector3f = anchors[side].direction.let { Vector3f(it.x.toFloat(), 0f, it.z.toFloat()).normalize() }
@@ -132,9 +145,12 @@ internal class OriginYardCrossTies(
         return horse.clone().add(forward.multiply(0.8)).add(0.0, height * 0.82, 0.0).add(sideways)
     }
 
-    fun setStage(stage: OriginOddJobStage, horse: Location, height: Double) {
-        mask = requireNotNull(originYardTieMask(stage))
-        activeTarget = originYardTieTarget(stage)
+    fun setStage(job: OriginOddJobSession, horse: Location, height: Double) {
+        mask = requireNotNull(originYardTieMask(job))
+        activeTargets = originYardTieTargets(job)
+        val pending = job.yard?.pendingTieSide
+        require(pending == null || pending in 0..1 && mask and (1 shl pending) == 0)
+        pendingSide = pending
         render(horse, height)
     }
 
@@ -144,10 +160,14 @@ internal class OriginYardCrossTies(
             anchors.indices.forEach { side ->
                 val anchor = local(anchors[side])
                 addAll(originYardRingPieces(side, anchor, normal(side)))
-                if (mask and (1 shl side) != 0) {
+                if (pendingSide == side) {
+                    val hand = local(originYardTieHand(player.location, player.height))
+                    addAll(originYardRopePieces(side, hand, anchor, slack = 0.22f))
+                    addAll(originYardRingPieces(side + 2, local(cheek(horse, height, side)), normal(side).negate(), cue = true))
+                } else if (mask and (1 shl side) != 0) {
                     addAll(originYardRopePieces(side, local(cheek(horse, height, side)), anchor))
                 }
-                if (activeTarget == side) addAll(originYardRingPieces(side, anchor, normal(side), cue = true))
+                if (side in activeTargets) addAll(originYardRingPieces(side, anchor, normal(side), cue = true))
             }
         }
         val wanted = next.mapTo(mutableSetOf()) { it.key }
