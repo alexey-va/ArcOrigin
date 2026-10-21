@@ -205,6 +205,14 @@ private class CleaningFixture : AutoCloseable {
     }.also(paper.server::addPlayer)
     fun sync() = cleaning.sync(player, job)
     fun advance(action: OriginOddJobAction) {
+        if (action == OriginOddJobAction.ATTACH_CART) {
+            val collisionAvailable = try {
+                requireNotNull(cleaning.station(player.uniqueId, job)).block.collisionShape
+                true
+            } catch (_: org.mockbukkit.mockbukkit.exception.UnimplementedOperationException) { false }
+            org.junit.jupiter.api.Assumptions.assumeTrue(collisionAvailable,
+                "MockBukkit BlockMock.getCollisionShape is unimplemented; native cleaning cart movement requires real VoxelShapes. See OriginOddJobCartTest for shared collision coverage.")
+        }
         job = (progress.act(player.uniqueId, action, 2_000) as OriginOddJobStep.Changed).job
         sync()
     }
