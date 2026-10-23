@@ -178,7 +178,7 @@ private class CleaningFixture : AutoCloseable {
             every { display.isVisibleByDefault = any() } answers { visibleByDefault[display] = firstArg() }
             every { display.showTo(any<Player>()) } answers { shownTo.getOrPut(display) { mutableSetOf() }.add(firstArg<Player>().uniqueId); Unit }
             every { display.remove() } answers { valid = false }
-            every { display.attachTo(any()) } answers { attached[display] = true }
+            every { display.attachTo(any<Player>()) } answers { attached[display] = true }
             every { display.detach() } answers { attached[display] = false }
             every { display.teleport(any()) } answers { positions[display] = firstArg<Location>().clone() }
             positions[display] = at.clone(); attached[display] = false; visibleByDefault[display] = true
