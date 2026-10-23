@@ -57,6 +57,27 @@ class OriginOddJobsGameTest : StringSpec({
     beforeEach { f = OddJobsFixture() }
     afterEach { f.close() }
 
+    "all game modes can start work and changing mode keeps the same paid order" {
+        for ((index, mode) in GameMode.entries.withIndex()) {
+            f.close(); f = OddJobsFixture()
+            failOnUnsupportedMockBukkitOperation {
+                f.player.gameMode = mode
+                f.begin(440, OriginOddJobVariant.YARD_RATIONS)
+                val job = f.game.currentJob(f.player.uniqueId)!!
+                f.stroke(OriginOddJobStationId.HAY)
+                f.player.gameMode = GameMode.entries[(index + 1) % GameMode.entries.size]
+                f.game.tick(f.now)
+                f.game.currentJob(f.player.uniqueId)!!.id shouldBe job.id
+                f.clickNpc(requireNotNull(job.yard).animalId, sneaking = false)
+                f.game.currentJob(f.player.uniqueId) shouldBe null
+                f.payments.size shouldBe 2
+                f.payments.toList().forEach { it.callback(SideJobRewardOutcome.CREDITED) }
+                f.completedOrders shouldBe listOf(job.id)
+                f.earned.values.single().amount shouldBe 40L
+            }
+        }
+    }
+
     "either button can use private request stock while native container access remains denied" {
         for (variant in listOf(OriginOddJobVariant.FORGE_NEW, OriginOddJobVariant.HAUL_COPPER)) {
             f.close(); f = OddJobsFixture(doubleStocks = true)
@@ -545,10 +566,7 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.tick(f.now)
             f.requireStage(OriginOddJobStage.CLEAN_RETURN, "waiting until cart is actually home")
             f.cleaningArrival = true; f.game.tick(f.now); f.cleaningArrival = false
-            f.requireStage(OriginOddJobStage.CLEAN_PARK, "home arrival needs parking")
-            f.payments.size shouldBe 11
-            f.strokeCleaning(); f.game.tick(f.now)
-            f.requireStage(OriginOddJobStage.CLEAN_TOOL_RETURN, "parked cart still holds the shovel loan")
+            f.requireStage(OriginOddJobStage.CLEAN_TOOL_RETURN, "home arrival parks automatically and keeps the shovel loan")
             f.payments.size shouldBe 12
             f.gearClick(left = true); f.game.tick(f.now)
             f.game.currentJob(f.player.uniqueId) shouldBe null
@@ -1155,12 +1173,13 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
         every { yard.destination(any(), any()) } returns null
         every { yard.contains(any()) } answers { firstArg<Int>() in config.yardAnimalIds }
         every { yard.resolve(any()) } answers { actors[firstArg<Int>()]?.entity as? LivingEntity }
-        every { yard.target(any(), any()) } answers {
+        every { yard.target(any(), any(), any()) } answers {
             val offer = firstArg<OriginOddJobOffer>()
             val previous = secondArg<Int?>()
             val start = Math.floorMod(offer.seed, config.yardAnimalIds.size)
             val animalId = config.yardAnimalIds.indices.map { config.yardAnimalIds[(start + it) % config.yardAnimalIds.size] }
-                .firstOrNull { it != previous } ?: return@answers null
+                .filter { thirdArg<Set<Int>?>()?.contains(it) != false }
+                .let { ids -> ids.firstOrNull { it != previous } ?: ids.firstOrNull() } ?: return@answers null
             OriginYardWork(animalId, yardCatalog.animals.first { it.npcId == animalId }.name)
         }
         every { yard.tick(any(), any(), any()) } answers { when (secondArg<OriginOddJobSession>().stage) {

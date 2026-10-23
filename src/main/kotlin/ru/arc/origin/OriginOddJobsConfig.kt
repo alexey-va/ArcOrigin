@@ -42,7 +42,7 @@ internal data class OriginOddJobsConfig(
     val handoffName: String,
     val text: ConfigSection,
     val rewardPolicy: OriginSideJobRewardPolicy = OriginSideJobRewardPolicy(),
-    val yardAnimalIds: List<Int> = listOf(422, 423),
+    val yardAnimalIds: List<Int> = listOf(422, 423, 442, 445, 446),
     val yardRider: OriginYardRider? = null,
     val yardRideAnchorIds: List<String> = emptyList(),
     val yardDeliveryAnchorIds: List<String> = emptyList(),

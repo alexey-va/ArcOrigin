@@ -14,13 +14,13 @@ jobs:
     name: "Сеня"
     scene: mount-yard
     actor-ids: [440]
-    animal-ids: [422, 423]
+    animal-ids: [422, 423, 442, 445, 446]
     rider-npc-id: 461
     rider-npc-uuid: c7147327-693f-46c3-8159-27847509fcfe
     rider-name: "Мирон"
     ride-anchor-ids: ["job-ride-0", "job-ride-1", "job-ride-2", "job-ride-3", "job-ride-4", "job-ride-5", "job-ride-6", "job-ride-7"]
     delivery-anchor-ids: ["job-delivery-0", "job-delivery-1", "job-delivery-2", "job-delivery-3"]
-    stall-gate-anchor-ids: ["job-stall-422-gate-1", "job-stall-422-gate-2", "job-stall-422-gate-3", "job-stall-423-gate-1", "job-stall-423-gate-2", "job-stall-423-gate-3"]
+    stall-gate-anchor-ids: ["job-stall-422-gate-1", "job-stall-422-gate-2", "job-stall-422-gate-3", "job-stall-423-gate-1", "job-stall-423-gate-2", "job-stall-423-gate-3", "stall-442-gate-1", "stall-442-gate-2", "job-stall-445-gate-1", "job-stall-445-gate-2", "job-stall-446-gate-1", "job-stall-446-gate-2"]
     feeding-seconds: 5
     route-timeout-seconds: 60
   forge:
@@ -73,7 +73,6 @@ text:
   other-job: "Сначала заверши свою смену у другого мастера."
   workshop-active: "Сначала заверши работу в мастерской."
   waiter-active: "Сначала заверши смену официанта."
-  work-mode: "Подработка доступна в режиме выживания или приключения."
   come-closer: "Подойди ближе к собеседнику."
   table:
     duration: "Смена"

@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "title": "ArcOrigin all-mode side-job participation and reliable cart assessment 2026-10-23",
+  "participants": [
+    1,
+    3,
+    10
+  ],
+  "assumptions": [
+    "Only mode eligibility changes: SURVIVAL/ADVENTURE already permitted; CREATIVE/SPECTATOR no longer rejected solely by mode. No mode grants, permission changes or synthetic completion. Mode-specific previously-denied cohort is measured as before0; the same UUID could previously switch to Survival, so this is not a forecast of wholly new players.",
+    "Low/base/high assume1/3/10 newly participating UUIDs,60/120/200 accepted meaningful actions per active hour and0.25/0.5/1 active hour/day:15/60/200 potential receipts. These are assumptions, not telemetry; cap100 applies after combining every side-job family.",
+    "Verified live ArcOrigin0.1.63; reward20Vault per MOUNTYARD accepted meaningful action, other odd-job families20percompletedorder. Shared100receiptIDs/UUID/UTCday=2000Vault remains. Beforemode-specificcohort0; after300/1200/2000perUUIDday and2100/25200/140000networkweek assumingunusedcommonallowance.",
+    "Cleanup remains13receipts/260Vault before remaining common quota. Final automatic park recognizes the deliberate completed home haul under the existing PARK_CART receipt; no extra arrival/timer/recovery payment. Stuck recovery and more valid pens may improve actual throughput; no measured hourly claim.",
+    "Creative flight and Spectator movement can shorten travel. No additional MONEY boost, speed/farmperk multiplier, price, tax, XP, crystal, item grant or premium-token change. Borrowed props remain temporary non-saleable workpieces, inventory transfer rules remain authoritative.",
+    "No new paid entitlement/full equipment purchase or progression price changes; savings time cannot be derived from unmeasured disposable income. Neighbouring sidejobs share existing quota; their payout amount is unchanged.",
+    "Duplicate/invalid clicks, repeated recovery and retry remain zero additional payment via existing state/receiptidempotence. Upper daily mint stays2000Vault/UUID;10UUIDs20000/day; no networkweeklybudget or new multiaccount rule.",
+    "Current SELL is retained separate activeflow; owner's SELL-to-contract transition remains future and unchanged. Ledger activitybuckets are not playhours; admin mint does not establish normal cadence.",
+    "NPC identities/leases, support floors, assigned reachable objectives and owned cart identity remain validated regardless mode. Existing missed work can now complete but no actual emission delta is inferred from improved reliability."
+  ],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "flows": [
+        {
+          "id": "newly_admitted_modes",
+          "kind": "mint",
+          "source": "OriginOddJobsModule mode gates / OriginSideJobRewards shared cashier",
+          "basis": "Explicit sensitivity for formerly rejected current-mode participants; unused shared daily quota assumed.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "20",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              15,
+              60,
+              200
+            ],
+            "player_daily_cap": {
+              "value": "2000",
+              "unit": "major"
+            }
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "20",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              15,
+              60,
+              200
+            ],
+            "player_daily_cap": {
+              "value": "2000",
+              "unit": "major"
+            }
+          }
+        }
+      ]
+    },
+    "tokens": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "tokens_unchanged",
+          "kind": "mint",
+          "source": "No premium reward in side-job policy",
+          "basis": "Separatecurrency;noneawarded.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              15,
+              60,
+              200
+            ]
+          },
+          "after": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              15,
+              60,
+              200
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "observed_ledger": {
+    "since": 1792163052188,
+    "generatedAt": 1792767852188,
+    "coverage": {
+      "oldest": 1792163080500,
+      "newest": 1792765520763,
+      "records": 3450,
+      "operations": 34013,
+      "players": 30,
+      "attempts": 248,
+      "enrichedRecords": 3450
+    },
+    "currencies": [
+      {
+        "currency": "tokens",
+        "minted": 81,
+        "burned": 15,
+        "unclassified": {
+          "unclassifiedOperations": 3,
+          "unclassifiedAbsoluteAmount": 15,
+          "classifiedOperationRatio": 0.9433962264150944,
+          "classifiedAmountRatio": 0.84375
+        }
+      },
+      {
+        "currency": "vault",
+        "minted": 67933901.32570809,
+        "burned": 2440764.22,
+        "unclassified": {
+          "unclassifiedOperations": 276,
+          "unclassifiedAbsoluteAmount": 224138.3599999999,
+          "classifiedOperationRatio": 0.9918727915194346,
+          "classifiedAmountRatio": 0.9989330035995919
+        }
+      }
+    ]
+  },
+  "prices": []
+}

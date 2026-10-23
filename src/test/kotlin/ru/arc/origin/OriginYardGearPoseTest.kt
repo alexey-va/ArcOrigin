@@ -84,4 +84,22 @@ class OriginYardGearPoseTest : StringSpec({
         originYardGearSideMatches(job.stage,Location(world,1.0,0.0,0.0),pose) shouldBe false
         originYardGearFocus(OriginOddJobStage.YARD_STIRRUP_LEFT)!!.intersect(originYardGearFocus(OriginOddJobStage.YARD_STIRRUP_RIGHT)!!) shouldBe emptySet()
     }
+    "returning a shovel targets its visible bracket instead of the absent blade" {
+        val pose=OriginYardGearPose(Location(WorldMock(),56.12,70.04,-133.38))
+        val job=OriginOddJobSession(UUID.randomUUID(),OriginOddJobKind.MOUNTYARD,OriginOddJobStage.CLEAN_TOOL_RETURN,
+            0,240000,0,OriginOddJobOffer(UUID.randomUUID(),OriginOddJobVariant.YARD_CLEANUP,0,false),yard=OriginYardWork(422,"Буран"))
+        val step=requireNotNull(originYardGearStep(job.stage))
+        val target=requireNotNull(originYardGearControl(job,step,pose).nativeTarget)
+        val hook=originYardGearBounds(originYardShovelHookPieces(),pose)
+        (target.width >= .59f && target.height >= .59f) shouldBe true
+        (target.location().y > pose.at.y+.7) shouldBe true
+        (target.location().y < hook.minY) shouldBe true
+        (target.location().y+target.height > hook.maxY) shouldBe true
+        (originYardGearHint(job.stage,step,pose).y > hook.maxY) shouldBe true
+
+        val pickup=job.copy(stage=OriginOddJobStage.CLEAN_TOOL)
+        val pickupTarget=requireNotNull(originYardGearControl(pickup,requireNotNull(originYardGearStep(pickup.stage)),pose).nativeTarget)
+        pickupTarget.location().y shouldBe (pose.at.y plusOrMinus .000001)
+        (pickupTarget.height > 1f) shouldBe true
+    }
 })

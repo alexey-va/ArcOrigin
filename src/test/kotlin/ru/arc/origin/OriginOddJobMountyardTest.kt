@@ -27,6 +27,7 @@ import org.bukkit.block.data.BlockData
 import org.bukkit.block.data.type.Gate
 import org.bukkit.util.BoundingBox
 import org.bukkit.entity.EntityType
+import org.bukkit.entity.Mob
 import org.bukkit.entity.Horse
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Entity
@@ -63,6 +64,47 @@ class OriginOddJobMountyardTest : StringSpec({
             yard.contains(442) shouldBe false
             yard.contains(446) shouldBe false
             yard.begin(f.player, f.job.copy(yard = OriginYardWork(442, "Не рабочая лошадь"))) shouldBe false
+        }
+    }
+    "care rotates through every barn species while tack stays on horses and cleanup filters supported pens" {
+        YardFixture(startJob = false, careAnimals = true).use { f ->
+            for (variant in listOf(OriginOddJobVariant.YARD_RATIONS, OriginOddJobVariant.YARD_WATER)) {
+                val offer = OriginOddJobOffer(UUID.randomUUID(), variant, 0, false)
+                var previous: Int? = null
+                val selected = (0..4).map { f.yard.target(offer, previous)!!.animalId.also { previous = it } }
+                selected shouldBe listOf(422, 423, 442, 445, 446)
+                for (id in listOf(442, 445, 446)) {
+                    val job = f.job.copy(id = UUID.randomUUID(), offer = f.job.offer.copy(variant = variant), yard = OriginYardWork(id, "care"))
+                    f.now = 0
+                    f.yard.begin(f.player, job) shouldBe true
+                    val stage = if (variant == OriginOddJobVariant.YARD_RATIONS) OriginOddJobStage.YARD_EATING else OriginOddJobStage.YARD_DRINKING
+                    f.yard.sync(f.player, job.copy(stage = stage), emptyMap(), 0) shouldBe true
+                    var released = 0
+                    if (variant == OriginOddJobVariant.YARD_RATIONS) {
+                        f.yard.sync(f.player, job.copy(stage = OriginOddJobStage.RETURN), emptyMap(), 1) shouldBe true
+                        f.yard.clear(f.player.uniqueId, job.id) { released++ }
+                        released shouldBe 0
+                        f.now = 5_000; f.scheduler.tick(4)
+                    } else {
+                        f.yard.tick(f.player, job.copy(stage = stage), 3_500) shouldBe OriginYardTick.CARED
+                        f.yard.sync(f.player, job.copy(stage = OriginOddJobStage.YARD_BUCKET_RETURN), emptyMap(), 3_501) shouldBe true
+                        f.yard.sync(f.player, job.copy(stage = OriginOddJobStage.RETURN), emptyMap(), 3_502) shouldBe true
+                        f.yard.clear(f.player.uniqueId, job.id) { released++ }
+                    }
+                    released shouldBe 1
+                    f.yard.ownsAnimal(id) shouldBe false
+                }
+            }
+            for (variant in listOf(OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE, OriginOddJobVariant.YARD_LESSON)) {
+                val offer = OriginOddJobOffer(UUID.randomUUID(), variant, 2, false)
+                f.yard.target(offer, 422)!!.animalId shouldBe 423
+                f.yard.begin(f.player, f.job.copy(offer = f.job.offer.copy(variant = variant), yard = OriginYardWork(445, "goat"))) shouldBe false
+            }
+            val clean = OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_CLEANUP, 0, false)
+            f.yard.target(clean, 445, setOf(445, 446))!!.animalId shouldBe 446
+            f.yard.target(clean, null, emptySet()) shouldBe null
+            every { f.actor.isSpawned } returns false
+            f.yard.available() shouldBe true
         }
     }
     "previous busy invalid or displaced horses are excluded without excluding another eligible stall horse" {
@@ -883,7 +925,7 @@ private val testYardRider = OriginYardRider(490, UUID.fromString("00000000-0000-
 
 private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YARD_SADDLE, id: Int = 423, gates: Boolean = false, startJob: Boolean = true,
     initialControllable: Boolean? = null, initialTamed: Boolean = false, initialSaddle: Material = Material.AIR, rideAnchorIds: List<String> = listOf("job-ride-turn"),
-    private val firstTieSide: Int = 0, private val firstUntieSide: Int = 0) : AutoCloseable {
+    private val firstTieSide: Int = 0, private val firstUntieSide: Int = 0, careAnimals: Boolean = false) : AutoCloseable {
     val paper = MockBukkitTestRuntime.open()
     val scheduler = TestTaskScheduler()
     val world = mockk<World>(relaxed = true) { every { uid } returns UUID.randomUUID(); every { name } returns "rc_origin_spawn" }
@@ -1050,23 +1092,41 @@ private class YardFixture(variant: OriginOddJobVariant = OriginOddJobVariant.YAR
             every { isSpawned } returns true
             every { entity } returns otherHorse
         }
+        val extraHomes = listOf(442, 445, 446).associateWith { OriginScenePoint(60.5 + (it - 442), 70.0, -140.5) }
+        val extraActors = if (careAnimals) extraHomes.mapValues { (extraId, at) ->
+            val animal = mockk<Mob>(relaxed = true) {
+                every { world } returns this@YardFixture.world
+                every { type } returns EntityType.valueOf(catalog.animals.first { it.npcId == extraId }.entityType)
+                every { isValid } returns true
+                every { location } answers { at.inWorld(this@YardFixture.world) }
+                every { isLeashed } returns false
+                every { passengers } returns emptyList()
+            }
+            mockk<NPC> {
+                every { this@mockk.id } returns extraId
+                every { uniqueId } returns catalog.animals.first { it.npcId == extraId }.npcUuid
+                every { isSpawned } returns true
+                every { entity } returns animal
+            }
+        } else emptyMap()
         val registry = mockk<NPCRegistry> { every { getById(any()) } answers { when (firstArg<Int>()) {
             id -> actor
             otherId -> otherActor
             testYardRider.npcId -> riderActor
-            else -> null
+            else -> extraActors[firstArg()]
         } } }
         every { CitizensAPI.getNPCRegistry() } returns registry
         val scene = OriginSceneDefinition("mount-yard", ORIGIN_YARD_CARE_PAD, 72.0, 3_000, 7,
             mapOf(id to OriginSceneActor(id, OriginScenePoint(home.x, home.y, home.z), emptySet()),
-                otherId to OriginSceneActor(otherId, otherHome, emptySet())),
+                otherId to OriginSceneActor(otherId, otherHome, emptySet())) +
+                extraActors.keys.associateWith { OriginSceneActor(it, extraHomes.getValue(it), emptySet()) },
             mapOf("job-rider-home" to OriginScenePoint(riderHome.x, riderHome.y, riderHome.z),
                 "job-handoff" to OriginScenePoint(67.5, 70.0, -122.5),
                 "job-ride-turn" to OriginScenePoint(59.5, 70.0, -119.5),
                 "job-ride-far" to OriginScenePoint(53.5, 70.0, -113.5),
                 "job-stall-$id-exit" to if (id == 422) OriginScenePoint(52.5, 70.0, -136.5) else OriginScenePoint(72.5, 70.0, -138.5),
                 "job-stall-423-gate-1" to OriginScenePoint(72.0, 70.0, -137.0)), emptyMap(), emptyMap(), emptyList())
-        yard = OriginOddJobMountyard(world.name, catalog, listOf(422, 423), testYardRider, scene, routes = routes,
+        yard = OriginOddJobMountyard(world.name, catalog, listOf(422, 423) + extraActors.keys, testYardRider, scene, routes = routes,
             tasks = LifecycleTaskScope(scheduler), createDisplays = { renderer }, rideAnchorIds = rideAnchorIds,
             gateAnchorIds = if (gates) listOf("job-stall-423-gate-1") else emptyList(), clock = { now })
         if (startJob) yard.begin(player, job) { leaseValid } shouldBe true

@@ -36,7 +36,7 @@ internal data class OriginOddJobCartPose(val point: OriginWorkshopPoint, val yaw
  * nose by the handles, then the wheels take the load and the chassis levels out.
  * All heights come from the same native collision shapes used for obstruction.
  */
-internal class OriginOddJobCartMotion(private val layout: OriginForgeCartLayout) {
+internal class OriginOddJobCartMotion(private val layout: OriginForgeCartLayout, private val softObstacles: Boolean = false) {
     private data class Part(val center: Vector3f, val half: Vector3f, val rotation: Quaternionf)
     private val radius = 0.125 * maxOf(layout.scale.y, layout.scale.z)
     private val wheels = listOf(modelPoint(-3.5, -8.0, 11.0), modelPoint(19.5, -8.0, 11.0))
@@ -78,9 +78,12 @@ internal class OriginOddJobCartMotion(private val layout: OriginForgeCartLayout)
         val floor = supportHeight(from, terrain) ?: return from
         // Keep contact with an obstacle already below a raised cart until it
         // rolls clear. Dropping the chassis around that obstacle wedges it.
-        val contacts = if (from.point.y > floor + 0.012) blocks.filter {
+        val contacts = if (!softObstacles && from.point.y > floor + 0.012) blocks.filter {
             it.maxY <= from.point.y + 1.001 && it.maxY >= minOf(from.point.y, workerGround) - 1.25
         } else terrain
+        // A farm cart may overlap narrow posts, rails and walls. They still
+        // cannot lift it: only the same broad, exposed treads support its pose.
+        val barriers = if (softObstacles) terrain else blocks
         // Read the next contact slightly ahead, so the worker can lift the nose
         // before the wooden front hits the riser. The actual swept pose remains
         // fully collision checked and never jumps to this planning point.
@@ -98,11 +101,11 @@ internal class OriginOddJobCartMotion(private val layout: OriginForgeCartLayout)
         if (y - from.point.y > 0.25) return from.copy(velocityX = 0.0, velocityZ = 0.0, velocityY = 0.0)
         val vy = y - from.point.y
         val next = OriginOddJobCartPose(OriginWorkshopPoint(x, y, z), heading, pitch, vx, vz, vy)
-        if (clearSweep(from, next, blocks, cargo)) return next
+        if (clearSweep(from, next, barriers, cargo)) return next
         // Contact with the riser precedes translation. Lift around the held rear
         // handles instead of rejecting the entire frame or jumping onto the block.
         val lift = next.copy(point = OriginWorkshopPoint(from.point.x, y, from.point.z))
-        if (clearSweep(from, lift, blocks, cargo)) {
+        if (clearSweep(from, lift, barriers, cargo)) {
             // Keep the safe part of this frame's travel. Discarding the whole
             // advance and restarting acceleration at each stair causes a cart
             // to fall behind a walking worker on a sustained climb.
@@ -110,7 +113,7 @@ internal class OriginOddJobCartMotion(private val layout: OriginForgeCartLayout)
             repeat(5) {
                 val fraction = (low + high) / 2
                 val candidate = next.copy(point = OriginWorkshopPoint(from.point.x + vx * fraction, y, from.point.z + vz * fraction))
-                if (clearSweep(from, candidate, blocks, cargo)) { low = fraction; accepted = candidate } else high = fraction
+                if (clearSweep(from, candidate, barriers, cargo)) { low = fraction; accepted = candidate } else high = fraction
             }
             if (low > 0 || abs(y - from.point.y) > 0.0001 || abs(pitch - from.pitch) > 0.01) return accepted
         }
@@ -118,8 +121,20 @@ internal class OriginOddJobCartMotion(private val layout: OriginForgeCartLayout)
     }
 
     fun grounded(pose: OriginOddJobCartPose, blocks: List<BoundingBox>): Boolean {
-        val support = supportHeight(pose, terrain(blocks, pose.point.y - 1.25, pose.point.y + 1.001)) ?: return false
-        return abs(pose.point.y - support) <= 0.012 && clear(pose, blocks)
+        val terrain = terrain(blocks, pose.point.y - 1.25, pose.point.y + if (softObstacles) 0.1 else 1.001)
+        val support = supportHeight(pose, terrain) ?: return false
+        return abs(pose.point.y - support) <= 0.012 && clear(pose, if (softObstacles) terrain else blocks)
+    }
+
+    /** Recovery follows the worker's floor, never the top of an intervening post. */
+    fun recover(target: OriginWorkshopPoint, yaw: Float, workerGround: Double,
+        blocks: List<BoundingBox>, cargo: Map<Int, OriginWorkshopProp> = emptyMap()): OriginOddJobCartPose? {
+        val terrain = terrain(blocks, workerGround - 1.25, workerGround + 0.1)
+        val level = OriginOddJobCartPose(target, yaw)
+        val support = supportHeight(level, terrain) ?: return null
+        if (abs(support - workerGround) > 0.65) return null
+        val recovered = level.copy(point = target.copy(y = support + 0.003))
+        return recovered.takeIf { clear(it, if (softObstacles) terrain else blocks, cargo) }
     }
 
     private fun terrain(blocks: List<BoundingBox>, minY: Double, maxY: Double): List<BoundingBox> =
@@ -288,16 +303,17 @@ internal class OriginOddJobCart(
     private val resolveItem: (String) -> ItemStack? = { CustomStack.getInstance(it)?.itemStack?.clone() },
     private val createOwner: () -> PaperPacketDisplays = { PaperPacketDisplays(ArcOriginPlugin.instance, "forge-cart") },
     private val privateToWorker: Boolean = false,
+    softObstacles: Boolean = false,
 ) : AutoCloseable {
     private data class Cart(val request: UUID, val world: World, val display: PacketItemDisplay,
         val cargo: MutableMap<Int, OriginWorkshopProp> = mutableMapOf(),
         val handles: MutableList<PacketDisplay> = mutableListOf(),
         var point: OriginWorkshopPoint, var yaw: Float, var pitch: Float = 0f,
         var velocityX: Double = 0.0, var velocityZ: Double = 0.0, var velocityY: Double = 0.0,
-        var grounded: Boolean = false)
+        var grounded: Boolean = false, var stalledTicks: Int = 0)
     private val carts = mutableMapOf<UUID, Cart>()
     private val space = PaperSpatialSpace()
-    private val motion = layout?.let(::OriginOddJobCartMotion)
+    private val motion = layout?.let { OriginOddJobCartMotion(it, softObstacles) }
     private var owner: PaperPacketDisplays? = null
     private var model: ItemStack? = null
 
@@ -365,6 +381,20 @@ internal class OriginOddJobCart(
     fun grounded(playerId: UUID, requestId: UUID): Boolean =
         carts[playerId]?.takeIf { it.request == requestId }?.grounded == true
 
+    /** Called only after the job has accepted arrival at its own home pad. */
+    fun parkHome(playerId: UUID, requestId: UUID): Boolean {
+        val cart = carts[playerId]?.takeIf { it.request == requestId } ?: return false
+        val spec = requireNotNull(layout)
+        val home = spec.start.location(cart.world)
+        val blocks = collisionSnapshot(cart.world, localBounds(home, 1.8)) ?: return false
+        val ground = groundAt(home, blocks) ?: return false
+        val pose = requireNotNull(motion).recover(spec.start, spec.yaw, ground, blocks, cart.cargo) ?: return false
+        move(cart, pose, blocks)
+        cart.stalledTicks = 0
+        render(cart)
+        return true
+    }
+
     /** Manual transfers keep the same physical cargo handle from scoop through unloading. */
     fun putCargo(playerId: UUID, requestId: UUID, index: Int, prop: OriginWorkshopProp) {
         require(index in 0..2)
@@ -380,37 +410,62 @@ internal class OriginOddJobCart(
         val offset = originForgeCartCarryPose(at.yaw.toDouble()).center
         val desired = OriginWorkshopPoint(at.x + offset.x, at.y, at.z + offset.z)
         val from = OriginOddJobCartPose(cart.point, cart.yaw, cart.pitch, cart.velocityX, cart.velocityZ, cart.velocityY)
+        val distance = hypot(desired.x - cart.point.x, desired.z - cart.point.z)
+        val recovering = distance > 3.0 || abs(at.y - cart.point.y) > 2.0 || cart.stalledTicks >= 10
         cart.grounded = false
-        if (hypot(desired.x - cart.point.x, desired.z - cart.point.z) <= 4.0 && abs(at.y - cart.point.y) <= 3.0) {
-            // One small, loaded-only native snapshot per cart tick, shared by all
-            // contact, steering and sweep checks. Never query a distant goal.
-            val bounds = BoundingBox(minOf(cart.point.x - 1.8, at.x - 0.3), minOf(cart.point.y, at.y) - 1.3,
-                minOf(cart.point.z - 1.8, at.z - 0.3), maxOf(cart.point.x + 1.8, at.x + 0.3),
-                maxOf(cart.point.y, at.y) + 2.4, maxOf(cart.point.z + 1.8, at.z + 0.3))
-            if (space.known(cart.world, bounds)) {
-                val blocks = mutableListOf<BoundingBox>()
-                for (x in floor(bounds.minX).toInt() until ceil(bounds.maxX).toInt())
-                    for (y in floor(bounds.minY).toInt() until ceil(bounds.maxY).toInt())
-                        for (z in floor(bounds.minZ).toInt() until ceil(bounds.maxZ).toInt()) {
-                            blocks += cart.world.getBlockAt(x, y, z).collisionShape.boundingBoxes.map {
-                                it.clone().shift(x.toDouble(), y.toDouble(), z.toDouble())
-                            }
-                        }
-                val ground = blocks.filter { it.minX <= at.x && it.maxX >= at.x && it.minZ <= at.z && it.maxZ >= at.z &&
-                    it.maxY <= at.y + 0.1 && it.maxY >= at.y - 1.5 }.maxOfOrNull { it.maxY }
-                if (ground != null) {
-                    val next = requireNotNull(motion).next(from, desired, at.yaw + 180f, ground, blocks, cart.cargo)
-                    cart.point = next.point; cart.yaw = next.yaw; cart.pitch = next.pitch
-                    cart.velocityX = next.velocityX; cart.velocityZ = next.velocityZ; cart.velocityY = next.velocityY
-                    cart.grounded = requireNotNull(motion).grounded(next, blocks)
-                }
+        // A lost cart reads only the loaded area around its worker. A corridor
+        // spanning the old position would turn a teleport into unbounded work.
+        val bounds = if (recovering) localBounds(at, 2.8) else BoundingBox(
+            minOf(cart.point.x - 1.8, at.x - 0.3), minOf(cart.point.y, at.y) - 1.3,
+            minOf(cart.point.z - 1.8, at.z - 0.3), maxOf(cart.point.x + 1.8, at.x + 0.3),
+            maxOf(cart.point.y, at.y) + 2.4, maxOf(cart.point.z + 1.8, at.z + 0.3))
+        val blocks = collisionSnapshot(cart.world, bounds)
+        val ground = blocks?.let { groundAt(at, it) }
+        if (blocks != null && ground != null) {
+            val solver = requireNotNull(motion)
+            val next = if (recovering) solver.recover(desired, at.yaw + 180f, ground, blocks, cart.cargo)
+                ?: solver.recover(OriginWorkshopPoint(at.x, at.y, at.z), at.yaw + 180f, ground, blocks, cart.cargo)
+            else solver.next(from, desired, at.yaw + 180f, ground, blocks, cart.cargo)
+            if (next != null) {
+                val advance = distance - hypot(desired.x - next.point.x, desired.z - next.point.z)
+                cart.stalledTicks = if (!recovering && distance > 0.5 && advance < 0.015)
+                    minOf(10, cart.stalledTicks + 1) else 0
+                move(cart, next, blocks)
             }
         }
         render(cart)
     }
 
+    private fun move(cart: Cart, pose: OriginOddJobCartPose, blocks: List<BoundingBox>) {
+        cart.point = pose.point; cart.yaw = pose.yaw; cart.pitch = pose.pitch
+        cart.velocityX = pose.velocityX; cart.velocityZ = pose.velocityZ; cart.velocityY = pose.velocityY
+        cart.grounded = requireNotNull(motion).grounded(pose, blocks)
+    }
+
+    private fun localBounds(at: Location, radius: Double) =
+        BoundingBox(at.x - radius, at.y - 1.3, at.z - radius, at.x + radius, at.y + 2.4, at.z + radius)
+
+    private fun collisionSnapshot(world: World, bounds: BoundingBox): List<BoundingBox>? {
+        if (!space.known(world, bounds)) return null
+        val blocks = mutableListOf<BoundingBox>()
+        for (x in floor(bounds.minX).toInt() until ceil(bounds.maxX).toInt())
+            for (y in floor(bounds.minY).toInt() until ceil(bounds.maxY).toInt())
+                for (z in floor(bounds.minZ).toInt() until ceil(bounds.maxZ).toInt()) {
+                    blocks += world.getBlockAt(x, y, z).collisionShape.boundingBoxes.map {
+                        it.clone().shift(x.toDouble(), y.toDouble(), z.toDouble())
+                    }
+                }
+        return blocks
+    }
+
+    private fun groundAt(at: Location, blocks: List<BoundingBox>): Double? = blocks.asSequence().filter {
+        it.minX <= at.x && it.maxX >= at.x && it.minZ <= at.z && it.maxZ >= at.z &&
+            it.maxY <= at.y + 0.1 && it.maxY >= at.y - 1.5
+    }.maxOfOrNull { it.maxY }
+
     private fun park(cart: Cart) {
         cart.velocityX = 0.0; cart.velocityZ = 0.0; cart.velocityY = 0.0
+        cart.stalledTicks = 0
         render(cart)
     }
 

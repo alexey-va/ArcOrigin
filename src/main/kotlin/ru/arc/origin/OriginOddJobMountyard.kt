@@ -12,6 +12,8 @@ import org.bukkit.attribute.Attribute
 import org.bukkit.block.Block
 import org.bukkit.block.data.type.Gate
 import org.bukkit.entity.AbstractHorse
+import org.bukkit.entity.Horse
+import org.bukkit.entity.Mob
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
 import org.bukkit.inventory.EquipmentSlot
@@ -59,7 +61,7 @@ internal class OriginOddJobMountyard(
     private data class NativeLead(val ai: Boolean, val aware: Boolean, val metadata: List<LeadMetadata>)
 
     private class Care(
-        val requestId: UUID, val actor: NPC, val entity: AbstractHorse, val home: Location,
+        val requestId: UUID, val actor: NPC, val entity: Mob, val home: Location,
         val resources: OriginSceneResources, val ownsLease: () -> Boolean,
         val rider: NPC?, val riderEntity: LivingEntity?, val riderHome: Location?,
     ) {
@@ -96,12 +98,14 @@ internal class OriginOddJobMountyard(
     private var displays: PaperPacketDisplays? = null
     private var closed = false
 
-    fun target(offer: OriginOddJobOffer, previousAnimalId: Int? = null): OriginYardWork? {
+    fun target(offer: OriginOddJobOffer, previousAnimalId: Int? = null, allowedAnimalIds: Set<Int>? = null): OriginYardWork? {
         if (offer.variant.isYardPreparation() && (rider == null || (active.values + recovering.values).any { it.rider != null })) return null
         val candidates = animalIds.indices.map { animalIds[Math.floorMod(offer.seed + it, animalIds.size)] }
-        val available = candidates.filter { id -> !ownsAnimal(id) &&
-            (resolve(id) as? AbstractHorse)?.let { inStall(id, it) && !it.isLeashed && it.passengers.isEmpty() } == true }
-        val id = available.firstOrNull { it != previousAnimalId } ?: available.firstOrNull() ?: return null
+        val available = candidates.filter { id -> (allowedAnimalIds == null || id in allowedAnimalIds) && !ownsAnimal(id) &&
+            (resolve(id) as? Mob)?.let { (!offer.variant.isYardPreparation() || it is Horse) &&
+                inStall(id, it) && !it.isLeashed && it.passengers.isEmpty() } == true }
+        val previousIndex = available.indexOf(previousAnimalId)
+        val id = if (previousIndex >= 0) available[(previousIndex + 1) % available.size] else available.firstOrNull() ?: return null
         val animal = catalog.animals.firstOrNull { it.npcId == id } ?: return null
         return OriginYardWork(animal.npcId, animal.name)
     }
@@ -114,10 +118,10 @@ internal class OriginOddJobMountyard(
     fun resolve(id: Int): LivingEntity? = npc(id)?.entity as? LivingEntity
     fun contains(id: Int): Boolean = id in animalIds
     fun ownsAnimal(id: Int): Boolean = (active.values + recovering.values).any { it.actor.id == id }
-    fun available(): Boolean = animalIds.all { resolve(it) is AbstractHorse }
+    fun available(): Boolean = animalIds.any { resolve(it) is Mob }
 
     /** Both authored stalls and their idle poses fit within two metres of home. */
-    private fun inStall(id: Int, horse: AbstractHorse): Boolean =
+    private fun inStall(id: Int, horse: Mob): Boolean =
         scene?.actors?.get(id)?.home?.inWorld(horse.world)?.let { horse.location.distanceSquared(it) <= 4.0 } == true
 
     private fun riderNpc(): NPC? = rider?.let { expected -> CitizensAPI.getNPCRegistry().getById(expected.npcId)?.takeIf {
@@ -172,7 +176,8 @@ internal class OriginOddJobMountyard(
         val id = requireNotNull(job.yard).animalId
         if (!contains(id)) return false
         val actor = npc(id) ?: return false
-        val horse = actor.entity as? AbstractHorse ?: return false
+        val horse = actor.entity as? Mob ?: return false
+        if (job.variant.isYardPreparation() && horse !is Horse) return false
         if (closed || !ownsLease() || player.uniqueId in active || ownsAnimal(id) || !inStall(id, horse) || horse.isLeashed || horse.passengers.isNotEmpty()) return false
         val home = scene?.actors?.get(id)?.home?.inWorld(horse.world) ?: horse.location.clone()
         val passenger = if (job.variant.isYardPreparation()) riderNpc() ?: return false else null
@@ -193,7 +198,7 @@ internal class OriginOddJobMountyard(
 
     private fun point(key: String, fallback: OriginScenePoint, care: Care): Location =
         (scene?.anchors?.get(key) ?: fallback).inWorld(care.entity.world)
-    private fun profile(): NpcRouteProfile = (scene?.routeProfiles?.let { it["yard-field"] ?: it["yard"] }
+    private fun profile(care: Care? = null): NpcRouteProfile = (scene?.routeProfiles?.let { it["stall-${care?.actor?.id}"] ?: it["yard-field"] ?: it["yard"] }
         ?: NpcRouteProfile("odd-jobs-yard", 70, NpcRouteBounds(43, 76, -147, -116), speedModifier = 0.58f))
         // A care endpoint is physical: never report arrival at a nearby, different side of a wall.
         .copy(snapRadius = 0)
@@ -336,7 +341,7 @@ internal class OriginOddJobMountyard(
                 if (!at.block.isPassable || !at.clone().subtract(0.0, 0.05, 0.0).block.type.isSolid) return false
                 if (stage == OriginOddJobStage.YARD_EATING)
                     care.prop = OriginWorkshopProp(renderer(), at, originOddJobPropPieces(OriginJobProp.HAY))
-                care.resources.setPose(care.actor, OriginScenePose.HORSE_GRAZE)
+                care.resources.setPose(care.actor, if (care.entity is AbstractHorse) OriginScenePose.HORSE_GRAZE else OriginScenePose.STAND)
                 care.careStartedAt = now
                 care.finishInBackground = job.stage == OriginOddJobStage.RETURN
                 if (stage == OriginOddJobStage.YARD_DRINKING) player.playSound(at, Sound.ITEM_BUCKET_EMPTY, 0.65f, 1f)
@@ -448,7 +453,7 @@ internal class OriginOddJobMountyard(
     private fun startRoute(care: Care): Boolean {
         if (care.stage == OriginOddJobStage.YARD_LESSON_WALK) return false
         care.resources.clearMovementPose(care.actor)
-        return routes.navigate(care.actor, requireNotNull(care.destination), profile(), via = care.via, faceOnArrival = true)
+        return routes.navigate(care.actor, requireNotNull(care.destination), profile(care), via = care.via, faceOnArrival = true)
     }
 
     private fun leash(care: Care, player: Player?): Boolean {
@@ -525,6 +530,7 @@ internal class OriginOddJobMountyard(
 
     private fun mountRider(care: Care): Boolean {
         if (!ownsRider(care)) return false
+        val horse = care.entity as? Horse ?: return false
         val passenger = requireNotNull(care.riderEntity)
         if (passenger.vehicle != null || care.entity.passengers.isNotEmpty()) return false
         care.resources.clearMovementPose(requireNotNull(care.rider))
@@ -533,9 +539,9 @@ internal class OriginOddJobMountyard(
         if (snapshot != null && previous !== snapshot.trait) return false
         val controls = previous ?: care.actor.getOrAddTrait(Controllable::class.java)
         if (snapshot == null) care.rideControls = RideControls(controls, previous?.isEnabled,
-            care.entity.getAttribute(Attribute.MOVEMENT_SPEED)?.baseValue, care.entity.isTamed)
+            horse.getAttribute(Attribute.MOVEMENT_SPEED)?.baseValue, horse.isTamed)
         // Retain the mounted control snapshot independently of the temporary player lead.
-        care.entity.isTamed = true
+        horse.isTamed = true
         controls.setEnabled(true)
         care.mounted = care.entity.addPassenger(passenger)
         if (!care.mounted && snapshot == null) restoreRideControls(care)
@@ -574,7 +580,7 @@ internal class OriginOddJobMountyard(
 
     private fun restoreRideControls(care: Care) {
         val snapshot = care.rideControls ?: return
-        if (ownsPersistentActor(care) && owns(care)) care.entity.isTamed = snapshot.tamed
+        if (ownsPersistentActor(care) && owns(care)) (care.entity as? Horse)?.isTamed = snapshot.tamed
         // Traits belong to the persistent NPC, even after its current entity despawns or is replaced.
         if (ownsPersistentActor(care) &&
             care.actor.getTraitNullable(Controllable::class.java) === snapshot.trait) {

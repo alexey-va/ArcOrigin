@@ -158,6 +158,38 @@ class OriginOddJobCartTest : StringSpec({
         }
     }
 
+    "farm carts pass posts fences and walls without climbing their tops while forge remains strict" {
+        val obstacles = listOf(
+            listOf(BoundingBox(-0.125, 70.0, 2.375, 0.125, 71.5, 2.625)),
+            listOf(BoundingBox(-0.125, 70.0, 2.375, 0.125, 71.5, 2.625),
+                BoundingBox(-0.5, 70.375, 2.4375, 0.5, 71.0, 2.5625)),
+            (70..72).map { BoundingBox(-0.5, it.toDouble(), 2.0, 0.5, it + 1.0, 3.0) },
+            listOf(BoundingBox(-2.0, 70.0, 2.0, 2.0, 72.0, 2.04)),
+        )
+        for ((index, obstacle) in obstacles.withIndex()) {
+            val motion = OriginOddJobCartMotion(layout, softObstacles = true)
+            var pose = start()
+            repeat(140) { tick ->
+                pose = motion.next(pose, OriginWorkshopPoint(0.0, 70.0, minOf(tick * 0.12, 6.0)), 180f, 70.0, listOf(floor) + obstacle)
+                withClue("farm obstacle $index, tick $tick") { pose.point.y shouldBeLessThan 70.02 }
+            }
+            abs(pose.point.z - 6.0) shouldBeLessThan 0.025
+        }
+    }
+
+    "recovery requires both wheels on the worker's floor and rejects void or post tops" {
+        val motion = OriginOddJobCartMotion(layout, softObstacles = true)
+        val post = BoundingBox(-0.125, 70.0, -0.125, 0.125, 72.0, 0.125)
+        val recovered = requireNotNull(motion.recover(OriginWorkshopPoint(0.0, 72.0, 0.0), 180f, 70.0, listOf(floor, post)))
+        abs(recovered.point.y - 70.0) shouldBeLessThan 0.012
+        recovered.pitch shouldBe 0f
+        recovered.velocityX shouldBe 0.0
+        motion.recover(start().point, 180f, 70.0, emptyList()) shouldBe null
+        motion.recover(start().point, 180f, 70.0, listOf(post)) shouldBe null
+        motion.recover(start().point, 180f, 70.0, listOf(BoundingBox(-2.0, 69.0, -2.0, 0.0, 70.0, 2.0))) shouldBe null
+        motion.recover(start().point, 180f, 71.0, listOf(floor)) shouldBe null
+    }
+
     "a cart already raised by a narrow post can be pulled off it and settle on the floor" {
         for (height in listOf(1.0, 1.5, 2.0)) {
             val post = BoundingBox(-0.125, 70.0, 2.375, 0.125, 70.0 + height, 2.625)
@@ -205,23 +237,93 @@ class OriginOddJobCartTest : StringSpec({
                 originOddJobAimed(f.player, station, 4.5, null, virtualTarget = true) shouldBe true
                 originOddJobAimed(f.player, station.copy(interactionBounds = null), 4.5, null, virtualTarget = true) shouldBe false
                 val home = job.copy(stage = OriginOddJobStage.CLEAN_RETURN)
+                f.at.x = 0.4; f.at.z = -0.8
+                repeat(60) { cleaning.tick(f.player, job) }
                 cleaning.canPark(f.player.uniqueId, home) shouldBe true
                 cleaning.tick(f.player, home) shouldBe OriginOddJobAction.CART_ARRIVE
+                val parking = home.copy(stage = OriginOddJobStage.CLEAN_PARK)
+                val parked = requireNotNull(cleaning.station(f.player.uniqueId, parking)).point
+                parked.x shouldBe layout.start.x
+                parked.z shouldBe layout.start.z
+                abs(parked.y - 0.65 - floorTop) shouldBeLessThan 0.012
+                val handles = f.transforms.keys.toList()
+                val positions = f.locations.mapValues { it.value.clone() }
+                cleaning.tick(f.player, parking) shouldBe OriginOddJobAction.PARK_CART
+                cleaning.tick(f.player, parking) shouldBe OriginOddJobAction.PARK_CART
+                f.transforms.keys.toList() shouldBe handles
+                f.locations shouldBe positions
+                cleaning.tick(f.player, parking.copy(id = UUID.randomUUID())) shouldBe null
             }
         }
     }
 
-    "native collision snapshot is bounded and an unloaded or distant destination reads no blocks" {
+    "native collision snapshot is bounded and distant recovery reads only the loaded destination" {
         CartDisplayFixture(layout).use { f ->
             val initial = f.cart.point(f.player.uniqueId, f.request)!!
             (f.blockReads in 1..320) shouldBe true
             f.loaded = false; f.blockReads = 0; f.at.z += 0.2
             f.cart.follow(f.player, f.request)
             f.blockReads shouldBe 0
+            f.cart.point(f.player.uniqueId, f.request) shouldBe initial
             f.loaded = true; f.at.z = 100.0
+            f.reads.clear()
+            f.cart.follow(f.player, f.request)
+            (f.blockReads in 1..245) shouldBe true
+            f.reads.all { it.third in 97..102 && it.second in 68..72 } shouldBe true
+            val recovered = requireNotNull(f.cart.point(f.player.uniqueId, f.request))
+            abs(recovered.z - 101.0) shouldBeLessThan 0.025
+            abs(recovered.y - 70.0) shouldBeLessThan 0.012
+            f.cart.grounded(f.player.uniqueId, f.request) shouldBe true
+            f.cart.follow(f.player, UUID.randomUUID())
+            f.cart.point(f.player.uniqueId, f.request) shouldBe recovered
+            verify(exactly = 0) { f.world.getChunkAt(any<Int>(), any<Int>()) }
+        }
+    }
+
+    "lost carts retry unsupported or unloaded terrain and recover after floor becomes available" {
+        CartDisplayFixture(layout).use { f ->
+            val initial = f.cart.point(f.player.uniqueId, f.request)
+            f.at.z = 100.0; f.loaded = false; f.blockReads = 0
             f.cart.follow(f.player, f.request)
             f.blockReads shouldBe 0
+            f.loaded = true; f.floorEnabled = false
+            f.cart.follow(f.player, f.request)
             f.cart.point(f.player.uniqueId, f.request) shouldBe initial
+            f.cart.grounded(f.player.uniqueId, f.request) shouldBe false
+            f.floorEnabled = true
+            f.cart.follow(f.player, f.request)
+            abs(requireNotNull(f.cart.point(f.player.uniqueId, f.request)).z - 101.0) shouldBeLessThan 0.025
+            f.cart.grounded(f.player.uniqueId, f.request) shouldBe true
+        }
+    }
+
+    "a strict forge cart stalled nearby recovers beyond the post without relaxing its collision contract" {
+        CartDisplayFixture(layout).use { f ->
+            f.obstacles[Triple(0, 70, 1)] = BoundingBox(0.375, 0.0, 0.375, 0.625, 1.5, 0.625)
+            f.at.z = 2.0
+            var largestStep = 0.0
+            repeat(80) {
+                val before = requireNotNull(f.cart.point(f.player.uniqueId, f.request))
+                f.cart.follow(f.player, f.request)
+                val after = requireNotNull(f.cart.point(f.player.uniqueId, f.request))
+                largestStep = maxOf(largestStep, before.distance(after))
+                after.y shouldBeLessThan 70.02
+            }
+            (largestStep > 1.0) shouldBe true
+            abs(requireNotNull(f.cart.point(f.player.uniqueId, f.request)).z - 3.0) shouldBeLessThan 0.025
+        }
+    }
+
+    "vertical recovery follows the new floor instead of freezing at the old height" {
+        CartDisplayFixture(layout).use { f ->
+            for (x in -3..3) for (z in 96..104)
+                f.obstacles[Triple(x, 73, z)] = BoundingBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
+            f.at.z = 100.0; f.at.y = 74.0; f.blockReads = 0
+            f.cart.follow(f.player, f.request)
+            val recovered = requireNotNull(f.cart.point(f.player.uniqueId, f.request))
+            abs(recovered.y - 74.0) shouldBeLessThan 0.012
+            abs(recovered.z - 101.0) shouldBeLessThan 0.025
+            (f.blockReads in 1..245) shouldBe true
         }
     }
 
@@ -281,7 +383,9 @@ private class CartDisplayFixture(layout: OriginForgeCartLayout, floorTop: Double
     val player: Player = mockk(relaxed = true)
     var at: Location = Location(world, 0.0, 70.0, -1.0)
     var loaded = true
+    var floorEnabled = true
     var blockReads = 0
+    val reads = mutableListOf<Triple<Int, Int, Int>>()
     val obstacles = mutableMapOf<Triple<Int, Int, Int>, BoundingBox>()
     val transforms = linkedMapOf<PacketDisplay, Transformation>()
     val locations = linkedMapOf<PacketDisplay, Location>()
@@ -296,7 +400,8 @@ private class CartDisplayFixture(layout: OriginForgeCartLayout, floorTop: Double
         every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
             blockReads++
             val key = Triple(firstArg<Int>(), secondArg<Int>(), thirdArg<Int>())
-            val box = obstacles[key] ?: if (key.second == 69) BoundingBox(0.0, 0.0, 0.0, 1.0, floorTop - 69.0, 1.0) else null
+            reads += key
+            val box = obstacles[key] ?: if (floorEnabled && key.second == 69) BoundingBox(0.0, 0.0, 0.0, 1.0, floorTop - 69.0, 1.0) else null
             mockk<Block> {
                 every { collisionShape } returns mockk { every { boundingBoxes } returns listOfNotNull(box) }
                 every { type } returns if (box == null) Material.AIR else Material.STONE

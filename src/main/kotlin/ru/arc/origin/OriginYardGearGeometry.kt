@@ -137,3 +137,10 @@ internal fun originYardSaddleHooksPieces(): List<OriginWorkshopWorkpiecePiece> =
     OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(.21,.895,-.72),OriginWorkshopGamePartSize(.035f,.035f,.45f),Material.IRON_BLOCK),
     OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(-.28,.80,-.54),OriginWorkshopGamePartSize(.035f,.035f,.10f),Material.IRON_BLOCK),
 )
+
+/** Broad pale mounting plate and a raised iron lip remain readable when the shovel is borrowed. */
+internal fun originYardShovelHookPieces(): List<OriginWorkshopWorkpiecePiece> = listOf(
+    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(-.11,1.04,0.0),OriginWorkshopGamePartSize(.04f,.44f,.44f),Material.SMOOTH_QUARTZ),
+    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(.015,1.055,0.0),OriginWorkshopGamePartSize(.21f,.06f,.07f),Material.IRON_BLOCK),
+    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(.15,1.105,0.0),OriginWorkshopGamePartSize(.06f,.16f,.07f),Material.IRON_BLOCK),
+)

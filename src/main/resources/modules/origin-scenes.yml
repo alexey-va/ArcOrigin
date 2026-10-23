@@ -832,10 +832,10 @@ scenes:
       442: {"home": "48.5,70,-142.0,-90,0", "denied-denizen-flags": [], "stall-gate-anchor-ids": ["stall-442-gate-1", "stall-442-gate-2"]}
       443: {"home": "52.5,70,-121.5,90,0", "denied-denizen-flags": []}
       444: {"home": "57.5,70,-125.5,180,0", "denied-denizen-flags": []}
-      445: {"home": "45.5,70,-141.5,-90,0", "denied-denizen-flags": []}
-      446: {"home": "68.5,70,-134.5,-90,0", "denied-denizen-flags": [], "stall-gate-anchor-ids": ["job-stall-423-gate-1", "job-stall-423-gate-2", "job-stall-423-gate-3"]}
+      445: {"home": "58.5,70,-151.5,0,0", "denied-denizen-flags": [], "stall-gate-anchor-ids": ["job-stall-445-gate-1", "job-stall-445-gate-2"]}
+      446: {"home": "62.5,70,-151.5,0,0", "denied-denizen-flags": [], "stall-gate-anchor-ids": ["job-stall-446-gate-1", "job-stall-446-gate-2"]}
     anchor-ids: ["tack-table", "buran-approach", "ryzhik-approach", "buran-graze", "buran-turn", "ryzhik-graze", "ryzhik-turn", "iney-turn", "bay-turn", "yard-center", "saddler-stand", "saddle-rack-stand", "helper-hay", "helper-barrels", "water-source", "job-feed-floor", "job-feed-approach", "job-care-pad", "job-tie-first", "job-tie-second", "job-handoff", "brush-source", "saddle-source", "helper-feed", "feed-floor", "hay-source", "cat-nap", "cat-watch", "dog-patrol", "dog-watch", "goat-hay", "goat-turn", "llama-turn", "llama-watch", "donkey-graze", "packing-crates", "packing-stand", "packing-target", "caravan-helper", "caravan-person-mid", "caravan-animal-mid", "caravan-person-front", "caravan-animal-front", "home-369", "home-440", "home-441", "home-442", "home-443", "home-444", "home-445", "home-446", "helper-water", "water-trough", "caravan-person-exit", "caravan-animal-exit", "home-422", "home-423", "home-415", "caravan-person-corner", "caravan-animal-corner", "home-412", "home-413", "home-414", "iney-field-point-0", "iney-field-point-1", "iney-field-point-2", "iney-field-point-3", "iney-field-point-4", "iney-field-point-5", "iney-field-point-6", "iney-field-point-7", "bay-field-point-0", "bay-field-point-1", "bay-field-point-2", "bay-field-point-3", "bay-field-point-4", "bay-field-point-5", "bay-field-point-6", "bay-field-point-7", "bay-field-point-8", "job-rider-home", "job-stall-422-exit", "job-stall-423-exit", "job-stall-422-gate-1", "job-stall-422-gate-2", "job-stall-422-gate-3", "job-stall-423-gate-1", "job-stall-423-gate-2", "job-stall-423-gate-3", "job-delivery-0", "job-delivery-1", "job-delivery-2", "job-delivery-3", "job-ride-0", "job-ride-1", "job-ride-2", "job-ride-3", "job-ride-4", "job-ride-5", "job-ride-6", "job-ride-7"]
-    work-anchor-ids: ["job-clean-cart", "job-clean-unload", "job-clean-422-cart", "job-clean-422-0", "job-clean-422-1", "job-clean-422-2", "job-clean-423-cart", "job-clean-423-0", "job-clean-423-1", "job-clean-423-2", "stall-442-gate-1", "stall-442-gate-2", "stall-442-exit", "caravan-animal-load"]
+    work-anchor-ids: ["job-clean-cart", "job-clean-unload", "job-clean-422-cart", "job-clean-422-0", "job-clean-422-1", "job-clean-422-2", "job-clean-423-cart", "job-clean-423-0", "job-clean-423-1", "job-clean-423-2", "stall-442-gate-1", "stall-442-gate-2", "stall-442-exit", "caravan-animal-load", "job-clean-442-cart", "job-clean-442-0", "job-clean-442-1", "job-clean-442-2", "job-clean-445-cart", "job-clean-445-0", "job-clean-445-1", "job-clean-445-2", "job-clean-446-cart", "job-clean-446-0", "job-clean-446-1", "job-clean-446-2", "job-stall-445-exit", "job-stall-445-gate-1", "job-stall-445-gate-2", "job-stall-446-exit", "job-stall-446-gate-1", "job-stall-446-gate-2"]
     anchors:
       tack-table: "60.5,70.0,-122.5"
       buran-approach: "49.5,70.0,-136.5"
@@ -869,6 +869,24 @@ scenes:
       job-clean-423-0: "71.2,70.02,-135.5"
       job-clean-423-1: "72.1,70.02,-135.5"
       job-clean-423-2: "73.0,70.02,-135.5"
+      job-clean-442-cart: "52.5,70,-142.0,-90,0"
+      job-clean-442-0: "47.3,70.02,-140.5"
+      job-clean-442-1: "48.2,70.02,-140.5"
+      job-clean-442-2: "49.1,70.02,-140.5"
+      job-clean-445-cart: "58.0,70,-147.5,180,0"
+      job-clean-445-0: "56.8,70.02,-150.5"
+      job-clean-445-1: "57.7,70.02,-150.5"
+      job-clean-445-2: "58.6,70.02,-150.5"
+      job-clean-446-cart: "63.0,70,-147.5,180,0"
+      job-clean-446-0: "61.8,70.02,-150.5"
+      job-clean-446-1: "62.7,70.02,-150.5"
+      job-clean-446-2: "63.6,70.02,-150.5"
+      job-stall-445-exit: "58.0,70,-147.5,0,0"
+      job-stall-445-gate-1: "57.5,70,-148.5"
+      job-stall-445-gate-2: "58.5,70,-148.5"
+      job-stall-446-exit: "63.0,70,-147.5,0,0"
+      job-stall-446-gate-1: "62.5,70,-148.5"
+      job-stall-446-gate-2: "63.5,70,-148.5"
       job-stall-422-exit: "52.5,70,-135.5,-90,0"
       job-stall-423-exit: "72.5,70,-138.5,180,0"
       job-stall-422-gate-1: "50.5,70,-136.5"
@@ -898,10 +916,10 @@ scenes:
       cat-watch: "53.5,70,-120.5,-90,0"
       dog-patrol: "60.5,70,-131.5,180,0"
       dog-watch: "61.5,70,-139.5,180,0"
-      goat-hay: "47.5,70,-142.5,0,0"
-      goat-turn: "45.5,70,-137.5,180,0"
-      llama-turn: "71.5,70,-143.5,90,0"
-      llama-watch: "73.5,70,-138.5,180,0"
+      goat-hay: "57.5,70,-152.5,0,0"
+      goat-turn: "58.5,70,-150.5,0,0"
+      llama-turn: "63.5,70,-152.5,0,0"
+      llama-watch: "63.5,70,-150.5,0,0"
       donkey-graze: "48.5,70,-141.5,-90,0"
       packing-crates: "66.5,70,-139.5,180,0"
       packing-stand: "68.0,70,-141.5,-90,0"
@@ -921,8 +939,8 @@ scenes:
       caravan-animal-load: "69.5,70,-141.5,180,0"
       home-443: "52.5,70,-121.5,90,0"
       home-444: "57.5,70,-125.5,180,0"
-      home-445: "45.5,70,-141.5,-90,0"
-      home-446: "68.5,70,-134.5,-90,0"
+      home-445: "58.5,70,-151.5,0,0"
+      home-446: "62.5,70,-151.5,0,0"
       helper-water: "58.5,70,-121.5,90,0"
       water-trough: "57.5,70.9,-121.5"
       caravan-person-exit: "65.5,70,-143.5,0,0"
@@ -952,7 +970,7 @@ scenes:
       bay-field-point-6: "79.5,68,-125.5,-90,0"
       bay-field-point-7: "77.5,69,-117.5,-90,0"
       bay-field-point-8: "76.5,69,-109.5,-90,0"
-    route-profile-ids: ["yard", "north", "caravan", "west-pen", "east-pen", "front-yard", "iney-field", "bay-field", "yard-field"]
+    route-profile-ids: ["yard", "north", "caravan", "west-pen", "east-pen", "stall-445", "stall-446", "front-yard", "iney-field", "bay-field", "yard-field"]
     route-profiles:
       yard: {"floor-y": 70, "min-block": "43,-147", "max-block": "76,-116", "forbidden-areas": [], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 3, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
       yard-field: {"floor-y": 69, "min-block": "46,-143", "max-block": "74,-107", "forbidden-areas": [], "preferred-areas": ["58,-141,62,-117"], "max-visited": 4096, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 50, "speed-modifier": 0.58, "distance-margin": 0.35, "path-distance-margin": 0.3, "off-floor-tolerance": 1.0, "maximum-step-height": 1.0, "maximum-surface-drop": 0.5, "surface-search-range": 2, "allowed-support-materials": ["FARMLAND", "DIRT", "COARSE_DIRT", "ROOTED_DIRT", "PACKED_MUD", "MUD_BRICKS", "MUD_BRICK_SLAB", "GRASS_BLOCK", "MOSS_BLOCK", "GREEN_CONCRETE_POWDER", "SPRUCE_PLANKS"]}
@@ -960,6 +978,8 @@ scenes:
       caravan: {"floor-y": 70, "min-block": "43,-147", "max-block": "76,-116", "forbidden-areas": ["66,-140,76,-125", "62,-134,76,-125", "43,-140,57,-123"], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 3, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
       west-pen: {"floor-y": 70, "min-block": "47,-137", "max-block": "48,-134", "forbidden-areas": [], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
       east-pen: {"floor-y": 70, "min-block": "71,-135", "max-block": "73,-135", "forbidden-areas": [], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
+      stall-445: {"floor-y": 70, "min-block": "57,-153", "max-block": "59,-150", "forbidden-areas": [], "preferred-areas": [], "max-visited": 128, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.45, "distance-margin": 0.25, "path-distance-margin": 0.2, "maximum-step-height": 0.125}
+      stall-446: {"floor-y": 70, "min-block": "62,-153", "max-block": "63,-150", "forbidden-areas": [], "preferred-areas": [], "max-visited": 128, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.45, "distance-margin": 0.25, "path-distance-margin": 0.2, "maximum-step-height": 0.125}
       front-yard: {"floor-y": 70, "min-block": "55,-122", "max-block": "64,-116", "forbidden-areas": [], "preferred-areas": ["47,-141,73,-125"], "max-visited": 2048, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 28, "speed-modifier": 0.58, "distance-margin": 0.55, "path-distance-margin": 0.45, "maximum-step-height": 0.125}
       iney-field: {"floor-y": 69, "min-block": "37,-127", "max-block": "49,-108", "forbidden-areas": [], "preferred-areas": [], "max-visited": 1024, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 50, "speed-modifier": 0.42, "distance-margin": 0.22, "path-distance-margin": 0.2, "maximum-step-height": 1.0, "maximum-surface-drop": 0.0625, "surface-search-range": 2, "allowed-support-materials": ["FARMLAND"]}
       bay-field: {"floor-y": 69, "min-block": "71,-129", "max-block": "89,-103", "forbidden-areas": [], "preferred-areas": [], "max-visited": 1024, "snap-radius": 1, "poll-ticks": 2, "stall-polls": 50, "speed-modifier": 0.42, "distance-margin": 0.22, "path-distance-margin": 0.2, "maximum-step-height": 1.0, "maximum-surface-drop": 0.0625, "surface-search-range": 2, "allowed-support-materials": ["FARMLAND"]}
@@ -1277,33 +1297,32 @@ scenes:
         initial-delay-seconds: 13
         cooldown-min-seconds: 12
         cooldown-max-seconds: 25
-        step-ids: ["stand", "out", "look", "voice", "observe", "turn", "rest", "up"]
+        step-ids: ["stand", "out", "look", "voice", "observe", "turn", "rest", "home", "up"]
         steps:
           stand: {"type": "POSE", "actor-id": 445, "state": "STAND"}
-          out: {"type": "MOVE", "actor-id": 445, "anchor": "goat-hay", "route-profile": "yard", "timeout-ticks": 500}
+          out: {"type": "MOVE", "actor-id": 445, "anchor": "goat-hay", "route-profile": "stall-445", "timeout-ticks": 220}
           look: {"type": "LOOK_AT_ANCHOR", "actor-id": 445, "anchor": "goat-turn"}
           voice: {"type": "SOUND", "actor-id": 445, "sound": "ENTITY_GOAT_AMBIENT", "volume": 0.32, "pitch": 1.0}
           observe: {"type": "WAIT", "ticks": 100}
-          turn: {"type": "MOVE", "actor-id": 445, "anchor": "goat-turn", "route-profile": "yard", "timeout-ticks": 500}
+          turn: {"type": "MOVE", "actor-id": 445, "anchor": "goat-turn", "route-profile": "stall-445", "timeout-ticks": 220}
           rest: {"type": "WAIT", "ticks": 160}
+          home: {"type": "MOVE", "actor-id": 445, "anchor": "home-445", "route-profile": "stall-445", "timeout-ticks": 220}
           up: {"type": "POSE", "actor-id": 445, "state": "STAND"}
       llama-round:
         actor-ids: ["446"]
         initial-delay-seconds: 21
         cooldown-min-seconds: 12
         cooldown-max-seconds: 25
-        step-ids: ["stand", "exit", "out", "look", "voice", "observe", "turn", "rest", "return-entrance", "home", "up"]
+        step-ids: ["stand", "out", "look", "voice", "observe", "turn", "rest", "home", "up"]
         steps:
           stand: {"type": "POSE", "actor-id": 446, "state": "STAND"}
-          exit: {"type": "MOVE", "actor-id": 446, "anchor": "job-stall-423-exit", "route-profile": "yard", "timeout-ticks": 500}
-          out: {"type": "MOVE", "actor-id": 446, "anchor": "llama-turn", "route-profile": "yard", "timeout-ticks": 500}
+          out: {"type": "MOVE", "actor-id": 446, "anchor": "llama-turn", "route-profile": "stall-446", "timeout-ticks": 220}
           look: {"type": "LOOK_AT_ANCHOR", "actor-id": 446, "anchor": "llama-watch"}
           voice: {"type": "SOUND", "actor-id": 446, "sound": "ENTITY_LLAMA_AMBIENT", "volume": 0.32, "pitch": 1.0}
           observe: {"type": "WAIT", "ticks": 100}
-          turn: {"type": "MOVE", "actor-id": 446, "anchor": "llama-watch", "route-profile": "yard", "timeout-ticks": 500}
+          turn: {"type": "MOVE", "actor-id": 446, "anchor": "llama-watch", "route-profile": "stall-446", "timeout-ticks": 220}
           rest: {"type": "WAIT", "ticks": 160}
-          return-entrance: {"type": "MOVE", "actor-id": 446, "anchor": "job-stall-423-exit", "route-profile": "yard", "timeout-ticks": 500}
-          home: {"type": "MOVE", "actor-id": 446, "anchor": "home-446", "route-profile": "yard", "timeout-ticks": 500}
+          home: {"type": "MOVE", "actor-id": 446, "anchor": "home-446", "route-profile": "stall-446", "timeout-ticks": 220}
           up: {"type": "POSE", "actor-id": 446, "state": "STAND"}
       donkey-rest:
         actor-ids: ["442"]

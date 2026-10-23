@@ -38,13 +38,13 @@ class OriginOddJobStableCleaningTest : StringSpec({
             layout.cart.start shouldBe OriginWorkshopPoint(60.5, 70.0, -132.5)
             layout.cart.itemId shouldBe forge.itemId
             layout.cart.context shouldBe forge.context
-            layout.stalls.keys shouldBe setOf(422, 423)
+            layout.stalls.keys shouldBe setOf(422, 423, 442, 445, 446)
             layout.stalls.values.all { it.piles.size == 3 } shouldBe true
             OriginStableCleaningLayout.from(yard.copy(anchors = yard.anchors - "job-clean-cart"), forge) shouldBe null
         }
     }
 
-    "scoop load unload and empty return keep the same portions and require final parking" {
+    "scoop load unload and automatic final parking keep the same portions" {
         CleaningFixture().use { f -> failOnUnsupportedMockBukkitOperation {
             f.cleaning.available(f.world) shouldBe true
             f.sync()
@@ -53,7 +53,7 @@ class OriginOddJobStableCleaningTest : StringSpec({
             f.advance(OriginOddJobAction.PICKUP)
             f.advance(OriginOddJobAction.ATTACH_CART)
             f.pushTo(f.stall.cart)
-            f.cleaning.tick(f.player, f.job) shouldBe null // Parking at the stall is explicit.
+            f.cleaning.tick(f.player, f.job) shouldBe OriginOddJobAction.PARK_CART
             f.cleaning.canPark(f.player.uniqueId, f.job) shouldBe true
             f.advance(OriginOddJobAction.PARK_CART)
             repeat(3) { index ->
@@ -77,13 +77,16 @@ class OriginOddJobStableCleaningTest : StringSpec({
             f.job.stage shouldBe OriginOddJobStage.CLEAN_RETURN
             f.blocks.all { f.attached[it] == false } shouldBe true
             f.blocks.all { f.positions.getValue(it).z > f.layout.unload.z + 1.5 } shouldBe true
-            f.attached[f.cart] shouldBe true
+            f.attached[f.cart] shouldBe false
             f.displays shouldBe initial
             f.pushTo(OriginScenePoint(f.layout.cart.start.x, f.layout.cart.start.y, f.layout.cart.start.z))
             f.cleaning.tick(f.player, f.job) shouldBe OriginOddJobAction.CART_ARRIVE
             f.advance(OriginOddJobAction.CART_ARRIVE)
             f.job.stage shouldBe OriginOddJobStage.CLEAN_PARK
+            f.cleaning.tick(f.player, f.job) shouldBe OriginOddJobAction.PARK_CART
             f.advance(OriginOddJobAction.PARK_CART)
+            f.job.stage shouldBe OriginOddJobStage.CLEAN_TOOL_RETURN
+            f.advance(OriginOddJobAction.GEAR)
             f.job.stage shouldBe OriginOddJobStage.RETURN
             f.cleaning.clear(f.player.uniqueId, f.job.id)
             f.displays.none { it.isValid } shouldBe true

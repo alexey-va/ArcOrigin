@@ -77,7 +77,7 @@ internal class OriginOddJobStableCleaning(
         var stage: OriginOddJobStage? = null
         var collected = 0
     }
-    private val carts = OriginOddJobCart(layout?.cart, resolveItem, createOwner, privateToWorker = true)
+    private val carts = OriginOddJobCart(layout?.cart, resolveItem, createOwner, privateToWorker = true, softObstacles = true)
     private val active = mutableMapOf<UUID, Cleaning>()
     private var owner: PaperPacketDisplays? = null
 
@@ -170,11 +170,17 @@ internal class OriginOddJobStableCleaning(
     }
 
     fun tick(player: Player, job: OriginOddJobSession): OriginOddJobAction? {
-        if (job.stage !in setOf(OriginOddJobStage.CLEAN_PUSH, OriginOddJobStage.CLEAN_RETURN)) return null
+        if (job.stage !in setOf(OriginOddJobStage.CLEAN_PUSH, OriginOddJobStage.CLEAN_RETURN, OriginOddJobStage.CLEAN_PARK)) return null
         if (active[player.uniqueId]?.let { it.request == job.id && it.world.uid == player.world.uid } != true) return null
+        if (job.stage == OriginOddJobStage.CLEAN_PARK) {
+            val point = carts.point(player.uniqueId, job.id) ?: return null
+            val home = destination(player.uniqueId, job) ?: return null
+            return if (originStableCartAt(point, home) && carts.parkHome(player.uniqueId, job.id)) OriginOddJobAction.PARK_CART else null
+        }
         carts.follow(player, job.id)
         val work = job.cleaning ?: return null
         if (!canPark(player.uniqueId, job)) return null
+        if (job.stage == OriginOddJobStage.CLEAN_RETURN && !carts.parkHome(player.uniqueId, job.id)) return null
         return if (job.stage == OriginOddJobStage.CLEAN_PUSH && work.collected < work.total)
             OriginOddJobAction.PARK_CART else OriginOddJobAction.CART_ARRIVE
     }

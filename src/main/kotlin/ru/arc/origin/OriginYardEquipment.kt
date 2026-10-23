@@ -64,7 +64,10 @@ internal fun originYardGearBounds(geometry: List<OriginWorkshopWorkpiecePiece>, 
 }
 
 internal fun originYardGearControl(job: OriginOddJobSession, step: OriginYardGearStep, pose: OriginYardGearPose): SpatialControl<OriginYardGearStep> {
-    var bounds=originYardGearBounds(originYardGearPieces(step.gear),pose)
+    val returningShovel=job.stage==OriginOddJobStage.CLEAN_TOOL_RETURN
+    var bounds=originYardGearBounds(if(returningShovel) originYardShovelHookPieces() else originYardGearPieces(step.gear),pose)
+    if(returningShovel) bounds=OriginWorkshopAabb(bounds.minX-.08,bounds.minY-.08,bounds.minZ-.08,
+        bounds.maxX+.08,bounds.maxY+.08,bounds.maxZ+.08)
     if (!step.atRack && job.stage in setOf(OriginOddJobStage.YARD_STIRRUP_LEFT,OriginOddJobStage.YARD_STIRRUP_RIGHT)) {
         val side=if (step.zone==0) -1 else 1
         bounds=originYardGearBounds(listOf(OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(side*.43,-.31,0.0),
@@ -87,7 +90,8 @@ internal fun originYardGearControl(job: OriginOddJobSession, step: OriginYardGea
 }
 
 internal fun originYardGearHint(stage:OriginOddJobStage,step:OriginYardGearStep,pose:OriginYardGearPose):Location {
-            val bounds=originYardGearBounds(originYardGearPieces(step.gear),pose)
+            val bounds=originYardGearBounds(if(stage==OriginOddJobStage.CLEAN_TOOL_RETURN)
+                originYardShovelHookPieces() else originYardGearPieces(step.gear),pose)
             // A short caption clears the entire solid prop. Part cues sit outside the horse's flank.
             return if (!step.atRack && stage in setOf(OriginOddJobStage.YARD_GIRTH,OriginOddJobStage.YARD_STIRRUP_LEFT,OriginOddJobStage.YARD_STIRRUP_RIGHT)) {
                 val side=if(stage==OriginOddJobStage.YARD_STIRRUP_RIGHT) 1 else -1
@@ -191,8 +195,7 @@ internal class OriginYardEquipment(
         val shovel=slots.firstOrNull { it.gear==OriginYardGear.SHOVEL }
         if(shovel?.pose?.at != shovelHookAt) {
             shovelHook?.remove(); shovelHook=null; shovelHookAt=shovel?.pose?.at?.clone()
-            if(shovel!=null) shovelHook=OriginWorkshopProp(displays,shovel.pose.at.clone().add(-.045,1.06,0.0),listOf(
-                OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(0.0,0.0,0.0),OriginWorkshopGamePartSize(.17f,.025f,.025f),Material.IRON_BLOCK)))
+            if(shovel!=null) shovelHook=OriginWorkshopProp(displays,shovel.pose.at,originYardShovelHookPieces())
         }
         for(slot in slots) {
             if(slot.gear in setOf(OriginYardGear.BUCKET,OriginYardGear.BRUSH)) {
