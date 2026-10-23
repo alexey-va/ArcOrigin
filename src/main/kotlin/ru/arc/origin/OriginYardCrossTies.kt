@@ -24,7 +24,10 @@ internal fun originYardTieMask(job: OriginOddJobSession): Int? = when (job.stage
     OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_HORSE_FIRST,
     OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_TIE_HORSE_SECOND,
     OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_GROOM, OriginOddJobStage.YARD_TACK,
-    OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_UNTIE_FIRST,
+    OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_BRUSH_RETURN, OriginOddJobStage.YARD_PAD_RACK,
+    OriginOddJobStage.YARD_PAD, OriginOddJobStage.YARD_GIRTH, OriginOddJobStage.YARD_BRIDLE_RACK,
+    OriginOddJobStage.YARD_BRIDLE, OriginOddJobStage.YARD_STIRRUP_LEFT, OriginOddJobStage.YARD_STIRRUP_RIGHT,
+    OriginOddJobStage.YARD_UNTIE_FIRST,
     OriginOddJobStage.YARD_UNTIE_SECOND -> requireNotNull(job.yard).tieMask
     else -> null
 }

@@ -84,6 +84,8 @@ internal class OriginOddJobMountyard(
         var leftYard = false
         var lessonRouteIndex = -1
         var lessonArrived = false
+        var rideArrived = false
+        var untackPosition: Location? = null
         var remountAttempts = 0
         var recovery = OriginYardRecovery.HORSE
         var via = emptyList<Location>()
@@ -127,6 +129,13 @@ internal class OriginOddJobMountyard(
             it.blockX == block.x && it.blockY == block.y && it.blockZ == block.z
         } == true }
 
+    fun isAssignedStallGate(playerId: UUID, job: OriginOddJobSession, block: Block): Boolean =
+        active[playerId]?.takeIf { it.requestId == job.id && owns(it) }?.let { care ->
+            isStallGate(block) && gateAnchorIds.filter { it.startsWith("job-stall-${care.actor.id}-gate-") }.any { key ->
+                scene?.anchors?.get(key)?.inWorld(block.world)?.block == block
+            }
+        } == true
+
     private fun nextClosedGate(care: Care): Location? = gateAnchorIds.asSequence()
         .filter { it.startsWith("job-stall-${care.actor.id}-gate-") }
         .mapNotNull { scene?.anchors?.get(it)?.inWorld(care.entity.world) }
@@ -168,7 +177,15 @@ internal class OriginOddJobMountyard(
         val passengerEntity = passenger?.entity as? LivingEntity
         if (passengerEntity?.vehicle != null || passengerEntity?.passengers?.isNotEmpty() == true) return false
         val passengerHome = passengerEntity?.let { scene?.anchors?.get("job-rider-home")?.inWorld(it.world) ?: it.location.clone() }
-        active[player.uniqueId] = Care(job.id, actor, horse, home, OriginSceneResources(), ownsLease, passenger, passengerEntity, passengerHome)
+        val care = Care(job.id, actor, horse, home, OriginSceneResources(), ownsLease, passenger, passengerEntity, passengerHome)
+        active[player.uniqueId] = care
+        if (job.variant.isYardPreparation()) {
+            // The loaned procedural tack is the only visible saddle/bridle. Native passengers do not
+            // require a saddle; keep the exact authored item for removal, cancellation and revocation.
+            care.saddle = horse.equipment.getItem(EquipmentSlot.SADDLE).clone()
+            care.saddleChanged = true
+            horse.equipment.setItem(EquipmentSlot.SADDLE, ItemStack(Material.AIR))
+        }
         return true
     }
 
@@ -204,6 +221,13 @@ internal class OriginOddJobMountyard(
         return care.crossTies?.mask == 3 && held(care)
     }
 
+    fun readyForUntack(playerId: UUID, job: OriginOddJobSession): Boolean {
+        val care = active[playerId]?.takeIf { it.requestId == job.id && owns(it) } ?: return false
+        val at = care.untackPosition ?: return false
+        return originYardUntacking(job.stage) && care.entity.passengers.isEmpty() &&
+            care.entity.world.uid == at.world?.uid && care.entity.location.distanceSquared(at) <= .04
+    }
+
     private fun held(care: Care): Boolean {
         val at = care.tiePosition ?: return false
         return care.crossTies?.valid() == true && care.crossTies?.ropesClear(care.entity.location, care.entity.height) == true && care.entity.world.uid == at.world?.uid &&
@@ -221,11 +245,12 @@ internal class OriginOddJobMountyard(
         if (!owns(care)) return false
         val stage = when {
             job.stage == OriginOddJobStage.RETURN && job.variant == OriginOddJobVariant.YARD_RATIONS -> OriginOddJobStage.YARD_EATING
-            job.stage == OriginOddJobStage.RETURN && job.variant == OriginOddJobVariant.YARD_WATER -> OriginOddJobStage.YARD_DRINKING
-            job.stage == OriginOddJobStage.RETURN && job.variant == OriginOddJobVariant.YARD_LESSON -> OriginOddJobStage.RETURN
-            job.stage == OriginOddJobStage.RETURN && job.variant.isYardPreparation() -> OriginOddJobStage.YARD_HANDED
             else -> job.stage
         }
+        if (stage == OriginOddJobStage.RETURN && job.variant.isYardPreparation() &&
+            (care.stage != OriginOddJobStage.YARD_LEAD_RETURN || job.yard?.borrowed?.isNotEmpty() != false)) return false
+        if (stage == OriginOddJobStage.RETURN && job.variant == OriginOddJobVariant.YARD_WATER &&
+            (care.stage != OriginOddJobStage.YARD_BUCKET_RETURN || job.yard?.borrowed?.isNotEmpty() != false)) return false
         if (stage == OriginOddJobStage.YARD_LESSON_WALK) {
             val work = job.yard ?: return false
             if (job.variant != OriginOddJobVariant.YARD_LESSON || work.routeTotal != rideAnchorIds.size + 1 ||
@@ -242,12 +267,14 @@ internal class OriginOddJobMountyard(
             }
             if (work.routeIndex != 0) return false
         }
-        if (stage == OriginOddJobStage.RETURN && job.variant == OriginOddJobVariant.YARD_LESSON && care.stage != stage) {
+        if (stage == OriginOddJobStage.YARD_UNTACK_BRIDLE && job.variant == OriginOddJobVariant.YARD_LESSON && care.stage != stage) {
             val work = job.yard ?: return false
             if (care.stage != OriginOddJobStage.YARD_LESSON_WALK || !care.lessonArrived ||
                 care.lessonRouteIndex != rideAnchorIds.size || work.routeTotal != rideAnchorIds.size + 1 || work.routeIndex != work.routeTotal ||
                 !mountedRider(care) || !workerHolding(care, player.uniqueId)) return false
         }
+        if (stage == OriginOddJobStage.YARD_UNTACK_BRIDLE && job.variant != OriginOddJobVariant.YARD_LESSON && care.stage != stage &&
+            (care.stage != OriginOddJobStage.YARD_HANDED || !care.rideArrived || !mountedRider(care))) return false
         if (stage == OriginOddJobStage.YARD_DELIVER && care.stage != stage) {
             val ties = care.crossTies ?: return false
             if (care.stage != OriginOddJobStage.YARD_UNTIE_SECOND || ties.mask !in 1..2 || job.yard?.tieMask != 0) return false
@@ -277,16 +304,25 @@ internal class OriginOddJobMountyard(
             val ties = care.crossTies ?: return false
             if (!held(care)) return false
             if (job.stage == OriginOddJobStage.YARD_UNTIE_FIRST && job.variant.isYardPreparation()) {
-                if (previousStage != OriginOddJobStage.YARD_SADDLE || ties.mask != 3) return false
-                care.saddle = care.entity.equipment.getItem(EquipmentSlot.SADDLE).clone()
-                care.saddleChanged = true
-                care.entity.equipment.setItem(EquipmentSlot.SADDLE, ItemStack(Material.SADDLE))
+                if (previousStage != OriginOddJobStage.YARD_STIRRUP_RIGHT || ties.mask != 3 ||
+                    job.yard?.let { it.girthTight && it.leftStirrup && it.rightStirrup &&
+                        it.equipped.containsAll(setOf(OriginYardGear.PAD, OriginYardGear.SADDLE, OriginYardGear.BRIDLE)) } != true) return false
                 care.entity.world.playSound(care.entity.location, Sound.ENTITY_HORSE_SADDLE, 0.6f, 1f)
             }
             ties.setStage(job, care.entity.location, care.entity.height)
             if (previousStage in setOf(OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND,
                     OriginOddJobStage.YARD_TIE_HORSE_FIRST, OriginOddJobStage.YARD_TIE_HORSE_SECOND, OriginOddJobStage.YARD_UNTIE_FIRST))
                 player.playSound(care.entity.location, Sound.BLOCK_WOOL_PLACE, 0.6f, 0.85f)
+            return true
+        }
+        if (originYardUntacking(stage)) {
+            if (stage == OriginOddJobStage.YARD_UNTACK_BRIDLE) {
+                dismount(care)
+                care.untackPosition = care.entity.location.clone()
+            }
+            if (!readyForUntack(player.uniqueId, job)) return false
+            care.resources.hold(care.actor)
+            // Keep the authored saddle hidden through manual returns; beginReturn/cleanup restores it once.
             return true
         }
         when (stage) {
@@ -296,8 +332,8 @@ internal class OriginOddJobMountyard(
                 if (direction.lengthSquared() < 0.01) return false
                 val at = care.entity.location.clone().add(direction.normalize().multiply(1.1)).add(0.0, 0.02, 0.0)
                 if (!at.block.isPassable || !at.clone().subtract(0.0, 0.05, 0.0).block.type.isSolid) return false
-                care.prop = OriginWorkshopProp(renderer(), at, originOddJobPropPieces(
-                    if (stage == OriginOddJobStage.YARD_EATING) OriginJobProp.HAY else OriginJobProp.WATER_BUCKET))
+                if (stage == OriginOddJobStage.YARD_EATING)
+                    care.prop = OriginWorkshopProp(renderer(), at, originOddJobPropPieces(OriginJobProp.HAY))
                 care.resources.setPose(care.actor, OriginScenePose.HORSE_GRAZE)
                 care.careStartedAt = now
                 care.finishInBackground = job.stage == OriginOddJobStage.RETURN
@@ -321,7 +357,8 @@ internal class OriginOddJobMountyard(
                 care.destination = scene?.anchors?.get("job-handoff")?.inWorld(care.entity.world) ?: return false
                 care.via = route
                 if (!startRoute(care)) return false
-                care.finishInBackground = job.stage == OriginOddJobStage.RETURN
+                care.finishInBackground = false
+                care.rideArrived = false
                 care.careStartedAt = now
                 care.entity.world.spawnParticle(Particle.HEART, care.entity.location.add(0.0, 1.4, 0.0), 3, 0.2, 0.1, 0.2)
             }
@@ -332,10 +369,6 @@ internal class OriginOddJobMountyard(
                 care.lessonArrived = false
                 care.leftYard = true
                 if (!startNativeLead(care, player)) return false
-            }
-            OriginOddJobStage.RETURN -> if (job.variant == OriginOddJobVariant.YARD_LESSON) {
-                dismount(care)
-                restoreSaddle(care)
             }
             else -> Unit
         }
@@ -357,7 +390,21 @@ internal class OriginOddJobMountyard(
         if (lesson) {
             if (care.stage != job.stage || job.yard?.routeIndex != care.lessonRouteIndex) return OriginYardTick.FAILED
             if (!mountedRider(care)) return remountLessonRider(care)
+        } else if (job.stage == OriginOddJobStage.YARD_HANDED) {
+            if (!mountedRider(care)) return OriginYardTick.FAILED
+            if (care.rideArrived) return OriginYardTick.CARED
+            if (now - (care.careStartedAt ?: return OriginYardTick.FAILED) >= routeTimeoutMillis) return OriginYardTick.FAILED
+            if (routes.isNavigating(care.actor)) return OriginYardTick.WAITING
+            if (routes.consumeOutcome(care.actor)?.successful != true ||
+                care.entity.location.distanceSquared(care.destination ?: return OriginYardTick.FAILED) > 1.0) return OriginYardTick.FAILED
+            care.rideArrived = true
+            return OriginYardTick.CARED
         } else if (care.entity.passengers.isNotEmpty()) return OriginYardTick.FAILED
+        if (originYardUntacking(job.stage)) {
+            if (!readyForUntack(player.uniqueId, job)) return OriginYardTick.FAILED
+            care.resources.hold(care.actor)
+            return OriginYardTick.WAITING
+        }
         if (originYardTieMask(job) != null) {
             if (!held(care)) return OriginYardTick.FAILED
             care.resources.hold(care.actor)
@@ -383,7 +430,6 @@ internal class OriginOddJobMountyard(
         val duration = when (care.stage) {
             OriginOddJobStage.YARD_EATING -> feedingMillis
             OriginOddJobStage.YARD_DRINKING -> 3_500L
-            OriginOddJobStage.YARD_HANDED -> 1_500L
             else -> return OriginYardTick.WAITING
         }
         if (now - care.lastSoundAt >= 850 && care.stage != OriginOddJobStage.YARD_HANDED) {

@@ -1,0 +1,582 @@
+{
+  "title": "ArcOrigin stable tack order-value assessment 2026-10-23",
+  "assumptions": [
+    "Verified source baseline captured 2026-10-23: ArcOrigin 0.1.57 at f111396. The active classic plugin reports version 0.1.57; its active commit hash was not checked. The active classic policy file plugins/ARC/modules/origin-side-job-rewards.yml has SHA-256 51473a9539fcd0aeb7cf8e3109ad756c6396b8a361ab6e65faadb99c893aae87, reward-per-order=20 Vault and daily-order-limit=100 orders per UUID per UTC date.",
+    "The complete accepted order remains worth 20 Vault; the shared limit remains 100 orders per UUID per UTC date, or at most 2,000 Vault per UUID-day. All new tack actions and borrowed-tool returns are within one existing whole MOUNTYARD order. No action earns a separate credit. Reward, rate, quota, settlement, and multipliers do not change.",
+    "Before/after low/base/high inputs are total accepted side-job orders per UUID-day across the shared quota, not tack-only volume or measured cadence: 10/40/100 orders and 5/20/50 participants. These are scenario sensitivities, not telemetry. There is no network weekly cap.",
+    "No tokens, XP, EliteMobs crystals, or permanent gear are awarded before or after. Borrowed tools are returned within the same order. The expanded MOUNTYARD prep/lesson action sequence is defined, with a scoped 480-second order deadline (2x the unchanged 240-second base); all other orders remain at 240 seconds. The unchanged 600-second shift admission window plus 120-second grace gives a 720-second hard stop, and clicks never extend either deadline. Actual native-client completion duration remains unmeasured. No timing, throughput, disposable-income, or hourly-earnings forecast is made.",
+    "Fresh read-only classic ledger covers the exact 168-hour window 2026-10-16T00:04:21.585Z (epoch ms 1792109061585) through 2026-10-23T00:04:21.585Z (epoch ms 1792713861585): 3,393 records, 34,013 operations, 28 players. Vault and tokens remain separate currencies.",
+    "The ledger reports 67,917,586.30477443 Vault minted and 2,581,843.3499999987 Vault burned; tokens minted 59 and burned 15. AdminVault 67,000,000 from one player is excluded from ordinary income. Unclassified activity totals 134 operations: 131 Vault operations with 189,691.78 absolute Vault amount and 3 token operations with 15 absolute tokens. Currency amounts remain separate.",
+    "The jobsRewards breakdown identifies ArcEcoJobs only and does not identify ArcOrigin order cadence. Current SELL shop income is 55,995.33 Vault as a separate unchanged flow; the planned SELL-to-contract transition remains future and unchanged. Neither is used to infer tack-order cadence."
+  ],
+  "scenario_order": [
+    "low",
+    "base",
+    "high"
+  ],
+  "currencies": {
+    "vault": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "200",
+            "800",
+            "2000"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "7000",
+            "112000",
+            "700000"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "7000",
+            "112000",
+            "700000"
+          ],
+          "player_daily_potential_net": [
+            "200",
+            "800",
+            "2000"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "200",
+              "800",
+              "2000"
+            ],
+            "network_weekly": [
+              "7000",
+              "112000",
+              "700000"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "origin_shared_side_job_order_mint",
+            "kind": "mint",
+            "player_daily_potential": [
+              "200",
+              "800",
+              "2000"
+            ],
+            "network_weekly_after_cap": [
+              "7000",
+              "112000",
+              "700000"
+            ],
+            "basis": "Unchanged 20 Vault per accepted whole order and shared 100-order per UUID per UTC-day cap. Tack actions and borrowed-tool returns are included in one existing MOUNTYARD order and grant no separate credit. Scenario counts are total shared side-job orders, not measured cadence."
+          }
+        ]
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "200",
+            "800",
+            "2000"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "7000",
+            "112000",
+            "700000"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "7000",
+            "112000",
+            "700000"
+          ],
+          "player_daily_potential_net": [
+            "200",
+            "800",
+            "2000"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "200",
+              "800",
+              "2000"
+            ],
+            "network_weekly": [
+              "7000",
+              "112000",
+              "700000"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "origin_shared_side_job_order_mint",
+            "kind": "mint",
+            "player_daily_potential": [
+              "200",
+              "800",
+              "2000"
+            ],
+            "network_weekly_after_cap": [
+              "7000",
+              "112000",
+              "700000"
+            ],
+            "basis": "Unchanged 20 Vault per accepted whole order and shared 100-order per UUID per UTC-day cap. Tack actions and borrowed-tool returns are included in one existing MOUNTYARD order and grant no separate credit. Scenario counts are total shared side-job orders, not measured cadence."
+          }
+        ]
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    "tokens": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "origin_shared_side_job_tokens",
+            "kind": "mint",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "No token award before or after; tokens remain a separate unit."
+          }
+        ]
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "origin_shared_side_job_tokens",
+            "kind": "mint",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "No token award before or after; tokens remain a separate unit."
+          }
+        ]
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    }
+  },
+  "prices": []
+}

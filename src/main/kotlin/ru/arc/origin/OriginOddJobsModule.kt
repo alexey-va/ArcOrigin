@@ -3,6 +3,7 @@ package ru.arc.origin
 import io.papermc.paper.event.player.PlayerArmSwingEvent
 import net.citizensnpcs.api.CitizensAPI
 import net.citizensnpcs.api.event.NPCRightClickEvent
+import net.citizensnpcs.api.event.NPCLeftClickEvent
 import net.kyori.adventure.bossbar.BossBar
 import net.kyori.adventure.text.format.TextColor
 import org.bukkit.Bukkit
@@ -175,6 +176,7 @@ internal class OriginOddJobsGame(
         deliveryAnchorIds = config.yardDeliveryAnchorIds,
         gateAnchorIds = config.yardGateAnchorIds, feedingMillis = config.yardFeedingMillis,
         routeTimeoutMillis = config.yardRouteTimeoutMillis, clock = clock),
+    private val equipment: OriginYardEquipment = OriginYardEquipment(),
     private val onWorksiteRevoked: (OriginSceneLease, () -> Unit) -> Boolean = OriginAmbientScenesModule::onWorksiteRevoked,
 ) : Listener, AutoCloseable {
     private val stations = stations.toMutableMap()
@@ -199,13 +201,16 @@ internal class OriginOddJobsGame(
     private val supplies = OriginOddJobSupplies { config.line(it) }
     private val retryAt = mutableMapOf<UUID, Long>()
     private var closed = false
+    private var gatePermissionEvent: PlayerInteractEvent? = null
 
     init {
+        equipment.bind({ this.stations }, { progress.entries() }, yard::resolve, ::activateYardEquipment)
         rewards.recover(OriginSideJobKind.entries.filter { it != OriginSideJobKind.WAITER }.toSet())
         Bukkit.getOnlinePlayers().forEach { supplies.clear(it) }
         tasks.runTimer(1, 1) {
             try {
                 visuals.tick()
+                equipment.tick()
                 progress.entries().filter { it.second.kind == OriginOddJobKind.FORGE_HAUL }.forEach { (id, job) ->
                     Bukkit.getPlayer(id)?.let { handoffHaul(it, job) }
                 }
@@ -232,6 +237,11 @@ internal class OriginOddJobsGame(
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
+    fun onNpcLeftClick(event: NPCLeftClickEvent) {
+        if (interact(event.clicker, event.npc.id)) event.isCancelled = true
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     fun onEntity(event: PlayerInteractEntityEvent) {
         if (event is PlayerInteractAtEntityEvent || event.hand != EquipmentSlot.HAND) return
         if (entityInteraction(event.player, event.rightClicked)) event.isCancelled = true
@@ -247,12 +257,17 @@ internal class OriginOddJobsGame(
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     fun onBlock(event: PlayerInteractEvent) {
+        if (event === gatePermissionEvent) return
         if (event.hand != EquipmentSlot.HAND) return
         val left = event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR
         if (!left && event.action != Action.RIGHT_CLICK_BLOCK && event.action != Action.RIGHT_CLICK_AIR) return
-        if (!left && event.useInteractedBlock() == org.bukkit.event.Event.Result.DENY &&
-            event.clickedBlock?.type in setOf(org.bukkit.Material.CHEST, org.bukkit.Material.TRAPPED_CHEST, org.bukkit.Material.BARREL)) {
-            if (supplies.isWorkpiece(event.item)) event.setUseItemInHand(org.bukkit.event.Event.Result.DENY)
+        // Private request stock and packet props are job actions. Their lease, ray and reach are
+        // rechecked by work(); cancelling this event still prevents any native container access.
+        val yardJob = progress.current(event.player.uniqueId)?.takeIf { it.kind == OriginOddJobKind.MOUNTYARD }
+        if (left && yardJob != null && event.clickedBlock?.let(yard::isStallGate) == true) {
+            // A packet tool may be in front of the gate; its actual rendered hit wins.
+            if (work(event.player, left = true, clicked = event.clickedBlock)) event.isCancelled = true
+            else leftClickYardGate(event, yardJob)
             return
         }
         if (!left && progress.current(event.player.uniqueId)?.kind == OriginOddJobKind.MOUNTYARD &&
@@ -264,14 +279,49 @@ internal class OriginOddJobsGame(
             }
             // Preserve native block access and any protection denial, while suppressing use of the loaned tool.
             if (supplies.isWorkpiece(event.item)) event.setUseItemInHand(org.bukkit.event.Event.Result.DENY)
+            if (yardJob != null && yard.isAssignedStallGate(event.player.uniqueId, yardJob, requireNotNull(event.clickedBlock)) &&
+                valid(event.player, yardJob) && duplicate(event.player)) event.isCancelled = true
             return
         }
         if (work(player = event.player, left = left, clicked = event.clickedBlock) || supplies.isWorkpiece(event.item)) event.isCancelled = true
     }
 
+    private fun leftClickYardGate(event: PlayerInteractEvent, job: OriginOddJobSession) {
+        val block = event.clickedBlock ?: return
+        if (!yard.isAssignedStallGate(event.player.uniqueId, job, block) || !valid(event.player, job)) return
+        val before = block.blockData as? org.bukkit.block.data.type.Gate ?: return
+        val station = OriginOddJobStation(block.location.clone().add(.5,.5,.5), block, setOf(block.type))
+        if (!originOddJobAimed(event.player, station, config.range, block)) return
+        event.isCancelled = true // The job's left click must never start breaking the gate.
+        if (duplicate(event.player)) return
+        val permission = PlayerInteractEvent(event.player, Action.RIGHT_CLICK_BLOCK, event.item, block,
+            event.blockFace, EquipmentSlot.HAND)
+        try {
+            gatePermissionEvent = permission
+            Bukkit.getPluginManager().callEvent(permission)
+        } finally { gatePermissionEvent = null }
+        if (permission.useInteractedBlock() == org.bukkit.event.Event.Result.DENY ||
+            progress.current(event.player.uniqueId) != job || !valid(event.player, job)) return
+        val current = block.blockData as? org.bukkit.block.data.type.Gate ?: return
+        if (current.isOpen != before.isOpen) return // A listener already performed the permitted interaction.
+        current.isOpen = !current.isOpen
+        block.blockData = current
+        event.player.swingMainHand()
+        event.player.world.playSound(block.location, if (current.isOpen) Sound.BLOCK_FENCE_GATE_OPEN else Sound.BLOCK_FENCE_GATE_CLOSE, .7f, 1f)
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onSwing(event: PlayerArmSwingEvent) {
-        if (event.hand == EquipmentSlot.HAND && work(event.player, left = true, clicked = null)) event.isCancelled = true
+        if (event.hand != EquipmentSlot.HAND) return
+        if (work(event.player, left = true, clicked = null)) { event.isCancelled = true; return }
+        val job = progress.current(event.player.uniqueId)?.takeIf { it.kind == OriginOddJobKind.MOUNTYARD } ?: return
+        val eye = event.player.eyeLocation
+        val hit = event.player.world.rayTraceBlocks(eye, eye.direction, config.range, FluidCollisionMode.NEVER, true) ?: return
+        val block = hit.hitBlock ?: return
+        val click = PlayerInteractEvent(event.player, Action.LEFT_CLICK_BLOCK, event.player.inventory.itemInMainHand,
+            block, hit.hitBlockFace ?: org.bukkit.block.BlockFace.SELF, EquipmentSlot.HAND)
+        leftClickYardGate(click, job)
+        if (click.useInteractedBlock() == org.bukkit.event.Event.Result.DENY) event.isCancelled = true
     }
 
     @EventHandler
@@ -611,8 +661,9 @@ internal class OriginOddJobsGame(
     /** Hauling uses the worker's pad XZ; workstation actions check the block, reach and line of sight. */
     fun work(player: Player, left: Boolean, clicked: Block?): Boolean {
         val job = progress.current(player.uniqueId) ?: return false
+        if (originYardGearStep(job.stage) != null) return equipment.intercept(player, job)
         if (job.variant == OriginOddJobVariant.YARD_CLEANUP) return workCleaning(player, job, left, clicked)
-        if (!left && handoffHaul(player, job)) return true
+        if (handoffHaul(player, job)) return true
         val wanted = originOddJobStation(job.stage)
         val cartStation = forge.station(player.uniqueId, job)
         val tieStations = yard.tieStations(player.uniqueId, job)
@@ -625,7 +676,7 @@ internal class OriginOddJobsGame(
         if (!valid(player, job)) { stop(player.uniqueId, "unavailable"); feedback(player, "unavailable"); return true }
         if (duplicate(player)) return true
         if (job.stage in setOf(OriginOddJobStage.FORGE_BLANK, OriginOddJobStage.ENGRAVE_BLANK)) {
-            if (!left) supplies.openStock(player, job, station.block)
+            supplies.openStock(player, job, station.block)
             return true
         }
         if (job.stage == OriginOddJobStage.HAUL_PUSH) { guide(player, job, clock(), true); return true }
@@ -655,7 +706,6 @@ internal class OriginOddJobsGame(
             OriginOddJobStage.ENGRAVE_COLLECT -> OriginOddJobAction.COLLECT
             else -> return false
         }
-        if ((job.stage in setOf(OriginOddJobStage.FORGE_HAMMER, OriginOddJobStage.ENGRAVE_CARVE)) != left) { guide(player, job, clock(), true); return true }
         val step = progress.act(player.uniqueId, action, clock(), tieTarget?.first ?: originOddJobZone(player, station))
         apply(player, step)
         if (step is OriginOddJobStep.Changed && action in setOf(OriginOddJobAction.HAMMER, OriginOddJobAction.ENGRAVE))
@@ -673,6 +723,10 @@ internal class OriginOddJobsGame(
     private fun workAnimal(player: Player, job: OriginOddJobSession, npcId: Int): Boolean {
         if (actor(npcId) == null) return false
         if (!near(player, npcId)) { feedback(player, "come-closer"); return true }
+        if (job.yard?.animalId == npcId && originYardGearStep(job.stage)?.atRack == false) {
+            if (!equipment.intercept(player, job)) guide(player, job, clock(), true)
+            return true
+        }
         if (duplicate(player)) return true
         if (!valid(player, job)) { stop(player.uniqueId, "unavailable"); feedback(player, "unavailable"); return true }
         if (job.yard?.animalId == npcId && job.stage in setOf(OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_DELIVER, OriginOddJobStage.YARD_LESSON_WALK)) {
@@ -702,6 +756,32 @@ internal class OriginOddJobsGame(
             if (action == OriginOddJobAction.GROOM) yard.stroke(player, step.job)
         }
         return true
+    }
+
+    /** Both native mouse buttons and the block/air fallback pass through the same current-order check. */
+    private fun activateYardEquipment(player: Player, snapshot: OriginOddJobSession, step: OriginYardGearStep) {
+        val job = progress.current(player.uniqueId) ?: return
+        if (job != snapshot || originYardGearStep(job.stage) != step || duplicate(player)) return
+        if (!valid(player, job)) { cancelOrder(player.uniqueId, "gear-owner-unavailable"); feedback(player, "unavailable"); return }
+        if (!equipment.available(step.gear, job.id)) { feedback(player, "mountyard.tool-busy"); return }
+        if (!step.atRack && job.stage in setOf(OriginOddJobStage.YARD_GIRTH, OriginOddJobStage.YARD_STIRRUP_LEFT, OriginOddJobStage.YARD_STIRRUP_RIGHT)) {
+            val horse = job.yard?.animalId?.let(yard::resolve) ?: return
+            if (!originYardGearSideMatches(job.stage, player.location, originYardGearHorsePose(step.gear, horse))) {
+                feedback(player, "mountyard.next-step", "guide" to originOddJobGuide(config, job, clock())); return
+            }
+        }
+        val safe = when {
+            originYardTieMask(job) != null -> yard.readyForCare(player.uniqueId, job)
+            originYardUntacking(job.stage) -> yard.readyForUntack(player.uniqueId, job)
+            else -> true
+        }
+        if (!safe) { feedback(player, "mountyard.next-step", "guide" to originOddJobGuide(config, job, clock())); return }
+        apply(player, progress.act(player.uniqueId, step.action, clock(), step.zone))
+        if (progress.current(player.uniqueId)?.stage != job.stage) {
+            player.swingMainHand()
+            player.playSound(player.location, Sound.BLOCK_WOOL_PLACE, .5f, 1f)
+            equipment.tick()
+        }
     }
 
     private fun syncYard(player: Player, job: OriginOddJobSession): Boolean =
@@ -852,7 +932,6 @@ internal class OriginOddJobsGame(
                 virtualTarget = job.stage != OriginOddJobStage.CLEAN_TOOL)) return false
         if (!valid(player, job)) { stop(player.uniqueId, "unavailable"); feedback(player, "unavailable"); return true }
         if (duplicate(player)) return true
-        if (left != (job.stage == OriginOddJobStage.CLEAN_SCOOP)) { guide(player, job, clock(), true); return true }
         if (!supplies.canTransfer(player, job)) { feedback(player, "inventory-full"); return true }
         val action = when (job.stage) {
             OriginOddJobStage.CLEAN_TOOL -> OriginOddJobAction.PICKUP
@@ -922,6 +1001,7 @@ internal class OriginOddJobsGame(
     private fun render(player: Player, job: OriginOddJobSession, now: Long): Boolean = try {
         forge.sync(player, job)
         cleaning.sync(player, job)
+        equipment.sync(player, job)
         val prop = when (job.stage) {
             OriginOddJobStage.FORGE_HEAT -> if (job.variant == OriginOddJobVariant.FORGE_NEW) OriginJobProp.FORGE_BLANK else OriginJobProp.FORGE_COOLED
             OriginOddJobStage.FORGE_HEATING -> if (now - job.stageStartedAt >= originOddJobHeatReady(job)) OriginJobProp.FORGE_HEATED else OriginJobProp.FORGE_BLANK
@@ -1021,6 +1101,8 @@ internal class OriginOddJobsGame(
         else if (stationId == OriginOddJobStationId.HAUL_DELIVERY) visuals.destination(player, job.id,
             stations.getValue(stationId).point.clone().add(0.0, 0.05, 0.0), config.line("targets.haul-delivery"))
         else if (tieTarget != null) visuals.wallTarget(player, job.id, tieTarget, caption)
+        else if (originYardGearStep(job.stage) != null) visuals.target(player, job.id, equipment.target(job),
+            originOddJobGuide(config, job, now), outline = false)
         else visuals.target(player, job.id, cartTarget ?: stationId?.let { id -> stations.getValue(id).let { station ->
             if (workpieceTarget) station.point else station.block.location.clone().add(0.5, 0.5, 0.5)
         } }, caption, outline = !workpieceTarget && cartTarget == null)
@@ -1152,6 +1234,7 @@ internal class OriginOddJobsGame(
             runCatching { visuals.clear(playerId, requestId) }.onFailure { warn("ORIGIN_ODD_JOBS phase=VISUAL_CLEAR_FAILED player={} request={}", playerId, requestId, it) }
             runCatching { forge.clear(playerId, requestId) }.onFailure { warn("ORIGIN_ODD_JOBS phase=CART_CLEAR_FAILED player={} request={}", playerId, requestId, it) }
             runCatching { cleaning.clear(playerId, requestId) }.onFailure { warn("ORIGIN_ODD_JOBS phase=CLEANING_CLEAR_FAILED player={} request={}", playerId, requestId, it) }
+            runCatching { equipment.clear(playerId, requestId) }.onFailure { warn("ORIGIN_ODD_JOBS phase=GEAR_CLEAR_FAILED player={} request={}", playerId, requestId, it) }
             runCatching { clearGlow(playerId) }.onFailure { warn("ORIGIN_ODD_JOBS phase=GLOW_CLEAR_FAILED player={} request={}", playerId, requestId, it) }
         } finally {
             Bukkit.getPlayer(playerId)?.let { supplies.clear(it) }
@@ -1186,7 +1269,7 @@ internal class OriginOddJobsGame(
         }
         closed = true; tasks.close(); requests.clear()
         shifts.keys.toList().forEach { stop(it, "reload") }
-        accepted.clear(); visuals.close(); forge.close(); cleaning.close(); yard.close(); rewards.close(); lastClicks.clear(); noticeUntil.clear(); retryAt.clear()
+        accepted.clear(); visuals.close(); forge.close(); cleaning.close(); equipment.close(); yard.close(); rewards.close(); lastClicks.clear(); noticeUntil.clear(); retryAt.clear()
     }
 }
 

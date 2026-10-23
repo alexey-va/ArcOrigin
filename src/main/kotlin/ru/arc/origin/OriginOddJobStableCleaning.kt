@@ -125,7 +125,8 @@ internal class OriginOddJobStableCleaning(
             }
             player.playSound(player.location, Sound.BLOCK_MUD_PLACE, 0.7f, 0.7f)
         }
-        val empty = job.stage in setOf(OriginOddJobStage.CLEAN_RETURN, OriginOddJobStage.CLEAN_PARK, OriginOddJobStage.RETURN, OriginOddJobStage.PAYOUT)
+        val empty = job.stage in setOf(OriginOddJobStage.CLEAN_RETURN, OriginOddJobStage.CLEAN_PARK, OriginOddJobStage.CLEAN_TOOL_RETURN,
+            OriginOddJobStage.RETURN, OriginOddJobStage.PAYOUT)
         val moving = job.stage in setOf(OriginOddJobStage.CLEAN_PUSH, OriginOddJobStage.CLEAN_RETURN)
         carts.sync(player, job.id, moving, if (empty) emptyList() else List(work.collected) { originStableManurePieces() },
             glowing = job.stage in setOf(OriginOddJobStage.CLEAN_CART, OriginOddJobStage.CLEAN_LOAD, OriginOddJobStage.CLEAN_UNLOAD, OriginOddJobStage.CLEAN_PARK))
@@ -173,8 +174,9 @@ internal class OriginOddJobStableCleaning(
         if (active[player.uniqueId]?.let { it.request == job.id && it.world.uid == player.world.uid } != true) return null
         carts.follow(player, job.id)
         val work = job.cleaning ?: return null
-        if (job.stage == OriginOddJobStage.CLEAN_PUSH && work.collected < work.total) return null
-        return if (canPark(player.uniqueId, job)) OriginOddJobAction.CART_ARRIVE else null
+        if (!canPark(player.uniqueId, job)) return null
+        return if (job.stage == OriginOddJobStage.CLEAN_PUSH && work.collected < work.total)
+            OriginOddJobAction.PARK_CART else OriginOddJobAction.CART_ARRIVE
     }
 
     fun clear(playerId: UUID, requestId: UUID) {

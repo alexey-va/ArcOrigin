@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "title": "ArcOrigin stable tack order-value assessment 2026-10-23",
+  "assumptions": [
+    "Verified source baseline captured 2026-10-23: ArcOrigin 0.1.57 at f111396. The active classic plugin reports version 0.1.57; its active commit hash was not checked. The active classic policy file plugins/ARC/modules/origin-side-job-rewards.yml has SHA-256 51473a9539fcd0aeb7cf8e3109ad756c6396b8a361ab6e65faadb99c893aae87, reward-per-order=20 Vault and daily-order-limit=100 orders per UUID per UTC date.",
+    "The complete accepted order remains worth 20 Vault; the shared limit remains 100 orders per UUID per UTC date, or at most 2,000 Vault per UUID-day. All new tack actions and borrowed-tool returns are within one existing whole MOUNTYARD order. No action earns a separate credit. Reward, rate, quota, settlement, and multipliers do not change.",
+    "Before/after low/base/high inputs are total accepted side-job orders per UUID-day across the shared quota, not tack-only volume or measured cadence: 10/40/100 orders and 5/20/50 participants. These are scenario sensitivities, not telemetry. There is no network weekly cap.",
+    "No tokens, XP, EliteMobs crystals, or permanent gear are awarded before or after. Borrowed tools are returned within the same order. The expanded MOUNTYARD prep/lesson action sequence is defined, with a scoped 480-second order deadline (2x the unchanged 240-second base); all other orders remain at 240 seconds. The unchanged 600-second shift admission window plus 120-second grace gives a 720-second hard stop, and clicks never extend either deadline. Actual native-client completion duration remains unmeasured. No timing, throughput, disposable-income, or hourly-earnings forecast is made.",
+    "Fresh read-only classic ledger covers the exact 168-hour window 2026-10-16T00:04:21.585Z (epoch ms 1792109061585) through 2026-10-23T00:04:21.585Z (epoch ms 1792713861585): 3,393 records, 34,013 operations, 28 players. Vault and tokens remain separate currencies.",
+    "The ledger reports 67,917,586.30477443 Vault minted and 2,581,843.3499999987 Vault burned; tokens minted 59 and burned 15. AdminVault 67,000,000 from one player is excluded from ordinary income. Unclassified activity totals 134 operations: 131 Vault operations with 189,691.78 absolute Vault amount and 3 token operations with 15 absolute tokens. Currency amounts remain separate.",
+    "The jobsRewards breakdown identifies ArcEcoJobs only and does not identify ArcOrigin order cadence. Current SELL shop income is 55,995.33 Vault as a separate unchanged flow; the planned SELL-to-contract transition remains future and unchanged. Neither is used to infer tack-order cadence."
+  ],
+  "participants": [5, 20, 50],
+  "scenario_order": ["low", "base", "high"],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "flows": [
+        {
+          "id": "origin_shared_side_job_order_mint",
+          "kind": "mint",
+          "source": "ArcOrigin OriginSideJobRewardPolicy; active classic plugins/ARC/modules/origin-side-job-rewards.yml, SHA-256 51473a9539fcd0aeb7cf8e3109ad756c6396b8a361ab6e65faadb99c893aae87",
+          "basis": "Unchanged 20 Vault per accepted whole order and shared 100-order per UUID per UTC-day cap. Tack actions and borrowed-tool returns are included in one existing MOUNTYARD order and grant no separate credit. Scenario counts are total shared side-job orders, not measured cadence.",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {"value": "20", "unit": "major"},
+            "events_per_player_day": [10, 40, 100],
+            "player_daily_cap": {"value": "2000", "unit": "major"}
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {"value": "20", "unit": "major"},
+            "events_per_player_day": [10, 40, 100],
+            "player_daily_cap": {"value": "2000", "unit": "major"}
+          }
+        }
+      ]
+    },
+    "tokens": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "origin_shared_side_job_tokens",
+          "kind": "mint",
+          "source": "ArcOrigin side-job reward contract",
+          "basis": "No token award before or after; tokens remain a separate unit.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {"value": "0", "unit": "major"},
+            "events_per_player_day": [10, 40, 100]
+          },
+          "after": {
+            "enabled": false,
+            "amount_per_event": {"value": "0", "unit": "major"},
+            "events_per_player_day": [10, 40, 100]
+          }
+        }
+      ]
+    }
+  },
+  "observed_ledger": {
+    "server": "classic",
+    "source_baseline": "ArcOrigin 0.1.57 at f111396 (verified source)",
+    "active_plugin_version": "0.1.57",
+    "active_plugin_commit": "not checked",
+    "captured_at_utc": "2026-10-23",
+    "policy": {
+      "path": "plugins/ARC/modules/origin-side-job-rewards.yml",
+      "sha256": "51473a9539fcd0aeb7cf8e3109ad756c6396b8a361ab6e65faadb99c893aae87",
+      "reward_per_order_vault": "20",
+      "daily_order_limit_per_uuid_utc_date": 100
+    },
+    "generated_at_utc": "2026-10-23T00:04:21.585Z",
+    "since_utc": "2026-10-16T00:04:21.585Z",
+    "since_epoch_ms": 1792109061585,
+    "until_epoch_ms": 1792713861585,
+    "window_hours": 168,
+    "window_boundary_exact": true,
+    "records": 3393,
+    "operations": 34013,
+    "players": 28,
+    "currencies": {
+      "vault": {
+        "minted": "67917586.30477443",
+        "burned": "2581843.3499999987",
+        "unclassified_operations": 131,
+        "unclassified_absolute_amount": "189691.78"
+      },
+      "tokens": {
+        "minted": "59",
+        "burned": "15",
+        "unclassified_operations": 3,
+        "unclassified_absolute_amount": "15"
+      }
+    },
+    "admin_vault": {
+      "amount": "67000000",
+      "players": 1,
+      "excluded_from_ordinary_income": true
+    },
+    "unclassified_activity": {"operations": 134},
+    "job_rewards_breakdown": "ArcEcoJobs only; ArcOrigin cadence not identified",
+    "current_sell_shop_income_vault": "55995.33",
+    "sell_to_contract_transition": "future and unchanged"
+  },
+  "prices": []
+}

@@ -3,6 +3,7 @@ package ru.arc.origin.scene
 import com.denizenscript.denizen.objects.NPCTag
 import dev.lone.itemsadder.api.CustomStack
 import net.citizensnpcs.api.CitizensAPI
+import net.citizensnpcs.api.event.NPCLeftClickEvent
 import net.citizensnpcs.api.event.NPCRightClickEvent
 import net.citizensnpcs.api.npc.NPC
 import net.kyori.adventure.text.Component
@@ -62,7 +63,8 @@ object OriginAmbientScenesModule : PluginModule, Listener {
             warn("ORIGIN_SCENE phase=DISABLED reason=citizens-unavailable")
             return
         }
-        val current = OriginSceneService(OriginScenePlan.load(ArcOriginPlugin.instance.legacyDataPath, mergeDefaults = false))
+        val path = ArcOriginPlugin.instance.legacyDataPath
+        val current = OriginSceneService(OriginScenePlan.load(path, mergeDefaults = false), OriginDozorConfig.load(path))
         service = current
         Bukkit.getPluginManager().registerEvents(this, ArcOriginPlugin.instance)
         current.start()
@@ -72,7 +74,8 @@ object OriginAmbientScenesModule : PluginModule, Listener {
         // Validate before replacing the running generation: a bad edit must not
         // tear down the last usable scene plan.
         val replacement = try {
-            OriginScenePlan.load(ArcOriginPlugin.instance.legacyDataPath, mergeDefaults = false)
+            val path = ArcOriginPlugin.instance.legacyDataPath
+            OriginScenePlan.load(path, mergeDefaults = false) to OriginDozorConfig.load(path)
         } catch (failure: Exception) {
             warn("ORIGIN_SCENE phase=RELOAD_REJECTED previous_runtime=retained", failure)
             return
@@ -82,7 +85,7 @@ object OriginAmbientScenesModule : PluginModule, Listener {
             return
         }
         service?.close()
-        service = OriginSceneService(replacement).also { it.start() }
+        service = OriginSceneService(replacement.first, replacement.second).also { it.start() }
     }
 
     override fun shutdown() {
@@ -117,11 +120,18 @@ object OriginAmbientScenesModule : PluginModule, Listener {
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     fun onNpcClick(event: NPCRightClickEvent) {
+        service?.dozorInteracted(event.npc)
         service?.interruptActor(
             event.npc.id,
             "player-click",
             OriginSceneRecoveryPolicy.KEEP_CURRENT_POSITION,
         )
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
+    fun onDozorLeftClick(event: NPCLeftClickEvent) {
+        if (service?.dozorInteracted(event.npc) == true)
+            service?.interruptActor(event.npc.id, "player-click", OriginSceneRecoveryPolicy.KEEP_CURRENT_POSITION)
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -184,6 +194,7 @@ private data class ActiveOriginSceneCycle(
     var followingDisplayRefreshScheduled: Boolean = false,
     val speechActors: MutableSet<Int> = mutableSetOf(),
     val manual: Boolean = false,
+    val visit: OriginDozorVisit? = null,
     val startedNanos: Long = System.nanoTime(),
 ) {
     lateinit var execution: OriginSceneExecution
@@ -200,6 +211,7 @@ private data class OriginSceneSpeech(val display: TextDisplay, val owner: UUID)
 
 private class OriginSceneService(
     private val plan: OriginScenePlan,
+    dozorConfig: OriginDozorConfig,
 ) : AutoCloseable {
     private val tasks = LifecycleTaskScope()
     private val coordinator = OriginSceneCoordinator()
@@ -208,11 +220,18 @@ private class OriginSceneService(
     private val speech = mutableMapOf<Int, OriginSceneSpeech>()
     private val lastResults = mutableMapOf<OriginSceneCycleKey, String>()
     private val cropProtection = OriginSceneCropProtection.from(plan)
+    private val dozor = OriginDozorGreetings(dozorConfig, System.currentTimeMillis())
     private var closed = false
     private var closing = false
 
     fun protectsCrop(world: String, actorId: Int, material: Material): Boolean =
         cropProtection.protects(world, actorId, material)
+
+    fun dozorInteracted(actor: NPC): Boolean {
+        if (!dozor.matches(actor)) return false
+        dozor.interacted(actor.id, System.currentTimeMillis())
+        return true
+    }
 
     fun acquireWorksite(sceneId: String, actorIds: Set<Int>): OriginSceneLease? {
         if (closed || closing || actorIds.isEmpty()) return null
@@ -329,7 +348,8 @@ private class OriginSceneService(
 
     private fun tick() {
         if (closed) return
-        if (Bukkit.getWorld(plan.world) == null) {
+        val world = Bukkit.getWorld(plan.world)
+        if (world == null) {
             active.values.toList().forEach { interruptCycle(it, "world-unavailable") }
             return
         }
@@ -339,9 +359,26 @@ private class OriginSceneService(
             .toList()
             .forEach { interruptCycle(it, "player-proximity") }
         val now = System.currentTimeMillis()
+        dozor.observe(world.players, now)
+        active.values.filter { it.visit != null && it.execution.phase == OriginSceneExecutionPhase.RUNNING }
+            .toList().forEach { running ->
+                if (!visitorPresent(running)) finish(running, "visitor-left")
+            }
         for (scene in plan.scenes.shuffled()) {
             if (!hasAudience(scene)) continue
             if (active.values.count { it.scene.id == scene.id } >= scene.maxConcurrentCycles) continue
+            if (scene.id == "mount-yard") {
+                val actor = npc(OriginDozorGreetings.NPC_ID)
+                if (actor != null && actor.id in scene.actors && dozor.matches(actor) && available(actor, scene) &&
+                    !actor.entity.isInsideVehicle && actor.entity.passengers.isEmpty() &&
+                    (actor.entity as? org.bukkit.entity.Mob)?.target == null &&
+                    !OriginNpcHolograms.hasTemporaryBubble(actor.id)) {
+                    dozor.tryStart(scene, actor, world.players, coordinator, now)?.let { visit ->
+                        launch(visit.scene, visit.cycle, visit.lease, manual = false, visit = visit)
+                    }
+                }
+                if (active.values.count { it.scene.id == scene.id } >= scene.maxConcurrentCycles) continue
+            }
             val cyclesById = scene.cycles.associateBy { it.id }
             val readyCycleIds = coordinator.readyCycleIds(scene.id, scene.cycles.associate { it.id to it.actorIds }, now)
             for (cycleId in readyCycleIds) {
@@ -362,8 +399,9 @@ private class OriginSceneService(
         }
     }
 
-    private fun launch(scene: OriginSceneDefinition, cycle: OriginSceneCycle, lease: OriginSceneLease, manual: Boolean) {
-        val running = ActiveOriginSceneCycle(lease, scene, cycle, manual = manual)
+    private fun launch(scene: OriginSceneDefinition, cycle: OriginSceneCycle, lease: OriginSceneLease, manual: Boolean,
+        visit: OriginDozorVisit? = null) {
+        val running = ActiveOriginSceneCycle(lease, scene, cycle, manual = manual, visit = visit)
         running.execution = OriginSceneExecution(cycle.stepIds, cycle.maxDurationTicks, object : OriginSceneExecutionEffects {
             override fun execute(stepIndex: Int) = executeStep(running, stepIndex)
             override fun cleanup(keepMounted: Boolean) = cleanup(running, keepMounted)
@@ -414,7 +452,17 @@ private class OriginSceneService(
 
     private fun runStep(running: ActiveOriginSceneCycle, index: Int) = running.execution.advance(index)
 
+    private fun visitorPresent(running: ActiveOriginSceneCycle): Boolean {
+        val visit = running.visit ?: return true
+        val actor = npc(OriginDozorGreetings.NPC_ID) ?: return false
+        return dozor.matches(actor) && Bukkit.getPlayer(visit.playerId)?.let(visit::contains) == true
+    }
+
     private fun executeStep(running: ActiveOriginSceneCycle, index: Int) {
+        if (!visitorPresent(running)) {
+            finish(running, "visitor-left")
+            return
+        }
         if (hasDeniedFlag(running)) {
             finish(running, "denizen-busy")
             return
@@ -470,6 +518,15 @@ private class OriginSceneService(
                 runStep(running, index + 1)
             }
             is OriginSceneStep.Speech -> {
+                if (running.visit != null) {
+                    val actor = npc(step.actorId)
+                    val player = Bukkit.getPlayer(running.visit.playerId)
+                    if (actor == null || player == null || actor.entity.location.distanceSquared(player.location) !in 1.44..12.25 ||
+                        !player.hasLineOfSight(actor.entity) || OriginNpcHolograms.hasTemporaryBubble(step.actorId)) {
+                        finish(running, "visitor-unavailable")
+                        return
+                    }
+                }
                 showSpeech(running, step.actorId, step.text)
                 runStep(running, index + 1)
             }

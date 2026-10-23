@@ -193,11 +193,12 @@ class OriginOddJobCartTest : StringSpec({
                     yardTarget = OriginYardWork(422, "Буран"))).copy(stage = OriginOddJobStage.CLEAN_PUSH)
                 cleaning.sync(f.player, job)
                 cleaning.canPark(f.player.uniqueId, job.copy(stage = OriginOddJobStage.CLEAN_RETURN)) shouldBe false
-                cleaning.tick(f.player, job.copy(stage = OriginOddJobStage.CLEAN_RETURN)) shouldBe null
+                cleaning.tick(f.player, job) shouldBe null
                 repeat(60) { cleaning.tick(f.player, job) }
                 val station = requireNotNull(cleaning.station(f.player.uniqueId, job))
                 abs(station.point.y - 0.65 - floorTop) shouldBeLessThan 0.012
                 cleaning.canPark(f.player.uniqueId, job) shouldBe true
+                cleaning.tick(f.player, job) shouldBe OriginOddJobAction.PARK_CART
                 val handle = station.point.clone().add(0.4, 0.2, -1.04)
                 val eye = f.at.clone().add(0.0, 1.62, 0.0).apply { setDirection(handle.toVector().subtract(toVector())) }
                 every { f.player.eyeLocation } returns eye

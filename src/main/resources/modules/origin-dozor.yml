@@ -1,0 +1,15 @@
+# Dozor uses the existing mount-yard actor, yard route profile and speech bubble.
+# One short encounter; it never follows a moving player or interrupts an actor lease.
+enabled: true
+cooldown-min-seconds: 90
+cooldown-max-seconds: 180
+player-cooldown-seconds: 480
+lines:
+  - "Ты с какого денника? Я тут всех по запаху знаю."
+  - "Семки есть? Ладно, я больше по сухарям."
+  - "Чего стоим? Проходи, я тебя запомнил. По-доброму."
+  - "Слышь, погладить найдётся?"
+  - "У нас тут всё по понятиям: поел — убери за собой."
+  - "Ты заходи, если что. Только калитку прикрой."
+  - "Коню морковку, мне ничего? Красиво живёте."
+  - "Я не бездельничаю. У меня обход на паузе."

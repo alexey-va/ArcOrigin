@@ -57,13 +57,13 @@ internal class OriginOddJobSupplies(private val text: (String) -> String = { it 
     private fun emptySlot(player: Player): Int = player.inventory.storageContents.indexOfFirst { it == null || it.type.isAir }
     fun has(player: Player, job: OriginOddJobSession): Boolean = slot(player, job) >= 0
     fun hasSpace(player: Player): Boolean = emptySlot(player) >= 0
-    fun requiresWorkpiece(job: OriginOddJobSession): Boolean = yardItem(job) != null ||
+    fun requiresWorkpiece(job: OriginOddJobSession): Boolean = job.kind != OriginOddJobKind.MOUNTYARD && (
         job.stage in setOf(OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.ENGRAVE_PLACE) ||
         job.kind == OriginOddJobKind.FORGE_ENGRAVE && job.stage == OriginOddJobStage.RETURN ||
         job.kind == OriginOddJobKind.FORGE && job.stage in setOf(
-            OriginOddJobStage.FORGE_HEAT, OriginOddJobStage.FORGE_PLACE, OriginOddJobStage.FORGE_QUENCH, OriginOddJobStage.RETURN)
+            OriginOddJobStage.FORGE_HEAT, OriginOddJobStage.FORGE_PLACE, OriginOddJobStage.FORGE_QUENCH, OriginOddJobStage.RETURN))
 
-    fun canTransfer(player: Player, job: OriginOddJobSession): Boolean = when (job.stage) {
+    fun canTransfer(player: Player, job: OriginOddJobSession): Boolean = if (job.kind == OriginOddJobKind.MOUNTYARD) true else when (job.stage) {
         OriginOddJobStage.HAUL_PICKUP, OriginOddJobStage.ENGRAVE_BLANK, OriginOddJobStage.ENGRAVE_COLLECT -> hasSpace(player)
         OriginOddJobStage.HAUL_LOAD, OriginOddJobStage.ENGRAVE_PLACE -> has(player, job)
         OriginOddJobStage.YARD_HAY, OriginOddJobStage.YARD_BUCKET, OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_LEAD_RACK, OriginOddJobStage.CLEAN_TOOL -> hasSpace(player)
@@ -83,12 +83,8 @@ internal class OriginOddJobSupplies(private val text: (String) -> String = { it 
     }
 
     fun sync(player: Player, job: OriginOddJobSession): Boolean {
-        if (job.kind == OriginOddJobKind.MOUNTYARD) {
-            val model = yardItem(job)
-            if (model == null) { clear(player, closeStock = false); return true }
-            val label = if (job.stage == OriginOddJobStage.CLEAN_LOAD) "loaded_shovel" else model
-            return putInHand(player, job, item(player, job, text("mountyard.items.$label"), model))
-        }
+        // Physical borrowed props never replace, consume or occupy personal inventory stacks.
+        if (job.kind == OriginOddJobKind.MOUNTYARD) { clear(player, closeStock = false); return true }
         if (job.kind == OriginOddJobKind.FORGE_HAUL) {
             if (job.stage != OriginOddJobStage.HAUL_LOAD) { clear(player, closeStock = false); return true }
             val cargo = requireNotNull(job.haul).cargo
@@ -116,24 +112,6 @@ internal class OriginOddJobSupplies(private val text: (String) -> String = { it 
         val item = item(player, job, label, work.metal.itemModel)
         if (player.inventory.getItem(slot) != item) player.inventory.setItem(slot, item)
         return true
-    }
-
-    private fun yardItem(job: OriginOddJobSession): String? = when (job.stage) {
-        OriginOddJobStage.YARD_FEED -> "hay_block"
-        OriginOddJobStage.YARD_WELL -> "bucket"
-        OriginOddJobStage.YARD_WATER -> "water_bucket"
-        OriginOddJobStage.YARD_LEAD, OriginOddJobStage.YARD_LEAD_OUT,
-        OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_HORSE_FIRST,
-        OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_TIE_HORSE_SECOND, OriginOddJobStage.YARD_DELIVER -> "lead"
-        OriginOddJobStage.YARD_HANDOFF, OriginOddJobStage.YARD_LESSON_WALK -> if (job.variant == OriginOddJobVariant.YARD_LESSON) "lead" else null
-        OriginOddJobStage.CLEAN_CART, OriginOddJobStage.CLEAN_PUSH, OriginOddJobStage.CLEAN_SCOOP,
-        OriginOddJobStage.CLEAN_LOAD, OriginOddJobStage.CLEAN_UNLOAD, OriginOddJobStage.CLEAN_RETURN,
-        OriginOddJobStage.CLEAN_PARK -> "iron_shovel"
-        OriginOddJobStage.YARD_GROOM -> "brush"
-        OriginOddJobStage.YARD_TACK -> "brush"
-        OriginOddJobStage.YARD_SADDLE -> "saddle"
-        OriginOddJobStage.YARD_UNTIE_FIRST, OriginOddJobStage.YARD_UNTIE_SECOND -> "lead"
-        else -> null
     }
 
     /** Keep personal stacks intact even when the only free storage cell is outside the hotbar. */

@@ -12,6 +12,7 @@ import io.mockk.unmockkStatic
 import io.mockk.verify
 import net.citizensnpcs.api.CitizensAPI
 import net.citizensnpcs.api.event.NPCRightClickEvent
+import net.citizensnpcs.api.event.NPCLeftClickEvent
 import net.citizensnpcs.api.npc.NPC
 import net.citizensnpcs.api.npc.NPCRegistry
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
@@ -20,6 +21,7 @@ import org.bukkit.FluidCollisionMode
 import org.bukkit.GameMode
 import org.bukkit.Material
 import org.bukkit.block.BlockFace
+import org.bukkit.entity.Player
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Villager
 import org.bukkit.entity.Horse
@@ -30,6 +32,7 @@ import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerQuitEvent
+import io.papermc.paper.event.player.PlayerArmSwingEvent
 import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.meta.ItemMeta
 import org.bukkit.util.Vector
@@ -54,7 +57,7 @@ class OriginOddJobsGameTest : StringSpec({
     beforeEach { f = OddJobsFixture() }
     afterEach { f.close() }
 
-    "the other half of the same stock chest works for forging and hauling and respects a block veto" {
+    "either button can use private request stock while native container access remains denied" {
         for (variant in listOf(OriginOddJobVariant.FORGE_NEW, OriginOddJobVariant.HAUL_COPPER)) {
             f.close(); f = OddJobsFixture(doubleStocks = true)
             failOnUnsupportedMockBukkitOperation {
@@ -71,12 +74,13 @@ class OriginOddJobsGameTest : StringSpec({
                 f.world.obstruction = RayTraceResult(hit.toVector(), other, BlockFace.NORTH)
                 fun click(result: Event.Result) = PlayerInteractEvent(f.player, Action.RIGHT_CLICK_BLOCK, null, other,
                     BlockFace.NORTH, EquipmentSlot.HAND).also { it.setUseInteractedBlock(result); f.game.onBlock(it) }
-                click(Event.Result.DENY).useInteractedBlock() shouldBe Event.Result.DENY
-                f.game.currentJob(f.player.uniqueId)!!.stage shouldBe job.stage
-                @Suppress("UNNECESSARY_SAFE_CALL") // MockBukkit's closed view can omit its top inventory.
-                (f.player.openInventory.topInventory?.holder as? OriginOddJobSupplies.Stock) shouldBe null
                 f.now += 700
-                click(Event.Result.DEFAULT).useInteractedBlock() shouldBe Event.Result.DENY
+                click(Event.Result.DENY).useInteractedBlock() shouldBe Event.Result.DENY
+                if (variant == OriginOddJobVariant.FORGE_NEW) {
+                    (f.player.openInventory.topInventory.holder as OriginOddJobSupplies.Stock).jobId shouldBe job.id
+                    f.now += 700
+                    f.game.onBlock(PlayerInteractEvent(f.player, Action.LEFT_CLICK_BLOCK, null, other, BlockFace.NORTH, EquipmentSlot.HAND))
+                }
                 if (variant == OriginOddJobVariant.FORGE_NEW) {
                     val stock = f.player.openInventory.topInventory.holder as OriginOddJobSupplies.Stock
                     stock.jobId shouldBe job.id
@@ -413,7 +417,7 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.isWorking(f.player.uniqueId) shouldBe false
         }
     }
-    "stable food and water accept immediately and prepared horses require handing over before one credit" {
+    "stable orders retain their lease until physical tools and tack are returned before one credit" {
         for (variant in listOf(OriginOddJobVariant.YARD_WATER, OriginOddJobVariant.YARD_RATIONS,
             OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE)) {
             failOnUnsupportedMockBukkitOperation {
@@ -425,6 +429,8 @@ class OriginOddJobsGameTest : StringSpec({
                     OriginOddJobVariant.YARD_WATER -> {
                         f.stroke(OriginOddJobStationId.WELL); f.stroke(OriginOddJobStationId.WATER)
                         f.clickNpc(requireNotNull(job.yard).animalId, sneaking = false)
+                        f.requireStage(OriginOddJobStage.YARD_DRINKING, "water is in use")
+                        f.game.tick(f.now); f.gearClick(left = true)
                         f.game.currentJob(f.player.uniqueId) shouldBe null
                         f.payments.count { it.id == job.id } shouldBe 1
                     }
@@ -436,14 +442,16 @@ class OriginOddJobsGameTest : StringSpec({
                     OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE -> {
                         f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
                         repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(requireNotNull(job.yard).animalId, sneaking = false) }
-                        f.stroke(OriginOddJobStationId.SADDLE_RACK); f.clickNpc(requireNotNull(job.yard).animalId, sneaking = false)
+                        f.finishTack()
                         f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_UNTIE_FIRST
                         f.strokeTie(); f.strokeTie()
                         f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_DELIVER
                         f.game.tick(f.now)
                         f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_HANDOFF
                         f.game.tick(f.now)
-                        f.game.currentJob(f.player.uniqueId) shouldBe null
+                        f.requireStage(OriginOddJobStage.YARD_HANDED, "rider route owns this order")
+                        f.game.tick(f.now)
+                        f.returnTack()
                         f.payments.count { it.id == job.id } shouldBe 1
                     }
                     else -> error("unexpected stable variant")
@@ -474,13 +482,13 @@ class OriginOddJobsGameTest : StringSpec({
             job.yard.routeTotal shouldBe 3
             f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
             repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(animal, sneaking = false) }
-            f.stroke(OriginOddJobStationId.SADDLE_RACK); f.clickNpc(animal, sneaking = false)
+            f.finishTack()
             f.strokeTie(); f.strokeTie(); f.game.tick(f.now)
             f.requireStage(OriginOddJobStage.YARD_HANDOFF, "horse reaches mounting place")
             f.game.tick(f.now); f.game.tick(f.now)
             f.requireStage(OriginOddJobStage.YARD_HANDOFF, "lesson must wait for explicit NPC click")
             f.payments shouldBe emptyList()
-            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("lead")
+            f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed.contains(OriginYardGear.LEAD) shouldBe true
             f.clickNpc(requireNotNull(f.config.yardRider).npcId, sneaking = false)
             f.requireStage(OriginOddJobStage.YARD_LESSON_WALK, "mounted lesson begins")
             f.game.tick(f.now)
@@ -491,7 +499,7 @@ class OriginOddJobsGameTest : StringSpec({
                 f.game.currentJob(f.player.uniqueId)!!.yard!!.routeIndex shouldBe index
                 f.game.tick(f.now)
             }
-            f.game.currentJob(f.player.uniqueId) shouldBe null
+            f.returnTack()
             f.payments.count { it.id == job.id } shouldBe 1
             f.game.tick(f.now); f.game.tick(f.now)
             f.payments.count { it.id == job.id } shouldBe 1
@@ -503,16 +511,17 @@ class OriginOddJobsGameTest : StringSpec({
             val job = f.game.currentJob(f.player.uniqueId)!!
             verify(exactly = 0) { f.yard.begin(f.player, any(), any()) }
             f.stroke(OriginOddJobStationId.BRUSH)
-            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("iron_shovel")
+            f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.SHOVEL)
             f.strokeCleaning()
             f.requireStage(OriginOddJobStage.CLEAN_PUSH, "empty cart attached")
             f.cleaningParkReady = false; f.strokeCleaning()
             f.requireStage(OriginOddJobStage.CLEAN_PUSH, "cart cannot park away from stall")
-            f.cleaningParkReady = true; f.strokeCleaning(clickedGate = true)
+            f.cleaningParkReady = true; f.cleaningArrival = true; f.game.tick(f.now); f.cleaningArrival = false
+            f.requireStage(OriginOddJobStage.CLEAN_SCOOP, "cart parks at the stall without a click")
             repeat(3) { index ->
-                f.strokeCleaning(left = true)
+                f.strokeCleaning(left = index % 2 == 0)
                 f.requireStage(OriginOddJobStage.CLEAN_LOAD, "shovel holds a portion")
-                f.strokeCleaning()
+                f.strokeCleaning(left = index % 2 != 0)
                 f.game.currentJob(f.player.uniqueId)!!.cleaning!!.collected shouldBe index + 1
             }
             f.payments shouldBe emptyList()
@@ -529,6 +538,9 @@ class OriginOddJobsGameTest : StringSpec({
             f.requireStage(OriginOddJobStage.CLEAN_PARK, "home arrival needs parking")
             f.payments shouldBe emptyList()
             f.strokeCleaning(); f.game.tick(f.now)
+            f.requireStage(OriginOddJobStage.CLEAN_TOOL_RETURN, "parked cart still holds the shovel loan")
+            f.payments shouldBe emptyList()
+            f.gearClick(left = true); f.game.tick(f.now)
             f.game.currentJob(f.player.uniqueId) shouldBe null
             f.payments.count { it.id == job.id } shouldBe 1
             f.released shouldBe f.leases
@@ -556,7 +568,7 @@ class OriginOddJobsGameTest : StringSpec({
             val animal = requireNotNull(f.game.currentJob(f.player.uniqueId)!!.yard).animalId
             f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
             repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(animal, sneaking = false) }
-            f.stroke(OriginOddJobStationId.SADDLE_RACK); f.clickNpc(animal, sneaking = false)
+            f.finishTack()
             f.strokeTie(); f.strokeTie(); f.game.tick(f.now)
             f.requireStage(OriginOddJobStage.YARD_HANDOFF, "horse arrived for automatic handoff")
             val receiver = f.entity(requireNotNull(f.config.yardRider).npcId)
@@ -574,12 +586,13 @@ class OriginOddJobsGameTest : StringSpec({
             val screens = f.screens.size
             f.stroke(OriginOddJobStationId.WELL)
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_WELL
-            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("bucket")
+            f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.BUCKET)
             f.player.inventory.getItem(0)!!.amount shouldBe 7
             f.stroke(OriginOddJobStationId.WATER, elapsed = 30_000)
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_WATER
-            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("water_bucket")
+            f.player.inventory.getItem(0)!!.amount shouldBe 7
             f.clickNpc(f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId, sneaking = false)
+            f.game.tick(f.now); f.gearClick()
             f.game.currentJob(f.player.uniqueId) shouldBe null
             f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
             f.payments.single().kind shouldBe OriginSideJobKind.MOUNTYARD
@@ -588,12 +601,14 @@ class OriginOddJobsGameTest : StringSpec({
             f.screens.size shouldBe screens
         }
     }
-    "water accepts once and assigns a different animal without waiting for drinking" {
+    "water accepts once after drinking and bucket return then assigns a different animal" {
         failOnUnsupportedMockBukkitOperation {
             f.begin(440, OriginOddJobVariant.YARD_WATER)
             val first = f.game.currentJob(f.player.uniqueId)!!
             f.stroke(OriginOddJobStationId.WELL); f.stroke(OriginOddJobStationId.WATER)
             f.clickNpc(first.yard!!.animalId, sneaking = false)
+            f.payments shouldBe emptyList()
+            f.game.tick(f.now); f.gearClick(left = true)
             f.game.currentJob(f.player.uniqueId) shouldBe null
             f.payments.single().id shouldBe first.id
             f.payments.single().callback(SideJobRewardOutcome.CREDITED)
@@ -616,13 +631,14 @@ class OriginOddJobsGameTest : StringSpec({
             f.payments.single().id shouldBe first.id
         }
     }
-    "yard pickup preserves a full hotbar and moves its selected personal stack to the free storage cell" {
+    "yard pickup preserves every personal hotbar slot without adding an inventory token" {
         failOnUnsupportedMockBukkitOperation {
             repeat(9) { f.player.inventory.setItem(it, org.bukkit.inventory.ItemStack(Material.DIAMOND, it + 1)) }
             f.begin(440, OriginOddJobVariant.YARD_RATIONS)
             f.stroke(OriginOddJobStationId.HAY)
-            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("hay_block")
-            f.player.inventory.getItem(9)!!.amount shouldBe 1
+            f.player.inventory.getItem(9) shouldBe null
+            repeat(9) { f.player.inventory.getItem(it)!!.amount shouldBe it + 1 }
+            f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.HAY)
             f.clickNpc(f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId, sneaking = false)
             f.game.currentJob(f.player.uniqueId) shouldBe null
             f.payments.single().kind shouldBe OriginSideJobKind.MOUNTYARD
@@ -641,12 +657,109 @@ class OriginOddJobsGameTest : StringSpec({
                 val event = PlayerInteractEvent(f.player, Action.RIGHT_CLICK_BLOCK, f.player.inventory.itemInMainHand,
                     gate, BlockFace.NORTH, EquipmentSlot.HAND)
                 event.setUseInteractedBlock(access)
+                val itemPolicy = event.useItemInHand()
                 f.game.onBlock(event)
                 event.useInteractedBlock() shouldBe access
-                event.useItemInHand() shouldBe org.bukkit.event.Event.Result.DENY
+                event.useItemInHand() shouldBe itemPolicy
                 f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_FEED
             }
         }
+    }
+    "left gate click and empty hand swing share one scoped permission check and never toggle twice" {
+        f.begin(440, OriginOddJobVariant.YARD_RATIONS)
+        val gate = f.world.getBlockAt(5, 70, 7).also { it.type = Material.OAK_FENCE_GATE }
+        every { f.yard.isStallGate(gate) } returns true
+        every { f.yard.isAssignedStallGate(f.player.uniqueId, any(), gate) } returns true
+        val hit = gate.location.clone().add(.5,.5,.5)
+        val at = hit.clone().add(0.0,-.5,-2.0).apply {
+            setDirection(hit.toVector().subtract(clone().add(0.0,f.player.eyeHeight,0.0).toVector()))
+        }
+        f.player.teleport(at); f.now += 700
+        f.world.obstruction = RayTraceResult(hit.toVector(), gate, BlockFace.NORTH)
+        val manager = f.paper.server.pluginManager
+        mockkObject(manager)
+        var checks = 0
+        try {
+            every { manager.callEvent(any()) } answers {
+                val permission = firstArg<PlayerInteractEvent>()
+                permission.action shouldBe Action.RIGHT_CLICK_BLOCK
+                checks++
+                f.game.onBlock(permission) // Our event must not recursively dispatch itself.
+            }
+            val swing = PlayerArmSwingEvent(f.player, EquipmentSlot.HAND)
+            f.game.onSwing(swing)
+            (gate.blockData as org.bukkit.block.data.type.Gate).isOpen shouldBe true
+            checks shouldBe 1
+            val duplicate = PlayerInteractEvent(f.player, Action.LEFT_CLICK_BLOCK, null, gate, BlockFace.NORTH, EquipmentSlot.HAND)
+            duplicate.setUseInteractedBlock(Event.Result.DENY) // Native Adventure-mode break denial is distinct from use permission.
+            f.game.onBlock(duplicate)
+            (gate.blockData as org.bukkit.block.data.type.Gate).isOpen shouldBe true
+            checks shouldBe 1
+            f.now += 700
+            f.game.onBlock(PlayerInteractEvent(f.player, Action.LEFT_CLICK_BLOCK, null, gate, BlockFace.NORTH, EquipmentSlot.HAND))
+            (gate.blockData as org.bukkit.block.data.type.Gate).isOpen shouldBe false
+            checks shouldBe 2
+        } finally { unmockkObject(manager) }
+    }
+    "gate use veto ownership loss and wrong gate prevent left click mutation" {
+        f.begin(440, OriginOddJobVariant.YARD_RATIONS)
+        val gate = f.world.getBlockAt(5, 70, 7).also { it.type = Material.OAK_FENCE_GATE }
+        every { f.yard.isStallGate(gate) } returns true
+        every { f.yard.isAssignedStallGate(f.player.uniqueId, any(), gate) } returns true
+        val hit = gate.location.clone().add(.5,.5,.5)
+        val at = hit.clone().add(0.0,-.5,-2.0).apply {
+            setDirection(hit.toVector().subtract(clone().add(0.0,f.player.eyeHeight,0.0).toVector()))
+        }
+        f.player.teleport(at)
+        f.world.obstruction = RayTraceResult(hit.toVector(), gate, BlockFace.NORTH)
+        val manager = f.paper.server.pluginManager
+        mockkObject(manager)
+        try {
+            every { manager.callEvent(any()) } answers { firstArg<PlayerInteractEvent>().setUseInteractedBlock(Event.Result.DENY) }
+            f.now += 700
+            f.game.onBlock(PlayerInteractEvent(f.player, Action.LEFT_CLICK_BLOCK, null, gate, BlockFace.NORTH, EquipmentSlot.HAND))
+            (gate.blockData as org.bukkit.block.data.type.Gate).isOpen shouldBe false
+            every { manager.callEvent(any()) } answers { f.game.stop(f.player.uniqueId, "revoked-during-permission") }
+            f.now += 700
+            f.game.onBlock(PlayerInteractEvent(f.player, Action.LEFT_CLICK_BLOCK, null, gate, BlockFace.NORTH, EquipmentSlot.HAND))
+            (gate.blockData as org.bukkit.block.data.type.Gate).isOpen shouldBe false
+            f.game.currentJob(f.player.uniqueId) shouldBe null
+            f.payments shouldBe emptyList()
+        } finally { unmockkObject(manager) }
+    }
+    "both horse buttons and duplicate packet events perform one stroke and one physical gear transition" {
+        f.begin(440, OriginOddJobVariant.YARD_GROOM)
+        f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH, left = true)
+        val animal = f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId
+        f.clickNpc(animal, sneaking = false, left = true)
+        f.game.onNpcClick(NPCRightClickEvent(f.npc(animal), f.player))
+        f.game.onEntity(PlayerInteractEntityEvent(f.player, f.entity(animal), EquipmentSlot.HAND))
+        f.game.currentJob(f.player.uniqueId)!!.yard!!.brushStrokes shouldBe 1
+        f.clickNpc(animal, sneaking = false)
+        f.clickNpc(animal, sneaking = false, left = true)
+        f.requireStage(OriginOddJobStage.YARD_BRUSH_RETURN, "three physical strokes")
+        f.gearClick(left = true)
+        f.requireStage(OriginOddJobStage.YARD_PAD_RACK, "brush returned")
+        f.gearClick(left = false, elapsed = 0)
+        f.requireStage(OriginOddJobStage.YARD_PAD_RACK, "duplicate cannot immediately take the next loan")
+        f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.LEAD)
+        f.payments shouldBe emptyList()
+    }
+    "each stirrup requires its physical side instead of clicking through the horse" {
+        f.begin(440, OriginOddJobVariant.YARD_GROOM)
+        f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
+        val animal = f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId
+        repeat(3) { f.clickNpc(animal, sneaking = false) }
+        repeat(8) { f.gearClick() }
+        for ((stage, left) in listOf(OriginOddJobStage.YARD_STIRRUP_LEFT to true, OriginOddJobStage.YARD_STIRRUP_RIGHT to false)) {
+            f.requireStage(stage, "separate stirrup target")
+            val before = f.game.currentJob(f.player.uniqueId)
+            f.gearClick(left = left, oppositeSide = true)
+            f.game.currentJob(f.player.uniqueId) shouldBe before
+            f.gearClick(left = left)
+        }
+        f.requireStage(OriginOddJobStage.YARD_UNTIE_FIRST, "both sides adjusted")
+        f.payments shouldBe emptyList()
     }
     "only the named animal receives grooming and the same target is part of the scene lease" {
         failOnUnsupportedMockBukkitOperation {
@@ -655,11 +768,11 @@ class OriginOddJobsGameTest : StringSpec({
             f.leases.single().actorIds.contains(target.animalId) shouldBe true
             f.leases.single().actorIds shouldBe setOf(target.animalId, requireNotNull(f.config.yardRider).npcId)
             f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
-            f.player.inventory.itemInMainHand.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft("brush")
+            f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed.contains(OriginYardGear.BRUSH) shouldBe true
             f.clickNpc(f.config.yardAnimalIds.first { it != target.animalId }, sneaking = false)
             f.game.currentJob(f.player.uniqueId)!!.yard!!.brushStrokes shouldBe 0
             repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(target.animalId, sneaking = false) }
-            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_TACK
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_BRUSH_RETURN
             f.payments shouldBe emptyList()
         }
     }
@@ -685,16 +798,16 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.close(); f.game.isWorking(f.player.uniqueId) shouldBe false
         }
     }
-    "missing empty stable bucket cannot be regenerated by using the cauldron" {
+    "clearing personal inventory does not remove or duplicate the physical bucket loan" {
         failOnUnsupportedMockBukkitOperation {
             f.begin(440, OriginOddJobVariant.YARD_WATER)
             f.stroke(OriginOddJobStationId.WELL)
             val request = f.game.currentJob(f.player.uniqueId)!!.id
             f.player.inventory.clear()
             f.game.tick(++f.now)
-            f.game.currentJob(f.player.uniqueId) shouldBe null
-            f.aim(OriginOddJobStationId.WATER)
-            f.game.work(f.player, false, f.stations.getValue(OriginOddJobStationId.WATER).block) shouldBe false
+            f.game.currentJob(f.player.uniqueId)!!.id shouldBe request
+            f.stroke(OriginOddJobStationId.WATER, left = true)
+            f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.BUCKET)
             f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
             f.payments.none { it.id == request } shouldBe true
         }
@@ -741,13 +854,14 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.stop(f.player.uniqueId, "test")
         }
     }
-    "missing leading item cannot regenerate by clicking a tie point" {
+    "cross ties use the authoritative lead loan even with an empty personal inventory" {
         failOnUnsupportedMockBukkitOperation {
             f.begin(440, OriginOddJobVariant.YARD_SADDLE); f.leadToTies()
             f.player.inventory.clear()
             val station = f.aimTie(0)
             f.game.work(f.player, false, station.block) shouldBe true
-            f.game.currentJob(f.player.uniqueId) shouldBe null
+            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_TIE_HORSE_FIRST
+            f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.LEAD)
             f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
             f.payments shouldBe emptyList()
         }
@@ -872,6 +986,8 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
     val actors = mutableMapOf<Int, NPC>()
     val yard = mockk<OriginOddJobMountyard>(relaxed = true)
     val cleaning = mockk<OriginOddJobStableCleaning>(relaxed = true)
+    val equipment = mockk<OriginYardEquipment>(relaxed = true)
+    private lateinit var activateGear: (Player, OriginOddJobSession, OriginYardGearStep) -> Unit
     var cleaningArrival = false
     var cleaningParkReady = true
     var lessonArrival = false
@@ -972,10 +1088,27 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
                 every { this@mockk.entity } returns entity
             }
         }
+        every { equipment.bind(any(), any(), any(), any()) } answers { activateGear = arg(3) }
+        every { equipment.available(any(), any()) } returns true
+        every { equipment.target(any()) } answers {
+            val job = firstArg<OriginOddJobSession>()
+            originYardGearStep(job.stage)?.let { gearControl(job).nativeTarget?.location() }
+        }
+        // Only the packet/native entity adapter is mocked. Hit planes and request activation are production code.
+        every { equipment.intercept(any(), any()) } answers {
+            val player = firstArg<Player>(); val job = secondArg<OriginOddJobSession>()
+            val step = originYardGearStep(job.stage)
+            val centers = if (step == null) emptyList() else gearControl(job).planes.map { it.center() }
+            val hit = if (centers.isEmpty()) null else originWorkshopRayAabbHit(player.eyeLocation.let { OriginWorkshopVec3(it.x,it.y,it.z) }, player.eyeLocation.direction.let { OriginWorkshopVec3(it.x,it.y,it.z) },
+                OriginWorkshopAabb(centers.minOf { it.x }, centers.minOf { it.y }, centers.minOf { it.z },
+                    centers.maxOf { it.x }, centers.maxOf { it.y }, centers.maxOf { it.z }), 3.0)
+            if (hit != null && world.obstruction == null) { activateGear(player, job, requireNotNull(step)); true } else false
+        }
         every { yard.available() } returns true
         every { yard.begin(any(), any(), any()) } returns true
         every { yard.sync(any(), any(), any(), any()) } returns true
         every { yard.readyForCare(any(), any()) } returns true
+        every { yard.readyForUntack(any(), any()) } returns true
         every { yard.tieStations(any(), any()) } answers { originYardTieTargets(secondArg()).map { it to tieStations[it] } }
         every { yard.station(any(), any()) } answers { originYardTieTargets(secondArg()).firstOrNull()?.let(tieStations::get) }
         every { yard.gateTarget(any(), any()) } returns null
@@ -1009,8 +1142,10 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
         every { cleaning.destination(any(), any()) } returns null
         every { cleaning.canPark(any(), any()) } answers { cleaningParkReady }
         every { cleaning.tick(any(), any()) } answers {
-            if (cleaningArrival && secondArg<OriginOddJobSession>().stage in setOf(OriginOddJobStage.CLEAN_PUSH, OriginOddJobStage.CLEAN_RETURN))
-                OriginOddJobAction.CART_ARRIVE else null
+            val job = secondArg<OriginOddJobSession>()
+            if (!cleaningArrival || job.stage !in setOf(OriginOddJobStage.CLEAN_PUSH, OriginOddJobStage.CLEAN_RETURN)) null
+            else if (job.stage == OriginOddJobStage.CLEAN_PUSH && requireNotNull(job.cleaning).collected < job.cleaning.total)
+                OriginOddJobAction.PARK_CART else OriginOddJobAction.CART_ARRIVE
         }
         stations = OriginOddJobStationId.entries.mapIndexed { index, id ->
             val material = when (id) {
@@ -1049,14 +1184,57 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
                     }
                     error("Requested test variant is outside this employer's catalog")
                 }
-            }, yardCatalog = yardCatalog, forge = forge, yard = yard, cleaning = cleaning,
+            }, yardCatalog = yardCatalog, forge = forge, yard = yard, cleaning = cleaning, equipment = equipment,
             onWorksiteRevoked = { lease, cleanup -> worksiteRevocations[lease.token] = cleanup; true })
     }
 
     fun npc(id: Int) = actors.getValue(id)
     fun entity(id: Int) = npc(id).entity as LivingEntity
     fun moveNpc(id: Int) { now += 300; player.teleport(entity(id).location) }
-    fun clickNpc(id: Int, sneaking: Boolean = true) { moveNpc(id); player.isSneaking = sneaking; game.interact(player, id) shouldBe true }
+    fun clickNpc(id: Int, sneaking: Boolean = true, left: Boolean = false) {
+        val job = game.currentJob(player.uniqueId)
+        if (job?.yard?.animalId == id && originYardGearStep(job.stage)?.atRack == false) { gearClick(left); return }
+        moveNpc(id); player.isSneaking = sneaking
+        if (left) game.onNpcLeftClick(NPCLeftClickEvent(npc(id), player))
+        else game.onNpcClick(NPCRightClickEvent(npc(id), player))
+    }
+    private fun gearControl(job: OriginOddJobSession): ru.arc.paper.scene.SpatialControl<OriginYardGearStep> {
+        val step = requireNotNull(originYardGearStep(job.stage))
+        val pose = if (step.atRack) originYardGearSlots(stations).first { it.gear == step.gear }.pose
+            else originYardGearHorsePose(step.gear, entity(requireNotNull(job.yard).animalId))
+        return originYardGearControl(job, step, pose)
+    }
+    fun gearClick(left: Boolean = false, elapsed: Long = 700, oppositeSide: Boolean = false) {
+        now += elapsed
+        val job = requireNotNull(game.currentJob(player.uniqueId))
+        val native = requireNotNull(gearControl(job).nativeTarget)
+        val target = native.location().add(0.0, native.height / 2.0, 0.0)
+        val at = if (oppositeSide) {
+            val pose = originYardGearHorsePose(OriginYardGear.SADDLE, entity(requireNotNull(job.yard).animalId))
+            val side = if (job.stage == OriginOddJobStage.YARD_STIRRUP_LEFT) 1.8f else -1.8f
+            val offset = pose.rotation.transform(org.joml.Vector3f(side,0f,0f))
+            Location(world,pose.at.x+offset.x,target.y-player.eyeHeight,pose.at.z+offset.z)
+        } else target.clone().add(0.0, -player.eyeHeight, -1.8)
+        at.setDirection(target.toVector().subtract(at.clone().add(0.0, player.eyeHeight, 0.0).toVector()))
+        player.teleport(at)
+        val event = PlayerInteractEvent(player, if(left) Action.LEFT_CLICK_AIR else Action.RIGHT_CLICK_AIR,
+            player.inventory.itemInMainHand, null, BlockFace.SELF, EquipmentSlot.HAND)
+        game.onBlock(event)
+        event.useInteractedBlock() shouldBe Event.Result.DENY
+    }
+    fun finishTack() {
+        requireStage(OriginOddJobStage.YARD_BRUSH_RETURN, "brush must return first")
+        repeat(10) { gearClick(left = it % 2 == 0) }
+        requireStage(OriginOddJobStage.YARD_UNTIE_FIRST, "pad saddle girth bridle and both stirrups fitted")
+    }
+    fun returnTack() {
+        val jobId = requireStage(OriginOddJobStage.YARD_UNTACK_BRIDLE, "ride ends before untacking").id
+        repeat(7) { index ->
+            payments.none { it.id == jobId } shouldBe true
+            gearClick(left = index % 2 == 0)
+        }
+        game.currentJob(player.uniqueId) shouldBe null
+    }
     fun open(id: Int, flush: Boolean = true, sneaking: Boolean = true) { clickNpc(id, sneaking); if (flush) scheduler.executeImmediate() }
     fun currentStation() = stations.entries.single { it.value.block.location.clone().add(0.5, 0.5, 0.5) == target || it.value.point == target }.key
     fun startForge() { begin(349, OriginOddJobVariant.FORGE_NEW) }
@@ -1185,6 +1363,7 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
         PlayerInteractEvent(player, if (left) Action.LEFT_CLICK_BLOCK else Action.RIGHT_CLICK_BLOCK, null,
             stations.getValue(id).block, BlockFace.UP, hand)
     fun stroke(id: OriginOddJobStationId, left: Boolean = false, elapsed: Long = 700, zone: Int = 1) {
+        if (originYardGearStep(game.currentJob(player.uniqueId)?.stage ?: OriginOddJobStage.PAYOUT) != null) { gearClick(left, elapsed); return }
         now += elapsed
         aim(id, zone)
         val event = blockEvent(id, left = left)
