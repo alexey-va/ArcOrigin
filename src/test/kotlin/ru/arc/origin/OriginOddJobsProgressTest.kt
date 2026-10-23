@@ -8,15 +8,10 @@ import kotlin.random.Random
 private fun offer(variant: OriginOddJobVariant, seed: Int = 8, urgent: Boolean = false) = OriginOddJobOffer(UUID.randomUUID(), variant, seed, urgent)
 private fun OriginOddJobStep.reason() = (this as OriginOddJobStep.Rejected).reason
 
-private val yardTackActions = listOf(OriginOddJobAction.GEAR, OriginOddJobAction.GEAR, OriginOddJobAction.GEAR,
-    OriginOddJobAction.TACK, OriginOddJobAction.SADDLE, OriginOddJobAction.GEAR, OriginOddJobAction.GEAR,
-    OriginOddJobAction.GEAR, OriginOddJobAction.GEAR, OriginOddJobAction.GEAR)
+private val yardTackActions = listOf(OriginOddJobAction.GEAR, OriginOddJobAction.TACK, OriginOddJobAction.SADDLE)
 private val yardPreparationActions = listOf(OriginOddJobAction.TACK, OriginOddJobAction.LEAD, OriginOddJobAction.ARRIVE,
-    OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.BRUSH,
-    OriginOddJobAction.GROOM, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM) + yardTackActions +
-    listOf(OriginOddJobAction.UNTIE, OriginOddJobAction.UNTIE, OriginOddJobAction.ARRIVE, OriginOddJobAction.HANDOFF)
-private fun yardActionZone(stage: OriginOddJobStage) = if (stage in setOf(OriginOddJobStage.YARD_TIE_SECOND,
-    OriginOddJobStage.YARD_UNTIE_SECOND, OriginOddJobStage.YARD_STIRRUP_LEFT)) 0 else 1
+    OriginOddJobAction.BRUSH, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM) +
+    yardTackActions + listOf(OriginOddJobAction.ARRIVE, OriginOddJobAction.HANDOFF)
 
 class OriginOddJobsProgressTest : StringSpec({
     "a busy rider allows water for a free horse without exhausting the short work pool" {
@@ -117,19 +112,19 @@ class OriginOddJobsProgressTest : StringSpec({
                 OriginOddJobVariant.YARD_WATER -> listOf(OriginOddJobAction.WATER, OriginOddJobAction.WATER,
                     OriginOddJobAction.WATER, OriginOddJobAction.CARE_DONE, OriginOddJobAction.GEAR)
                 OriginOddJobVariant.YARD_RATIONS -> listOf(OriginOddJobAction.HAY, OriginOddJobAction.FEED)
-                else -> yardPreparationActions + OriginOddJobAction.CARE_DONE + List(7) { OriginOddJobAction.GEAR }
+                else -> yardPreparationActions + OriginOddJobAction.CARE_DONE
             }
             val units = mutableListOf<UUID>()
             actions.forEachIndexed { index, action ->
                 jobs.act(id, OriginOddJobAction.RETURN, index * 1_000L).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-                val step = jobs.act(id, action, index * 1_000L + 1, yardActionZone(jobs.current(id)!!.stage)) as OriginOddJobStep.Changed
+                val step = jobs.act(id, action, index * 1_000L + 1) as OriginOddJobStep.Changed
                 step.workUnitId?.let(units::add)
                 jobs.finish(id, job.id) shouldBe null
             }
             val expected = when (variant) {
                 OriginOddJobVariant.YARD_WATER -> 4
                 OriginOddJobVariant.YARD_RATIONS -> 2
-                else -> 29
+                else -> 9
             }
             units.size shouldBe expected
             units.distinct().size shouldBe expected
@@ -143,115 +138,76 @@ class OriginOddJobsProgressTest : StringSpec({
             jobs.finish(id, job.id) shouldBe null
         }
     }
-    "each cross-tie needs wall then halter and either wall may be first" {
-        for (first in 0..1) {
-            val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
-            jobs.begin(id, offer(OriginOddJobVariant.YARD_GROOM), 0, yardTarget = OriginYardWork(422, "Буран"))
-            listOf(OriginOddJobAction.TACK, OriginOddJobAction.LEAD, OriginOddJobAction.ARRIVE).forEach { jobs.act(id, it, 1) }
-            jobs.act(id, OriginOddJobAction.TIE, 2, zone = 2).reason() shouldBe OriginOddJobRejection.WRONG_ZONE
-            jobs.act(id, OriginOddJobAction.TIE, 3, zone = first)
-            jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_TIE_HORSE_FIRST
-            jobs.current(id)!!.yard!!.tieMask shouldBe 0
-            jobs.current(id)!!.yard!!.pendingTieSide shouldBe first
-            jobs.act(id, OriginOddJobAction.BRUSH, 4).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-            jobs.act(id, OriginOddJobAction.TIE, 5)
-            jobs.current(id)!!.yard!!.tieMask shouldBe (1 shl first)
-            jobs.current(id)!!.yard!!.pendingTieSide shouldBe null
-            jobs.act(id, OriginOddJobAction.TIE, 6, zone = first).reason() shouldBe OriginOddJobRejection.WRONG_ZONE
-            jobs.act(id, OriginOddJobAction.TIE, 7, zone = 1 - first)
-            jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_TIE_HORSE_SECOND
-            jobs.act(id, OriginOddJobAction.TIE, 8)
-            jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_BRUSH
-            jobs.current(id)!!.yard!!.tieMask shouldBe 3
+    "care arrival goes directly to the brush without ties or extra paid transitions" {
+        val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
+        jobs.begin(id, offer(OriginOddJobVariant.YARD_GROOM), 0, yardTarget = OriginYardWork(422, "Буран"))
+        listOf(OriginOddJobAction.TACK, OriginOddJobAction.LEAD, OriginOddJobAction.ARRIVE).forEach { jobs.act(id, it, 1) }
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_BRUSH
+        jobs.current(id)!!.completedActions shouldBe 2
+        for (action in listOf(OriginOddJobAction.TIE, OriginOddJobAction.UNTIE, OriginOddJobAction.GEAR)) {
+            jobs.act(id, action, 2).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
         }
+        jobs.current(id)!!.completedActions shouldBe 2
+        jobs.current(id)!!.yard!!.tieMask shouldBe 0
     }
-    "grooming requires taking the brush and three ordinary untimed strokes" {
+
+    "grooming uses the brush and one saddle and ride completion needs no disassembly" {
         val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
         jobs.begin(id, offer(OriginOddJobVariant.YARD_GROOM), 0, yardTarget = OriginYardWork(423, "Рыжик"))
-        jobs.act(id, OriginOddJobAction.GROOM, 1).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-        listOf(OriginOddJobAction.TACK, OriginOddJobAction.LEAD, OriginOddJobAction.ARRIVE, OriginOddJobAction.TIE).forEach {
-            jobs.act(id, it, 2)
-        }
-        jobs.act(id, OriginOddJobAction.BRUSH, 3).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-        jobs.act(id, OriginOddJobAction.GROOM, 4).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-        jobs.act(id, OriginOddJobAction.TIE, 5)
-        jobs.act(id, OriginOddJobAction.TIE, 5, zone = 0)
-        jobs.act(id, OriginOddJobAction.TIE, 5)
-        jobs.act(id, OriginOddJobAction.BRUSH, 6)
+        listOf(OriginOddJobAction.TACK, OriginOddJobAction.LEAD, OriginOddJobAction.ARRIVE).forEach { jobs.act(id, it, 1) }
+        jobs.act(id, OriginOddJobAction.GROOM, 2).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.BRUSH, 3)
         repeat(ODD_JOB_GROOM_STROKES) { index ->
             jobs.act(id, OriginOddJobAction.GROOM, 30_000L * (index + 1))
             jobs.current(id)!!.yard!!.brushStrokes shouldBe index + 1
         }
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_BRUSH_RETURN
-        jobs.act(id, OriginOddJobAction.UNTIE, 90_000).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-        yardTackActions.forEach { jobs.act(id, it, 90_000, yardActionZone(jobs.current(id)!!.stage)) }
-        jobs.current(id)!!.yard!!.equipped shouldBe setOf(OriginYardGear.PAD, OriginYardGear.SADDLE, OriginYardGear.BRIDLE)
-        jobs.current(id)!!.yard!!.girthTight shouldBe true
-        jobs.current(id)!!.yard!!.leftStirrup shouldBe true
-        jobs.current(id)!!.yard!!.rightStirrup shouldBe true
-        jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_UNTIE_FIRST
-        jobs.act(id, OriginOddJobAction.ARRIVE, 90_001).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-        jobs.act(id, OriginOddJobAction.UNTIE, 90_002)
-        jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_UNTIE_SECOND
-        jobs.act(id, OriginOddJobAction.ARRIVE, 90_003).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-        jobs.act(id, OriginOddJobAction.UNTIE, 90_004, zone = 0)
+        yardTackActions.forEach { jobs.act(id, it, 90_000) }
+        jobs.current(id)!!.yard!!.equipped shouldBe setOf(OriginYardGear.SADDLE)
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_DELIVER
+        jobs.current(id)!!.completedActions shouldBe 9
         listOf(OriginOddJobAction.ARRIVE, OriginOddJobAction.HANDOFF).forEach { jobs.act(id, it, 90_005) }
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_HANDED
         jobs.act(id, OriginOddJobAction.CARE_DONE, 90_006)
-        repeat(7) { jobs.act(id, OriginOddJobAction.GEAR, 90_007) }
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
+        jobs.current(id)!!.yard!!.borrowed shouldBe emptySet()
+        jobs.current(id)!!.yard!!.equipped shouldBe emptySet()
+        jobs.current(id)!!.completedActions shouldBe 9
         jobs.current(id)!!.yard!!.animalId shouldBe 423
-        jobs.current(id)!!.quality shouldBe 100
     }
-    "each stirrup needs its own side and cancelling fitted equipment never produces a payable order" {
+
+    "cancelling a saddled unfinished order never produces an accepted order" {
         val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
-        val job = jobs.begin(id, offer(OriginOddJobVariant.YARD_SADDLE), 0,
-            yardTarget = OriginYardWork(422, "Буран"))!!
-        for (action in yardPreparationActions) {
-            if (jobs.current(id)!!.stage == OriginOddJobStage.YARD_STIRRUP_LEFT) break
-            (jobs.act(id, action, 1, yardActionZone(jobs.current(id)!!.stage)) is OriginOddJobStep.Changed) shouldBe true
-        }
-        val left = jobs.current(id)!!
-        left.stage shouldBe OriginOddJobStage.YARD_STIRRUP_LEFT
-        left.yard!!.girthTight shouldBe true
-        left.yard.leftStirrup shouldBe false
-        left.yard.rightStirrup shouldBe false
-        (jobs.act(id, OriginOddJobAction.GEAR, 2, zone = 1) is OriginOddJobStep.Rejected) shouldBe true
-        jobs.current(id) shouldBe left
-        jobs.act(id, OriginOddJobAction.GEAR, 3, zone = 0)
-        val right = jobs.current(id)!!
-        right.stage shouldBe OriginOddJobStage.YARD_STIRRUP_RIGHT
-        right.yard!!.leftStirrup shouldBe true
-        right.yard.rightStirrup shouldBe false
-        (jobs.act(id, OriginOddJobAction.GEAR, 4, zone = 0) is OriginOddJobStep.Rejected) shouldBe true
-        jobs.current(id) shouldBe right
-        jobs.act(id, OriginOddJobAction.RETURN, 5).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        val job = jobs.begin(id, offer(OriginOddJobVariant.YARD_SADDLE), 0, yardTarget = OriginYardWork(422, "Буран"))!!
+        yardPreparationActions.dropLast(2).forEach { jobs.act(id, it, 1) }
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_DELIVER
+        jobs.current(id)!!.completedActions shouldBe 9
+        jobs.act(id, OriginOddJobAction.SADDLE, 2).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
+        jobs.act(id, OriginOddJobAction.RETURN, 3).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
         jobs.finish(id, job.id) shouldBe null
         jobs.cancel(id)
-        jobs.current(id) shouldBe null
         jobs.finish(id, job.id) shouldBe null
     }
+
     "lesson needs every field checkpoint and the home point before it can be accepted once" {
         val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
         jobs.begin(id, offer(OriginOddJobVariant.YARD_LESSON), 0) shouldBe null
         val job = jobs.begin(id, offer(OriginOddJobVariant.YARD_LESSON), 0,
             yardTarget = OriginYardWork(422, "Буран", routeTotal = 9))!!
-        yardPreparationActions.forEach { jobs.act(id, it, 1, yardActionZone(jobs.current(id)!!.stage)) }
+        yardPreparationActions.forEach { jobs.act(id, it, 1) }
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_LESSON_WALK
-        jobs.current(id)!!.completedActions shouldBe 23
+        jobs.current(id)!!.completedActions shouldBe 10
         repeat(9) { index ->
             jobs.current(id)!!.yard!!.routeIndex shouldBe index
             jobs.act(id, OriginOddJobAction.RETURN, 2).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
             jobs.finish(id, job.id) shouldBe null
             (jobs.act(id, OriginOddJobAction.ARRIVE, 3) as OriginOddJobStep.Changed).workUnitId shouldBe null
         }
-        jobs.current(id)!!.completedActions shouldBe 23
-        jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_UNTACK_BRIDLE
-        jobs.current(id)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.LEAD, OriginYardGear.PAD, OriginYardGear.SADDLE, OriginYardGear.BRIDLE)
-        repeat(7) { jobs.act(id, OriginOddJobAction.GEAR, 4) }
+        jobs.current(id)!!.completedActions shouldBe 10
+        jobs.current(id)!!.yard!!.borrowed shouldBe emptySet()
+        jobs.current(id)!!.yard!!.equipped shouldBe emptySet()
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
-        jobs.current(id)!!.completedActions shouldBe 30
+        jobs.current(id)!!.completedActions shouldBe 10
         (jobs.act(id, OriginOddJobAction.RETURN, 5) as OriginOddJobStep.Changed).workUnitId shouldBe null
         jobs.finish(id, job.id)!!.stage shouldBe OriginOddJobStage.PAYOUT
         jobs.finish(id, job.id) shouldBe null
@@ -418,7 +374,7 @@ class OriginOddJobsProgressTest : StringSpec({
             jobs.current(id)!!.stage shouldBe OriginOddJobStage.PAYOUT
         }
     }
-    "expanded preparation has a fixed longer budget without extending other orders or the shift hard stop" {
+    "preparation retains its route budget without manual untacking or extending the shift hard stop" {
         val jobs = OriginOddJobsProgress(240_000)
         for (variant in listOf(OriginOddJobVariant.YARD_WATER, OriginOddJobVariant.YARD_CLEANUP,
                 OriginOddJobVariant.FORGE_NEW, OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE,
@@ -433,16 +389,13 @@ class OriginOddJobsProgressTest : StringSpec({
         var now = 0L
         yardPreparationActions.forEach { action ->
             now += 5_000
-            (jobs.act(id, action, now, yardActionZone(jobs.current(id)!!.stage)) is OriginOddJobStep.Changed) shouldBe true
+            (jobs.act(id, action, now) is OriginOddJobStep.Changed) shouldBe true
         }
         repeat(9) {
-            now += 15_000
+            now += 25_000
             (jobs.act(id, OriginOddJobAction.ARRIVE, now) is OriginOddJobStep.Changed) shouldBe true
         }
-        repeat(7) {
-            now += 10_000
-            (jobs.act(id, OriginOddJobAction.GEAR, now) is OriginOddJobStep.Changed) shouldBe true
-        }
+        jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
         (now > 240_000 && now < 480_000) shouldBe true
         jobs.current(id)!!.expiresAt shouldBe lesson.expiresAt
         jobs.act(id, OriginOddJobAction.RETURN, now + 1)

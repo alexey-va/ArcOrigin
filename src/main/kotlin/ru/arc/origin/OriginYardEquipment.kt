@@ -9,6 +9,7 @@ import org.bukkit.entity.Player
 import org.bukkit.util.Vector
 import org.joml.Quaternionf
 import org.joml.Vector3f
+import ru.arc.paper.display.PacketDisplay
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.scene.*
 import java.util.UUID
@@ -29,8 +30,6 @@ internal fun originYardGearSlots(stations: Map<OriginOddJobStationId, OriginOddJ
         val above = source.block.getRelative(0,1,0)
         val carpet = if (above.type.name.endsWith("_CARPET")) 1.0/16 else 0.0
         put(OriginYardGear.SADDLE,source,0.0,1.88+carpet,0.0)
-        put(OriginYardGear.PAD,source,-.54,.6715,0.0,-90.0)
-        put(OriginYardGear.BRIDLE,source,.21,.70,-.92,rx=-90.0)
         put(OriginYardGear.LEAD,source,-.28,.60,-.56)
     }
     station(OriginOddJobStationId.WELL)?.let { put(OriginYardGear.BUCKET,it,0.0,1.025,0.0) }
@@ -42,16 +41,9 @@ internal fun originYardGearSlots(stations: Map<OriginOddJobStationId, OriginOddJ
     station(OriginOddJobStationId.HAY)?.let { put(OriginYardGear.HAY,it,0.0,1.0,0.0) }
 }
 
-internal fun originYardGearSideMatches(stage: OriginOddJobStage, playerAt: Location, horsePose: OriginYardGearPose): Boolean {
-    val expected = when(stage) {
-        OriginOddJobStage.YARD_GIRTH, OriginOddJobStage.YARD_STIRRUP_LEFT -> -1
-        OriginOddJobStage.YARD_STIRRUP_RIGHT -> 1
-        else -> return true
-    }
-    if (playerAt.world != horsePose.at.world) return false
-    val local = horsePose.rotation.transformInverse(Vector3f((playerAt.x-horsePose.at.x).toFloat(),
-        (playerAt.y-horsePose.at.y).toFloat(),(playerAt.z-horsePose.at.z).toFloat()))
-    return local.x*expected > .20f
+/** The whole native animal is the saddle target, independently of head/body animation. */
+internal fun originYardHorseBounds(horse: LivingEntity): OriginWorkshopAabb = horse.boundingBox.let {
+    OriginWorkshopAabb(it.minX-.10,it.minY,it.minZ-.10,it.maxX+.10,it.maxY+.08,it.maxZ+.10)
 }
 
 internal fun originYardGearBounds(geometry: List<OriginWorkshopWorkpiecePiece>, pose: OriginYardGearPose): OriginWorkshopAabb {
@@ -63,19 +55,13 @@ internal fun originYardGearBounds(geometry: List<OriginWorkshopWorkpiecePiece>, 
         pose.at.x+points.maxOf { it.x },pose.at.y+points.maxOf { it.y },pose.at.z+points.maxOf { it.z })
 }
 
-internal fun originYardGearControl(job: OriginOddJobSession, step: OriginYardGearStep, pose: OriginYardGearPose): SpatialControl<OriginYardGearStep> {
+internal fun originYardGearControl(job: OriginOddJobSession, step: OriginYardGearStep, pose: OriginYardGearPose,
+    horseBounds: OriginWorkshopAabb? = null): SpatialControl<OriginYardGearStep> {
     val returningShovel=job.stage==OriginOddJobStage.CLEAN_TOOL_RETURN
-    var bounds=originYardGearBounds(if(returningShovel) originYardShovelHookPieces() else originYardGearPieces(step.gear),pose)
+    var bounds=if(!step.atRack) requireNotNull(horseBounds) else
+        originYardGearBounds(if(returningShovel) originYardShovelHookPieces() else originYardGearPieces(step.gear),pose)
     if(returningShovel) bounds=OriginWorkshopAabb(bounds.minX-.08,bounds.minY-.08,bounds.minZ-.08,
         bounds.maxX+.08,bounds.maxY+.08,bounds.maxZ+.08)
-    if (!step.atRack && job.stage in setOf(OriginOddJobStage.YARD_STIRRUP_LEFT,OriginOddJobStage.YARD_STIRRUP_RIGHT)) {
-        val side=if (step.zone==0) -1 else 1
-        bounds=originYardGearBounds(listOf(OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(side*.43,-.31,0.0),
-            OriginWorkshopGamePartSize(.34f,.48f,.44f),Material.IRON_BLOCK)),pose)
-    } else if (!step.atRack && job.stage == OriginOddJobStage.YARD_GIRTH) {
-        bounds=originYardGearBounds(listOf(OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(-.42,-.35,.24),
-            OriginWorkshopGamePartSize(.36f,.62f,.40f),Material.BROWN_TERRACOTTA)),pose)
-    }
     val x=(bounds.minX+bounds.maxX)/2; val y=(bounds.minY+bounds.maxY)/2; val z=(bounds.minZ+bounds.maxZ)/2
     val w=(bounds.maxX-bounds.minX).coerceAtLeast(.10); val h=(bounds.maxY-bounds.minY).coerceAtLeast(.10); val d=(bounds.maxZ-bounds.minZ).coerceAtLeast(.10)
     fun at(x:Double,y:Double,z:Double)=Location(pose.at.world,x,y,z)
@@ -89,38 +75,45 @@ internal fun originYardGearControl(job: OriginOddJobSession, step: OriginYardGea
     return SpatialControl("gear",step,planes,SpatialNativeTarget(at(x,y-h/2,z),max(w,d).toFloat(),h.toFloat()))
 }
 
-internal fun originYardGearHint(stage:OriginOddJobStage,step:OriginYardGearStep,pose:OriginYardGearPose):Location {
-            val bounds=originYardGearBounds(if(stage==OriginOddJobStage.CLEAN_TOOL_RETURN)
-                originYardShovelHookPieces() else originYardGearPieces(step.gear),pose)
-            // A short caption clears the entire solid prop. Part cues sit outside the horse's flank.
-            return if (!step.atRack && stage in setOf(OriginOddJobStage.YARD_GIRTH,OriginOddJobStage.YARD_STIRRUP_LEFT,OriginOddJobStage.YARD_STIRRUP_RIGHT)) {
-                val side=if(stage==OriginOddJobStage.YARD_STIRRUP_RIGHT) 1 else -1
-                val offset=pose.rotation.transform(Vector3f(side*.83f,.22f,.15f).mul(pose.scale))
-                pose.at.clone().add(offset.x.toDouble(),offset.y.toDouble(),offset.z.toDouble())
-            } else Location(pose.at.world,(bounds.minX+bounds.maxX)/2,bounds.maxY+.22,(bounds.minZ+bounds.maxZ)/2)
+internal fun originYardGearHint(stage: OriginOddJobStage, step: OriginYardGearStep, pose: OriginYardGearPose,
+    horseBounds: OriginWorkshopAabb? = null): Location {
+    val bounds=if(!step.atRack) requireNotNull(horseBounds) else originYardGearBounds(
+        if(stage==OriginOddJobStage.CLEAN_TOOL_RETURN) originYardShovelHookPieces() else originYardGearPieces(step.gear),pose)
+    return Location(pose.at.world,(bounds.minX+bounds.maxX)/2,bounds.maxY+.22,(bounds.minZ+bounds.maxZ)/2)
 }
 
-/** Persistent public props and one current private native input target per worker. Loans live only in the job. */
+/** A shared idle rack and one complete private set of tools per worker. */
 internal class OriginYardEquipment(
     private val createDisplays: () -> PaperPacketDisplays = { PaperPacketDisplays(ArcOriginPlugin.instance,"odd-jobs-yard-gear") },
 ) : AutoCloseable {
+    private class GearScene(val requestId: UUID? = null, val viewer: Player? = null) {
+        val worldId = viewer?.world?.uid
+        val handles=mutableListOf<PacketDisplay>()
+        val props=mutableMapOf<OriginYardGear,OriginWorkshopProp>()
+        val geometry=mutableMapOf<OriginYardGear,List<OriginWorkshopWorkpiecePiece>>()
+        val placed=mutableMapOf<OriginYardGear,OriginYardGearPose>()
+        val motion=mutableMapOf<OriginYardGear,OriginYardGearMotion>()
+        val rests=mutableMapOf<OriginYardGear,OriginWorkshopProp>()
+        var stand: OriginWorkshopProp?=null
+        var hooks: OriginWorkshopProp?=null
+        var shovelHook: OriginWorkshopProp?=null
+        var standAt: Location?=null
+        var shovelHookAt: Location?=null
+
+        fun removeGear(gear: OriginYardGear) {
+            props.remove(gear)?.remove(); geometry.remove(gear); placed.remove(gear); motion.remove(gear)
+        }
+        fun remove() { handles.filter(PacketDisplay::isValid).forEach(PacketDisplay::remove); handles.clear() }
+    }
+
     private lateinit var stations: () -> Map<OriginOddJobStationId,OriginOddJobStation>
     private lateinit var jobs: () -> List<Pair<UUID,OriginOddJobSession>>
     private lateinit var animal: (Int) -> LivingEntity?
     private lateinit var activate: (Player,OriginOddJobSession,OriginYardGearStep) -> Unit
-    private val props=mutableMapOf<OriginYardGear,OriginWorkshopProp>()
-    private val geometry=mutableMapOf<OriginYardGear,List<OriginWorkshopWorkpiecePiece>>()
-    private val placed=mutableMapOf<OriginYardGear,OriginYardGearPose>()
-    private val motion=mutableMapOf<OriginYardGear,OriginYardGearMotion>()
-    private val previousLoans=mutableMapOf<OriginYardGear,UUID>()
-    private val rests=mutableMapOf<OriginYardGear,OriginWorkshopProp>()
-    private val adjustments=List(3) { OriginYardGearAdjustment() }
+    private val idle=GearScene()
+    private val personal=mutableMapOf<UUID,GearScene>()
+    private val hiddenIdle=mutableSetOf<UUID>()
     private val scenes=mutableSetOf<SpatialSceneKey>()
-    private var stand: OriginWorkshopProp?=null
-    private var hooks: OriginWorkshopProp?=null
-    private var shovelHook: OriginWorkshopProp?=null
-    private var standAt: Location?=null
-    private var shovelHookAt: Location?=null
     private var owner: PaperPacketDisplays?=null
     private var controls: PaperSpatialControls<OriginOddJobSession,OriginYardGearStep>?=null
     private var closed=false
@@ -129,11 +122,10 @@ internal class OriginYardEquipment(
              animal: (Int) -> LivingEntity?, activate: (Player,OriginOddJobSession,OriginYardGearStep) -> Unit) {
         this.stations=stations; this.jobs=jobs; this.animal=animal; this.activate=activate
     }
-    fun available(gear: OriginYardGear, requestId: UUID): Boolean = jobs().none { (_,job) -> job.id!=requestId && gear in job.yard?.borrowed.orEmpty() }
     private fun key(id:UUID)=SpatialSceneKey("odd-job-yard-gear:$id")
-    private fun renderer()=owner ?: createDisplays().also { displays ->
-        owner=displays
-        controls=PaperSpatialControls(ArcOriginPlugin.instance,displays,object:SpatialControlController<OriginOddJobSession,OriginYardGearStep>() {
+    private fun renderer()=owner ?: createDisplays().also { owner=it }
+    private fun inputs()=controls ?: PaperSpatialControls(ArcOriginPlugin.instance,renderer(),
+        object:SpatialControlController<OriginOddJobSession,OriginYardGearStep>() {
             override fun current(player:Player,scene:SpatialSceneKey):SpatialControlFrame<OriginOddJobSession,OriginYardGearStep>? =
                 jobs().firstOrNull { it.first==player.uniqueId && key(it.second.id)==scene }?.second?.let { frame(player,it) }
             override fun activate(player:Player,scene:SpatialSceneKey,context:OriginOddJobSession,action:OriginYardGearStep) {
@@ -143,20 +135,26 @@ internal class OriginYardEquipment(
                 clear(player.uniqueId,context.id)
                 throw failure
             }
-        })
-    }
+        }).also { controls=it }
+
     private fun pose(job:OriginOddJobSession,step:OriginYardGearStep):OriginYardGearPose? = if(step.atRack)
         originYardGearSlots(stations()).firstOrNull { it.gear==step.gear }?.pose
-        else job.yard?.animalId?.let(animal)?.let { originYardGearHorsePose(step.gear,it) }
+        else job.yard?.animalId?.let(animal)?.let { OriginYardGearPose(it.location) }
+    private fun horseBounds(job:OriginOddJobSession,step:OriginYardGearStep):OriginWorkshopAabb? =
+        if(step.atRack) null else job.yard?.animalId?.let(animal)?.let(::originYardHorseBounds)
     private fun frame(player:Player,job:OriginOddJobSession):SpatialControlFrame<OriginOddJobSession,OriginYardGearStep>? {
         val step=originYardGearStep(job.stage) ?: return null
         val pose=pose(job,step) ?: return null
         if(player.world.uid!=pose.at.world?.uid) return null
+        val bounds=horseBounds(job,step)
+        if(!step.atRack && bounds==null) return null
         return SpatialControlFrame(job,SceneAudience.Private(player.uniqueId),SpatialSceneScope.Viewer(player.uniqueId),
-            listOf(originYardGearControl(job,step,pose)),SpatialInputProfile.ENTITY_BOTH,SpatialReach.NativeInteraction)
+            listOf(originYardGearControl(job,step,pose,bounds)),SpatialInputProfile.ENTITY_BOTH,SpatialReach.NativeInteraction)
     }
     fun target(job:OriginOddJobSession):Location? = originYardGearStep(job.stage)?.let { step ->
-        pose(job,step)?.let { originYardGearHint(job.stage,step,it) }
+        val pose=pose(job,step) ?: return@let null
+        val bounds=horseBounds(job,step)
+        if(!step.atRack && bounds==null) null else originYardGearHint(job.stage,step,pose,bounds)
     }
     fun intercept(player:Player,job:OriginOddJobSession):Boolean {
         if(originYardGearStep(job.stage)==null) return false
@@ -167,130 +165,126 @@ internal class OriginYardEquipment(
         if(closed || job.kind!=OriginOddJobKind.MOUNTYARD) return
         val frame=frame(player,job)
         if(frame==null) { controls?.clear(key(job.id)); scenes.remove(key(job.id)); return }
-        renderer(); controls?.apply(key(job.id),frame); scenes.add(key(job.id))
+        inputs().apply(key(job.id),frame); scenes.add(key(job.id))
     }
     fun tick() {
         if(closed || !::stations.isInitialized) return
         val slots=originYardGearSlots(stations())
-        val validGear=slots.map { it.gear }.toSet()
-        (props.keys-validGear).toList().forEach { gear ->
-            props.remove(gear)?.remove(); rests.remove(gear)?.remove(); geometry.remove(gear); placed.remove(gear)
-            motion.remove(gear); previousLoans.remove(gear)
+        val live=jobs().filter { it.second.kind==OriginOddJobKind.MOUNTYARD }.mapNotNull { (id,job) ->
+            Bukkit.getPlayer(id)?.takeIf { it.isOnline && !it.isDead }?.let { it to job }
         }
-        val live=jobs().filter { it.second.kind==OriginOddJobKind.MOUNTYARD }
-        val loans=live.flatMap { (id,job) -> job.yard?.borrowed.orEmpty().map { it to (id to job) } }
-        check(loans.map { it.first }.distinct().size==loans.size) { "yard gear has two borrowers" }
-        val borrowed=loans.toMap()
         val tick=Bukkit.getCurrentTick()
-        val displays=renderer()
-        val saddle=slots.firstOrNull { it.gear==OriginYardGear.SADDLE }
-        if(saddle?.pose?.at != standAt) {
-            stand?.remove(); hooks?.remove(); stand=null; hooks=null; standAt=saddle?.pose?.at?.clone()
+        render(idle,slots,null,tick)
+        val livePlayers=live.map { it.first.uniqueId }.toSet()
+        (personal.keys-livePlayers).toList().forEach { id -> personal.remove(id)?.remove() }
+        for((player,job) in live) {
+            val previous=personal[player.uniqueId]
+            val scene=if(previous?.requestId==job.id && previous.worldId==player.world.uid) previous else {
+                previous?.remove()
+                GearScene(job.id,player).also { personal[player.uniqueId]=it }
+            }
+            render(scene,slots,job,tick)
+            focus(scene,job)
+            sync(player,job)
         }
-        if(saddle!=null && stand==null) {
-            val base=saddle.pose.at.clone().subtract(0.0,.88,0.0)
-            stand=OriginWorkshopProp(displays,base,originYardSaddleStandPieces())
-            hooks=OriginWorkshopProp(displays,saddle.station.block.location.clone().add(.5,0.0,.5),originYardSaddleHooksPieces())
+        // The idle rack is still visible to bystanders; workers see only their own tools and glow.
+        (hiddenIdle-livePlayers).forEach { id -> idle.handles.forEach { it.showTo(id) } }
+        livePlayers.forEach { id -> idle.handles.forEach { it.hideFrom(id) } }
+        hiddenIdle.clear(); hiddenIdle.addAll(livePlayers)
+        val liveKeys=live.map { key(it.second.id) }.toSet()
+        (scenes-liveKeys).toList().forEach { controls?.clear(it); scenes.remove(it) }
+    }
+    private fun render(scene:GearScene,slots:List<OriginYardGearSlot>,job:OriginOddJobSession?,tick:Int) {
+        val validGear=slots.map { it.gear }.toSet()
+        (scene.props.keys-validGear).toList().forEach { scene.removeGear(it); scene.rests.remove(it)?.remove() }
+        fun prop(at:Location,pieces:List<OriginWorkshopWorkpiecePiece>)=OriginWorkshopProp(renderer(),at,pieces,
+            privateViewer=scene.viewer,onSpawn={ scene.handles += it })
+        val saddle=slots.firstOrNull { it.gear==OriginYardGear.SADDLE }
+        if(saddle?.pose?.at != scene.standAt) {
+            scene.stand?.remove(); scene.hooks?.remove(); scene.stand=null; scene.hooks=null; scene.standAt=saddle?.pose?.at?.clone()
+        }
+        if(saddle!=null && scene.stand==null) {
+            scene.stand=prop(saddle.pose.at.clone().subtract(0.0,.88,0.0),originYardSaddleStandPieces())
+            scene.hooks=prop(saddle.station.block.location.clone().add(.5,0.0,.5),originYardSaddleHooksPieces())
         }
         val shovel=slots.firstOrNull { it.gear==OriginYardGear.SHOVEL }
-        if(shovel?.pose?.at != shovelHookAt) {
-            shovelHook?.remove(); shovelHook=null; shovelHookAt=shovel?.pose?.at?.clone()
-            if(shovel!=null) shovelHook=OriginWorkshopProp(displays,shovel.pose.at,originYardShovelHookPieces())
+        if(shovel?.pose?.at != scene.shovelHookAt) {
+            scene.shovelHook?.remove(); scene.shovelHook=null; scene.shovelHookAt=shovel?.pose?.at?.clone()
+            if(shovel!=null) scene.shovelHook=prop(shovel.pose.at,originYardShovelHookPieces())
         }
         for(slot in slots) {
             if(slot.gear in setOf(OriginYardGear.BUCKET,OriginYardGear.BRUSH)) {
                 val base=slot.pose.at.clone().subtract(0.0,.0125,0.0)
                 val width=if(slot.gear==OriginYardGear.BUCKET) .44f else .34f
                 val depth=if(slot.gear==OriginYardGear.BUCKET) .42f else .21f
-                rests.getOrPut(slot.gear) { OriginWorkshopProp(displays,base,listOf(
-                    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(0.0,0.0,0.0),
-                        OriginWorkshopGamePartSize(width,.025f,depth),Material.DARK_OAK_PLANKS))) }.place(base,Quaternionf())
+                scene.rests.getOrPut(slot.gear) { prop(base,listOf(OriginWorkshopWorkpiecePiece(
+                    OriginWorkshopPoint(0.0,0.0,0.0),OriginWorkshopGamePartSize(width,.025f,depth),Material.DARK_OAK_PLANKS))) }
+                    .place(base,Quaternionf())
             }
-            val (workerId,job)=borrowed[slot.gear] ?: (null to null)
-            val worker=workerId?.let(Bukkit::getPlayer)
-            val horse=job?.yard?.animalId?.let(animal)
-            val filled=job?.stage in setOf(OriginOddJobStage.YARD_WATER,OriginOddJobStage.YARD_DRINKING,OriginOddJobStage.CLEAN_LOAD)
-            val work=job?.yard
-            val pieces=if(slot.gear==OriginYardGear.SADDLE) originYardGearPieces(slot.gear,filled,
-                adjustments[0].sample(work?.leftStirrup==true,tick),adjustments[1].sample(work?.rightStirrup==true,tick),
-                adjustments[2].sample(work?.girthTight==true,tick)) else originYardGearPieces(slot.gear,filled)
-            val prop=props.getOrPut(slot.gear) { OriginWorkshopProp(displays,slot.pose.at,pieces) }
-            if(geometry[slot.gear]!=pieces) {
-                if(slot.gear==OriginYardGear.SADDLE && prop.pieces.size==pieces.size) prop.deform(pieces) else prop.update(pieces)
-                geometry[slot.gear]=pieces
+            val borrowed=slot.gear in job?.yard?.borrowed.orEmpty()
+            val carried=borrowed && originYardCarriedGear(requireNotNull(job))==slot.gear
+            val horse=if(borrowed) job?.yard?.animalId?.let(animal) else null
+            val drinking=borrowed && job?.stage==OriginOddJobStage.YARD_DRINKING && slot.gear==OriginYardGear.BUCKET && horse!=null
+            if(borrowed && !carried && !drinking) {
+                // Consumed hay and equipped native saddle/lead have no duplicate display on the animal.
+                scene.removeGear(slot.gear)
+                continue
             }
-            val carried=job!=null && originYardCarriedGear(job)==slot.gear && worker!=null
-            val animate=job!=null || previousLoans[slot.gear]?.let { id -> live.any { it.second.id==id } }==true
-            val animator=motion.getOrPut(slot.gear) { OriginYardGearMotion() }
+            val filled=borrowed && job?.stage in setOf(OriginOddJobStage.YARD_WATER,OriginOddJobStage.YARD_DRINKING,OriginOddJobStage.CLEAN_LOAD)
+            val pieces=originYardGearPieces(slot.gear,filled)
+            val rendered=scene.props.getOrPut(slot.gear) { prop(slot.pose.at,pieces) }
+            if(scene.geometry[slot.gear]!=pieces) { rendered.update(pieces); scene.geometry[slot.gear]=pieces }
+            val animator=scene.motion.getOrPut(slot.gear) { OriginYardGearMotion() }
             when {
                 carried -> {
-                    requireNotNull(worker)
-                    val grip=originYardGearCarryPose(slot.gear,worker.bodyYaw,worker.isSneaking)
-                    val feet=worker.location
+                    val player=requireNotNull(scene.viewer)
+                    val grip=originYardGearCarryPose(slot.gear,player.bodyYaw,player.isSneaking)
+                    val feet=player.location
                     val target=OriginYardGearPose(feet.clone().add(grip.center.x,grip.center.y,grip.center.z),grip.rotation)
-                    val sampled=animator.sample(target,"hand:${worker.uniqueId}",tick,animate)
-                    prop.carry(worker,OriginWorkshopCarryPose(OriginWorkshopPoint(sampled.at.x-feet.x,sampled.at.y-feet.y,sampled.at.z-feet.z),sampled.rotation))
-                    placed.remove(slot.gear)
+                    val sampled=animator.sample(target,"hand",tick,true)
+                    rendered.carry(player,OriginWorkshopCarryPose(OriginWorkshopPoint(sampled.at.x-feet.x,sampled.at.y-feet.y,sampled.at.z-feet.z),sampled.rotation))
+                    scene.placed.remove(slot.gear)
                 }
-                job?.stage==OriginOddJobStage.YARD_DRINKING && slot.gear==OriginYardGear.BUCKET && horse!=null -> {
+                drinking -> {
+                    requireNotNull(horse)
                     val at=horse.location.add(horse.location.direction.setY(0).normalize().multiply(1.1)).add(0.0,.02,0.0)
-                    val sampled=animator.sample(OriginYardGearPose(at),"ground:${job.id}",tick,animate)
-                    prop.move(sampled.at,sampled.rotation); placed.remove(slot.gear)
-                }
-                job!=null && horse!=null -> {
-                    // The spare coiled lead stays with this horse while cross-tied or ridden.
-                    val at=originYardGearHorsePose(slot.gear,horse)
-                    val sampled=animator.sample(at,"horse:${horse.uniqueId}",tick,animate)
-                    prop.attach(horse,sampled.at,sampled.rotation,originYardHorsePassengerOrigin(horse),sampled.scale)
-                    placed.remove(slot.gear)
+                    val sampled=animator.sample(OriginYardGearPose(at),"ground",tick,true)
+                    rendered.move(sampled.at,sampled.rotation); scene.placed.remove(slot.gear)
                 }
                 else -> {
-                    val sampled=animator.sample(slot.pose,"rack",tick,animate)
-                    if(sampled==slot.pose) place(slot.gear,prop,slot.pose)
-                    else { prop.move(sampled.at,sampled.rotation); placed.remove(slot.gear) }
+                    val sampled=animator.sample(slot.pose,"rack",tick,job!=null)
+                    if(sampled==slot.pose) {
+                        val old=scene.placed[slot.gear]
+                        if(old?.at!=slot.pose.at || old.rotation!=slot.pose.rotation) {
+                            rendered.place(slot.pose.at,slot.pose.rotation); scene.placed[slot.gear]=slot.pose
+                        }
+                    } else { rendered.move(sampled.at,sampled.rotation); scene.placed.remove(slot.gear) }
                 }
             }
-            if(job!=null) previousLoans[slot.gear]=job.id else if(!animate) previousLoans.remove(slot.gear)
         }
-        focus(live.map { it.second })
-        val liveKeys=live.map { key(it.second.id) }.toSet()
-        (scenes-liveKeys).toList().forEach { controls?.clear(it); scenes.remove(it) }
-        live.forEach { (id,job) -> Bukkit.getPlayer(id)?.let { sync(it,job) } }
+        scene.handles.removeAll { !it.isValid }
     }
-    private fun place(gear:OriginYardGear,prop:OriginWorkshopProp,pose:OriginYardGearPose) {
-        val old=placed[gear]
-        if(old?.at!=pose.at || old.rotation!=pose.rotation) { prop.place(pose.at,pose.rotation); placed[gear]=pose }
+    private fun focus(scene:GearScene,job:OriginOddJobSession) {
+        scene.props.values.forEach { it.glow(null) }; scene.rests.values.forEach { it.glow(null) }
+        scene.stand?.glow(null); scene.hooks?.glow(null); scene.shovelHook?.glow(null)
+        val step=originYardGearStep(job.stage)?.takeIf { it.atRack } ?: return
+        val target=if(step.returning) when(step.gear) {
+            OriginYardGear.SHOVEL -> scene.shovelHook
+            else -> scene.rests[step.gear]
+        } else scene.props[step.gear]
+        target?.glow(Color.fromRGB(255,208,111))
     }
-    private fun focus(live:List<OriginOddJobSession>) {
-        props.values.forEach { it.glow(null) }; rests.values.forEach { it.glow(null) }
-        stand?.glow(null); hooks?.glow(null); shovelHook?.glow(null)
-        val color=Color.fromRGB(255,208,111)
-        fun mark(prop:OriginWorkshopProp?, indices:Set<Int>?=null) {
-            prop?.pieces?.forEachIndexed { index,piece -> if(indices==null || index in indices) piece.display?.let {
-                it.isGlowing=true; it.glowColorOverride=color
-            } }
-        }
-        live.forEach { job ->
-            val step=originYardGearStep(job.stage) ?: return@forEach
-            if(step.atRack && !step.returning && !available(step.gear,job.id)) return@forEach
-            if(step.returning) when(step.gear) {
-                OriginYardGear.SADDLE -> mark(stand)
-                OriginYardGear.PAD -> mark(hooks,setOf(0))
-                OriginYardGear.BRIDLE -> mark(hooks,setOf(1))
-                OriginYardGear.LEAD -> mark(hooks,setOf(2))
-                OriginYardGear.SHOVEL -> mark(shovelHook)
-                else -> mark(rests[step.gear])
-            } else if(step.atRack || step.gear in job.yard?.equipped.orEmpty()) mark(props[step.gear],originYardGearFocus(job.stage))
+    fun clear(playerId:UUID,requestId:UUID) {
+        controls?.clear(key(requestId)); scenes.remove(key(requestId))
+        personal[playerId]?.takeIf { it.requestId==requestId }?.let { scene ->
+            personal.remove(playerId); scene.remove()
+            idle.handles.forEach { it.showTo(playerId) }; hiddenIdle.remove(playerId)
         }
     }
-    fun clear(playerId:UUID,requestId:UUID) { controls?.clear(key(requestId)); scenes.remove(key(requestId)) }
     override fun close() {
         if(closed) return
         closed=true; controls?.close(); controls=null
-        props.values.forEach { it.remove() }; props.clear(); geometry.clear(); placed.clear()
-        motion.clear(); previousLoans.clear()
-        rests.values.forEach { it.remove() }; rests.clear()
-        stand?.remove(); hooks?.remove(); shovelHook?.remove(); stand=null; hooks=null; shovelHook=null
+        idle.remove(); personal.values.forEach { it.remove() }; personal.clear(); hiddenIdle.clear()
         owner?.close(); owner=null; scenes.clear()
     }
 }

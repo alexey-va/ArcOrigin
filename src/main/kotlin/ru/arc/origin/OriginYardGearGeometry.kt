@@ -7,15 +7,8 @@ internal enum class OriginYardGear(val title: String) {
     SADDLE("Седло"), BRIDLE("Уздечка"), LEAD("Чомбур"), SHOVEL("Лопата"),
 }
 
-/** One geometry source for the rack, hand, horse and returned object. Metres, saddle seat at y=0. */
-internal fun originYardGearPieces(gear: OriginYardGear, filled: Boolean = false,
-    leftStirrup: Boolean = false, rightStirrup: Boolean = false, girthTight: Boolean = false): List<OriginWorkshopWorkpiecePiece> =
-    originYardGearPieces(gear, filled, if (leftStirrup) 1.0 else 0.0,
-        if (rightStirrup) 1.0 else 0.0, if (girthTight) 1.0 else 0.0)
-
-/** Stable semantic part order lets the renderer deform straps without replacing their display IDs. */
-internal fun originYardGearPieces(gear: OriginYardGear, filled: Boolean,
-    leftStirrup: Double, rightStirrup: Double, girthTight: Double): List<OriginWorkshopWorkpiecePiece> = buildList {
+/** Station and hand props only. The horse wears its native Minecraft saddle. */
+internal fun originYardGearPieces(gear: OriginYardGear, filled: Boolean = false): List<OriginWorkshopWorkpiecePiece> = buildList {
     fun box(m: Material, x: Double, y: Double, z: Double, w: Double, h: Double, d: Double) {
         add(OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(x, y, z),
             OriginWorkshopGamePartSize(w.toFloat(), h.toFloat(), d.toFloat()), m))
@@ -24,64 +17,14 @@ internal fun originYardGearPieces(gear: OriginYardGear, filled: Boolean,
     val leather = Material.BROWN_TERRACOTTA
     when (gear) {
         OriginYardGear.SADDLE -> {
-            // Proportions follow the authored saddle-rack model; straps now actually hang below its seat.
+            // A compact pickup prop on the existing stand; no fitted straps or hanging tack.
             box(leather, 0.0,.06,0.0, .52,.12,.64)
             box(leather, 0.0,.18,-.30, .56,.12,.12)
             box(leather, 0.0,.20,.30, .58,.16,.14)
-            for (side in listOf(-1, 1)) {
+            for (side in listOf(-1, 1))
                 box(leather, side*.31,-.035,.03, .16,.07,.76)
-                box(Material.YELLOW_TERRACOTTA, side*.235,.126,0.0, .018,.012,.45)
-                val bottom = -.47 + .10 * (if (side < 0) leftStirrup else rightStirrup).coerceIn(0.0,1.0)
-                val strapBottom = bottom+.1725
-                box(Material.BLACK_TERRACOTTA, side*.43,(.02+strapBottom)/2,0.0, .045,.02-strapBottom,.07)
-                box(Material.CUT_COPPER, side*.42,-.08,0.0, .08,.065,.11)
-                iron(side*.43, bottom+.095,-.06, .035,.12,.035)
-                iron(side*.43, bottom+.095,.06, .035,.12,.035)
-                iron(side*.43, bottom+.0175,0.0, .035,.035,.155)
-                iron(side*.43, bottom+.1725,0.0, .035,.035,.155)
-            }
-            box(leather, 0.0,.31,-.30, .08,.14,.08)
-            box(leather, 0.0,.3975,-.30, .14,.035,.12)
-            // Native HORSE's 1.1 mesh has belly y=.75391; tightened belt meets its underside.
-            val tight = girthTight.coerceIn(0.0,1.0)
-            val girthBottom = -.86 + .121 * tight
-            val girthSide = .45 - .0525 * tight
-            for (side in listOf(-1,1)) box(leather,side*girthSide,(girthBottom-.02)/2,.24,
-                .035,-girthBottom-.02,.12)
-            box(leather,0.0,girthBottom-.0175,.24,girthSide*2+.035,.035,.12)
-            box(Material.CUT_COPPER,-girthSide-.0225,-.25,.24,.045,.14,.16)
         }
-        OriginYardGear.PAD -> {
-            // Flush cloth panels and binding meet at their edges, with no coplanar overlap.
-            box(Material.BLUE_WOOL, 0.0,0.0,0.0, .702,.03,.78)
-            box(Material.WHITE_WOOL, -.366,0.0,0.0, .03,.03,.78)
-            box(Material.WHITE_WOOL, .366,0.0,0.0, .03,.03,.78)
-            box(Material.WHITE_WOOL, 0.0,0.0,-.405, .762,.03,.03)
-            box(Material.WHITE_WOOL, 0.0,0.0,.405, .762,.03,.03)
-            for (side in listOf(-1,1)) {
-                box(Material.BLUE_WOOL, side*.366,-.135,0.0, .03,.24,.78)
-                box(Material.WHITE_WOOL, side*.366,-.27,0.0, .03,.03,.84)
-            }
-        }
-        OriginYardGear.BRIDLE -> {
-            // Local head coordinates: crown behind the ears, cheek straps and a separate muzzle loop.
-            // Equipped pose shares vanilla adult horse's resting head plane (30 degrees).
-            for (side in listOf(-1,1)) {
-                box(leather, side*.225,-.18,.20, .03,.38,.035)
-                // Butt the cheek strap against the crown; overlapping side faces would flicker.
-                box(leather, side*.225,-.19,-.11375, .03,.035,.5925)
-                box(leather, side*.1575,-.18,-.425, .03,.36,.035)
-                val x = side*.18
-                iron(x,-.1375,-.425,.09,.015,.085)
-                iron(x,-.2225,-.425,.09,.015,.085)
-                iron(x,-.18,-.460,.09,.07,.015)
-                iron(x,-.18,-.390,.09,.07,.015)
-            }
-            box(leather,0.0,.025,.20,.48,.03,.035)
-            box(leather,0.0,.015,-.425,.285,.03,.035)
-            box(leather,0.0,-.375,-.425,.345,.03,.035)
-            iron(0.0,-.33,-.425,.36,.022,.022)
-        }
+        OriginYardGear.PAD, OriginYardGear.BRIDLE -> Unit
         OriginYardGear.BUCKET -> {
             iron(0.0,.025,0.0,.32,.05,.30)
             iron(-.175,.16,0.0,.03,.32,.30); iron(.175,.16,0.0,.03,.32,.30)
@@ -133,8 +76,6 @@ internal fun originYardSaddleStandPieces(): List<OriginWorkshopWorkpiecePiece> =
 )
 
 internal fun originYardSaddleHooksPieces(): List<OriginWorkshopWorkpiecePiece> = listOf(
-    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(-.55,1.07,0.0),OriginWorkshopGamePartSize(.10f,.035f,.65f),Material.DARK_OAK_PLANKS),
-    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(.21,.895,-.72),OriginWorkshopGamePartSize(.035f,.035f,.45f),Material.IRON_BLOCK),
     OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(-.28,.80,-.54),OriginWorkshopGamePartSize(.035f,.035f,.10f),Material.IRON_BLOCK),
 )
 

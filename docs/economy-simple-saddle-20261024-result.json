@@ -1,0 +1,584 @@
+{
+  "title": "Simple native saddle and private farm tools 2026-10-24",
+  "assumptions": [
+    "Before source/live ArcOrigin0.1.66, shared policy20Vault/accepted meaningful farm action,100receiptID/UUID/UTCday=2000Vault across jobs. No reward-rate/quota or currency change.",
+    "Preparation GROOM/SADDLE29 paid actions ->9; LESSON30->10. Removed ties/pad/bridle/girth/stirrups/untacking/lead-return pay no synthetic replacement. Cleanup13,feed2,water4 stay unchanged. Arrival/route/recovery/automatic cleanup do not add receipts.",
+    "Low/base/high assume1/3/10 participants and0.25/0.75/2activehours/day. Potential requested completed preparations3/7/21 per day split GROOM+SADDLE2/5/14 and LESSON1/2/7: receipt demand88/205/616 before and28/65/196 after. This is sensitivity, not telemetry: high demand cannot all receive payment after common quota is exhausted.",
+    "Same requested jobs are compared, not an assertion of measured hourly throughput. Assumed preparations/hour12/9.333333/10.5; shortened flow and private tools may permit more jobs or players. Holding accepted action rate fixed keeps the20/action ceiling unchanged. Actual time and concurrency uplift unknown.",
+    "Beforeafter player daily capped mint1760/2000/2000 ->560/1300/2000; network weekly12320/42000/140000 ->3920/27300/140000Vault assuming otherwise unused shared allowance.",
+    "NPC physical leases remain exclusive; private rack/props do not clone real NPCs or grant permanent items. Original native horse saddle restored automatically; no marketable saddle/brush/lead minted. Tokens,XP,crystals independently0; no boost,tax,price or progression equipment cost change.",
+    "Creative flight/MONEY boosts/farm perks are unchanged. 100receipts per UUID remains, multipleUUIDs linear2000/dayeach, no globalweeklybudget. Duplicate clicks, hidden displays and retries remain idempotent. Existing cashier unresolvedclaims preserved.",
+    "Current SELL remains separate activeflow; planned SELL-to-contract transition is future unchanged. Unmeasured disposable income cannot establish saving time.",
+    "Fresh ledger168h since1792189952170 generated1792794752172:3086records31385ops28players. Vault mint67918051.94329402 burn1689911.13, ofwhich67000000adminmint excluded from normalincome;276unclassifiedops224138.36absolute. Tokens mint83burn15,3unclassifiedops15absolute. Activity buckets/ArcEcoJobs do not establish ArcOrigin cadence."
+  ],
+  "scenario_order": [
+    "low",
+    "base",
+    "high"
+  ],
+  "currencies": {
+    "vault": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "1760",
+            "2000",
+            "2000"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "12320",
+            "42000",
+            "140000"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "12320",
+            "42000",
+            "140000"
+          ],
+          "player_daily_potential_net": [
+            "1760",
+            "2000",
+            "2000"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "1760",
+              "2000",
+              "2000"
+            ],
+            "network_weekly": [
+              "12320",
+              "42000",
+              "140000"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "preparation_action_demand",
+            "kind": "mint",
+            "player_daily_potential": [
+              "1760",
+              "2000",
+              "2000"
+            ],
+            "network_weekly_after_cap": [
+              "12320",
+              "42000",
+              "140000"
+            ],
+            "basis": "Fixed assumed potential job demand, limited by unchanged shared daily receipts; no guaranteed completed-paid job count."
+          }
+        ]
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "560",
+            "1300",
+            "2000"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "3920",
+            "27300",
+            "140000"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "3920",
+            "27300",
+            "140000"
+          ],
+          "player_daily_potential_net": [
+            "560",
+            "1300",
+            "2000"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "560",
+              "1300",
+              "2000"
+            ],
+            "network_weekly": [
+              "3920",
+              "27300",
+              "140000"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "preparation_action_demand",
+            "kind": "mint",
+            "player_daily_potential": [
+              "560",
+              "1300",
+              "2000"
+            ],
+            "network_weekly_after_cap": [
+              "3920",
+              "27300",
+              "140000"
+            ],
+            "basis": "Fixed assumed potential job demand, limited by unchanged shared daily receipts; no guaranteed completed-paid job count."
+          }
+        ]
+      },
+      "weekly_net_delta": [
+        "-8400",
+        "-14700",
+        "0"
+      ]
+    },
+    "tokens": {
+      "before": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "tokens_unchanged",
+            "kind": "mint",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "Separate currency unchanged"
+          }
+        ]
+      },
+      "after": {
+        "totals": {
+          "mint_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "burn_per_player_day": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_mint": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_burn": [
+            "0",
+            "0",
+            "0"
+          ],
+          "network_weekly_net": [
+            "0",
+            "0",
+            "0"
+          ],
+          "player_daily_potential_net": [
+            "0",
+            "0",
+            "0"
+          ]
+        },
+        "by_kind": {
+          "burn": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "escrow": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "item": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "liability": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "mint": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "refund": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          },
+          "transfer": {
+            "player_daily": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly": [
+              "0",
+              "0",
+              "0"
+            ]
+          }
+        },
+        "flows": [
+          {
+            "id": "tokens_unchanged",
+            "kind": "mint",
+            "player_daily_potential": [
+              "0",
+              "0",
+              "0"
+            ],
+            "network_weekly_after_cap": [
+              "0",
+              "0",
+              "0"
+            ],
+            "basis": "Separate currency unchanged"
+          }
+        ]
+      },
+      "weekly_net_delta": [
+        "0",
+        "0",
+        "0"
+      ]
+    }
+  },
+  "prices": []
+}

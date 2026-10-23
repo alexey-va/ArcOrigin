@@ -124,6 +124,17 @@ class OriginOddJobsSurfaceTest : StringSpec({
         }
         originOddJobGuide(config, job.copy(stage = OriginOddJobStage.YARD_WATER), 45_000) shouldContain "Буран"
     }
+    "stable guidance uses an ordinary saddle and automatic completion after the ride" {
+        val config=oddJobTestConfig()
+        val introduction=config.line("mountyard.introduction", "amount" to 20)
+        introduction shouldContain "у каждого конюха свой комплект"
+        introduction shouldContain "поручение завершится автоматически"
+        for(key in listOf("mountyard.introduction", "guide.yard-tack", "guide.yard-saddle", "guide.yard-handed")) {
+            val line=config.line(key).lowercase()
+            listOf("вальтрап", "стремен", "уздеч", "рассёд", "рассед").forEach { line.contains(it) shouldBe false }
+        }
+        config.line("guide.yard-saddle") shouldContain "по лошади"
+    }
     "all employers share a readable shift confirmation with only the explicit accept action" {
         val config = oddJobTestConfig()
         val receipt = waiterText(config.line("shift.receipt-score", "done" to 3, "amount" to 60), TextColor.color(0x9BD48D))
@@ -203,7 +214,7 @@ class OriginOddJobsSurfaceTest : StringSpec({
         originOddJobGuide(config, forge, 60_000) shouldBe config.line("guide.forge-heat-ready")
         originOddJobProgress(forge, 60_000) shouldBe 0.4f
     }
-    "lesson progress grows through physical preparation route and manual equipment returns" {
+    "lesson progress grows through simple preparation and finishes at the last route point" {
         val progress = OriginOddJobsProgress(240_000)
         val player = UUID.randomUUID()
         val job = progress.begin(player, OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_LESSON, 8, false), 0,
@@ -218,49 +229,25 @@ class OriginOddJobsSurfaceTest : StringSpec({
         }
         advance(OriginOddJobAction.TACK, OriginOddJobStage.YARD_LEAD)
         advance(OriginOddJobAction.LEAD, OriginOddJobStage.YARD_LEAD_OUT)
-        advance(OriginOddJobAction.ARRIVE, OriginOddJobStage.YARD_TIE_FIRST)
-        advance(OriginOddJobAction.TIE, OriginOddJobStage.YARD_TIE_HORSE_FIRST)
-        advance(OriginOddJobAction.TIE, OriginOddJobStage.YARD_TIE_SECOND)
-        advance(OriginOddJobAction.TIE, OriginOddJobStage.YARD_TIE_HORSE_SECOND, zone = 0)
-        advance(OriginOddJobAction.TIE, OriginOddJobStage.YARD_BRUSH)
+        advance(OriginOddJobAction.ARRIVE, OriginOddJobStage.YARD_BRUSH)
         advance(OriginOddJobAction.BRUSH, OriginOddJobStage.YARD_GROOM)
         repeat(2) { advance(OriginOddJobAction.GROOM, OriginOddJobStage.YARD_GROOM) }
         advance(OriginOddJobAction.GROOM, OriginOddJobStage.YARD_BRUSH_RETURN)
-        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_PAD_RACK)
-        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_PAD)
         advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_TACK)
         advance(OriginOddJobAction.TACK, OriginOddJobStage.YARD_SADDLE)
-        advance(OriginOddJobAction.SADDLE, OriginOddJobStage.YARD_GIRTH)
-        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_BRIDLE_RACK)
-        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_BRIDLE)
-        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_STIRRUP_LEFT)
-        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_STIRRUP_RIGHT, zone = 0)
-        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_UNTIE_FIRST)
-        advance(OriginOddJobAction.UNTIE, OriginOddJobStage.YARD_UNTIE_SECOND)
-        advance(OriginOddJobAction.UNTIE, OriginOddJobStage.YARD_DELIVER, zone = 0)
+        advance(OriginOddJobAction.SADDLE, OriginOddJobStage.YARD_DELIVER)
         advance(OriginOddJobAction.ARRIVE, OriginOddJobStage.YARD_HANDOFF)
         val walking = advance(OriginOddJobAction.HANDOFF, OriginOddJobStage.YARD_LESSON_WALK)
         walking.yard!!.routeIndex shouldBe 0
         walking.yard.tieMask shouldBe 0
-        values.last() shouldBe 0.72f
+        (values.last() in .5f.. .9f) shouldBe true
         for (checkpoint in 1..9) {
-            val expected = if (checkpoint == 9) OriginOddJobStage.YARD_UNTACK_BRIDLE else OriginOddJobStage.YARD_LESSON_WALK
+            val expected = if (checkpoint == 9) OriginOddJobStage.RETURN else OriginOddJobStage.YARD_LESSON_WALK
             val before = values.last()
             advance(OriginOddJobAction.ARRIVE, expected).yard!!.routeIndex shouldBe checkpoint
-            (values.last() > before && values.last() < 1f) shouldBe true
+            (values.last() > before && values.last() <= 1f) shouldBe true
         }
-        val afterRoute = requireNotNull(progress.current(player))
-        afterRoute.yard!!.borrowed shouldBe setOf(OriginYardGear.LEAD, OriginYardGear.PAD, OriginYardGear.SADDLE, OriginYardGear.BRIDLE)
-        progress.act(player, OriginOddJobAction.RETURN, ++now).shouldBeInstanceOf<OriginOddJobStep.Rejected>()
-        progress.current(player) shouldBe afterRoute
-        for (expected in listOf(OriginOddJobStage.YARD_BRIDLE_RETURN, OriginOddJobStage.YARD_UNTACK_SADDLE,
-                OriginOddJobStage.YARD_SADDLE_RETURN, OriginOddJobStage.YARD_UNTACK_PAD,
-                OriginOddJobStage.YARD_PAD_RETURN, OriginOddJobStage.YARD_LEAD_RETURN)) {
-            val current = advance(OriginOddJobAction.GEAR, expected)
-            current.yard!!.borrowed.isNotEmpty() shouldBe true
-            (values.last() < 1f) shouldBe true
-        }
-        val returned = advance(OriginOddJobAction.GEAR, OriginOddJobStage.RETURN)
+        val returned = requireNotNull(progress.current(player))
         returned.yard!!.borrowed shouldBe emptySet()
         returned.yard.equipped shouldBe emptySet()
         advance(OriginOddJobAction.RETURN, OriginOddJobStage.PAYOUT)

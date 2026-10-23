@@ -462,19 +462,18 @@ class OriginOddJobsGameTest : StringSpec({
                         f.payments.size shouldBe 2
                     }
                     OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE -> {
-                        f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
+                        f.leadToCare(); f.stroke(OriginOddJobStationId.BRUSH)
                         repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(requireNotNull(job.yard).animalId, sneaking = false) }
                         f.finishTack()
-                        f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_UNTIE_FIRST
-                        f.strokeTie(); f.strokeTie()
+                        f.requireStage(OriginOddJobStage.YARD_DELIVER, "only the native saddle is needed")
                         f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_DELIVER
                         f.game.tick(f.now)
                         f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_HANDOFF
                         f.game.tick(f.now)
                         f.requireStage(OriginOddJobStage.YARD_HANDED, "rider route owns this order")
                         f.game.tick(f.now)
-                        f.returnTack()
-                        f.payments.size shouldBe 29
+                        f.finishRide()
+                        f.payments.size shouldBe 9
                     }
                     else -> error("unexpected stable variant")
                 }
@@ -497,7 +496,7 @@ class OriginOddJobsGameTest : StringSpec({
                 f.earned.values.single().amount shouldBe when (variant) {
                     OriginOddJobVariant.YARD_WATER -> 80L
                     OriginOddJobVariant.YARD_RATIONS -> 40L
-                    else -> 580L
+                    else -> 180L
                 }
             }
         }
@@ -508,14 +507,14 @@ class OriginOddJobsGameTest : StringSpec({
             val job = f.game.currentJob(f.player.uniqueId)!!
             val animal = requireNotNull(job.yard).animalId
             job.yard.routeTotal shouldBe 3
-            f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
+            f.leadToCare(); f.stroke(OriginOddJobStationId.BRUSH)
             repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(animal, sneaking = false) }
             f.finishTack()
-            f.strokeTie(); f.strokeTie(); f.game.tick(f.now)
+            f.game.tick(f.now)
             f.requireStage(OriginOddJobStage.YARD_HANDOFF, "horse reaches mounting place")
             f.game.tick(f.now); f.game.tick(f.now)
             f.requireStage(OriginOddJobStage.YARD_HANDOFF, "lesson must wait for explicit NPC click")
-            f.payments.size shouldBe 22
+            f.payments.size shouldBe 9
             f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed.contains(OriginYardGear.LEAD) shouldBe true
             f.clickNpc(requireNotNull(f.config.yardRider).npcId, sneaking = false)
             f.requireStage(OriginOddJobStage.YARD_LESSON_WALK, "mounted lesson begins")
@@ -523,17 +522,17 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.currentJob(f.player.uniqueId)!!.yard!!.routeIndex shouldBe 0
             f.lessonArrival = true
             repeat(3) { index ->
-                f.payments.size shouldBe 23
+                f.payments.size shouldBe 10
                 f.game.currentJob(f.player.uniqueId)!!.yard!!.routeIndex shouldBe index
                 f.game.tick(f.now)
             }
-            f.returnTack()
-            f.payments.size shouldBe 30
+            f.finishRide()
+            f.payments.size shouldBe 10
             f.game.tick(f.now); f.game.tick(f.now)
-            f.payments.size shouldBe 30
+            f.payments.size shouldBe 10
             f.payments.toList().forEach { it.callback(SideJobRewardOutcome.CREDITED) }
             f.completedOrders shouldBe listOf(job.id)
-            f.earned.values.single().amount shouldBe 600L
+            f.earned.values.single().amount shouldBe 200L
         }
     }
     "cleaning uses shovel and cart stages and accepts only the returned empty cart" {
@@ -598,16 +597,16 @@ class OriginOddJobsGameTest : StringSpec({
         failOnUnsupportedMockBukkitOperation {
             f.begin(440, OriginOddJobVariant.YARD_SADDLE)
             val animal = requireNotNull(f.game.currentJob(f.player.uniqueId)!!.yard).animalId
-            f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
+            f.leadToCare(); f.stroke(OriginOddJobStationId.BRUSH)
             repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(animal, sneaking = false) }
             f.finishTack()
-            f.strokeTie(); f.strokeTie(); f.game.tick(f.now)
+            f.game.tick(f.now)
             f.requireStage(OriginOddJobStage.YARD_HANDOFF, "horse arrived for automatic handoff")
             val receiver = f.entity(requireNotNull(f.config.yardRider).npcId)
             every { receiver.location } returns Location(f.world, 30.0, 70.0, 0.0)
             f.game.tick(f.now)
             f.game.currentJob(f.player.uniqueId) shouldBe null
-            f.payments.size shouldBe 22
+            f.payments.size shouldBe 9
             f.completedOrders shouldBe emptyList()
             f.released shouldBe f.leases
         }
@@ -766,7 +765,7 @@ class OriginOddJobsGameTest : StringSpec({
     }
     "both horse buttons and duplicate packet events perform one stroke and one physical gear transition" {
         f.begin(440, OriginOddJobVariant.YARD_GROOM)
-        f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH, left = true)
+        f.leadToCare(); f.stroke(OriginOddJobStationId.BRUSH, left = true)
         val animal = f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId
         f.clickNpc(animal, sneaking = false, left = true)
         f.game.onNpcClick(NPCRightClickEvent(f.npc(animal), f.player))
@@ -776,51 +775,46 @@ class OriginOddJobsGameTest : StringSpec({
         f.clickNpc(animal, sneaking = false, left = true)
         f.requireStage(OriginOddJobStage.YARD_BRUSH_RETURN, "three physical strokes")
         f.gearClick(left = true)
-        f.requireStage(OriginOddJobStage.YARD_PAD_RACK, "brush returned")
+        f.requireStage(OriginOddJobStage.YARD_TACK, "brush returned")
         f.gearClick(left = false, elapsed = 0)
-        f.requireStage(OriginOddJobStage.YARD_PAD_RACK, "duplicate cannot immediately take the next loan")
+        f.requireStage(OriginOddJobStage.YARD_TACK, "duplicate cannot immediately take the next loan")
         f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.LEAD)
-        f.payments.size shouldBe 11
-        f.payments.map { it.id }.distinct().size shouldBe 11
+        f.payments.size shouldBe 7
+        f.payments.map { it.id }.distinct().size shouldBe 7
         f.completedOrders shouldBe emptyList()
     }
-    "each stirrup requires its physical side instead of clicking through the horse" {
+    "one saddle placement finishes preparation without girth stirrups or untie clicks" {
         f.begin(440, OriginOddJobVariant.YARD_GROOM)
-        f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
+        f.leadToCare(); f.stroke(OriginOddJobStationId.BRUSH)
         val animal = f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId
         repeat(3) { f.clickNpc(animal, sneaking = false) }
-        repeat(8) { f.gearClick() }
-        for ((stage, left) in listOf(OriginOddJobStage.YARD_STIRRUP_LEFT to true, OriginOddJobStage.YARD_STIRRUP_RIGHT to false)) {
-            f.requireStage(stage, "separate stirrup target")
-            val before = f.game.currentJob(f.player.uniqueId)
-            f.gearClick(left = left, oppositeSide = true)
-            f.game.currentJob(f.player.uniqueId) shouldBe before
-            f.gearClick(left = left)
-        }
-        f.requireStage(OriginOddJobStage.YARD_UNTIE_FIRST, "both sides adjusted")
-        f.payments.size shouldBe 20
+        f.finishTack()
+        f.requireStage(OriginOddJobStage.YARD_DELIVER, "saddle ready for leading")
+        f.game.currentJob(f.player.uniqueId)!!.yard!!.equipped shouldBe setOf(OriginYardGear.SADDLE)
+        f.payments.size shouldBe 9
         f.completedOrders shouldBe emptyList()
     }
+
     "only the named animal receives grooming and the same target is part of the scene lease" {
         failOnUnsupportedMockBukkitOperation {
             f.begin(440, OriginOddJobVariant.YARD_GROOM)
             val target = f.game.currentJob(f.player.uniqueId)!!.yard!!
             f.leases.single().actorIds.contains(target.animalId) shouldBe true
             f.leases.single().actorIds shouldBe setOf(target.animalId, requireNotNull(f.config.yardRider).npcId)
-            f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
+            f.leadToCare(); f.stroke(OriginOddJobStationId.BRUSH)
             f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed.contains(OriginYardGear.BRUSH) shouldBe true
             f.clickNpc(f.config.yardAnimalIds.first { it != target.animalId }, sneaking = false)
             f.game.currentJob(f.player.uniqueId)!!.yard!!.brushStrokes shouldBe 0
             repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(target.animalId, sneaking = false) }
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_BRUSH_RETURN
-            f.payments.size shouldBe 10
+            f.payments.size shouldBe 6
             f.completedOrders shouldBe emptyList()
         }
     }
     "the same animal target reasserts viewer glow after an entity tracking reset" {
         failOnUnsupportedMockBukkitOperation {
             f.begin(440, OriginOddJobVariant.YARD_GROOM)
-            f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
+            f.leadToCare(); f.stroke(OriginOddJobStationId.BRUSH)
             val animal = f.entity(f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId)
             io.mockk.clearMocks(f.glow, answers = false)
             f.game.tick(++f.now)
@@ -869,49 +863,32 @@ class OriginOddJobsGameTest : StringSpec({
             verify { f.glow.setEntityGlowingFor(animal, f.player, true) }
         }
     }
-    "cross-ties accept either first wall and require the assigned halter after each wall" {
-        for (firstSide in 0..1) {
-            f.close(); f = OddJobsFixture()
-            failOnUnsupportedMockBukkitOperation {
+    "care arrival allows the brush without ropes and invalid preparation cannot receive strokes" {
+        failOnUnsupportedMockBukkitOperation {
             f.begin(440, OriginOddJobVariant.YARD_GROOM)
-            f.leadToTies()
-            val animal = f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId
-            f.clickNpc(animal, sneaking = false)
-            f.requireStage(OriginOddJobStage.YARD_TIE_FIRST, "halter cannot precede wall")
-            f.strokeTie(firstSide)
-            f.requireStage(OriginOddJobStage.YARD_TIE_HORSE_FIRST, "wall leaves a loose rope")
-            val other = f.aimTie(1 - firstSide)
-            f.game.work(f.player, false, other.block) shouldBe false
-            f.clickNpc(if (animal == 422) 423 else 422, sneaking = false)
-            f.requireStage(OriginOddJobStage.YARD_TIE_HORSE_FIRST, "other animal cannot take this rope")
-            f.clickNpc(animal, sneaking = false)
-            f.requireStage(OriginOddJobStage.YARD_TIE_SECOND, "first rope attached")
-            f.strokeTie(1 - firstSide)
-            f.clickNpc(animal, sneaking = false)
+            f.leadToCare()
             f.stroke(OriginOddJobStationId.BRUSH)
+            val animal = f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId
             every { f.yard.readyForCare(any(), any()) } returns false
             f.clickNpc(animal, sneaking = false)
             f.game.currentJob(f.player.uniqueId)!!.yard!!.brushStrokes shouldBe 0
-            f.payments.size shouldBe 7
-            f.completedOrders shouldBe emptyList()
-            every { f.yard.readyForCare(any(), any()) } returns true
-            f.game.stop(f.player.uniqueId, "test")
-            }
-        }
-    }
-    "cross ties use the authoritative lead loan even with an empty personal inventory" {
-        failOnUnsupportedMockBukkitOperation {
-            f.begin(440, OriginOddJobVariant.YARD_SADDLE); f.leadToTies()
-            f.player.inventory.clear()
-            val station = f.aimTie(0)
-            f.game.work(f.player, false, station.block) shouldBe true
-            f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_TIE_HORSE_FIRST
-            f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.LEAD)
-            f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
             f.payments.size shouldBe 3
             f.completedOrders shouldBe emptyList()
         }
     }
+
+    "preparation keeps its lead loan without ties or personal inventory workarounds" {
+        failOnUnsupportedMockBukkitOperation {
+            f.begin(440, OriginOddJobVariant.YARD_SADDLE); f.leadToCare()
+            f.player.inventory.clear()
+            f.stroke(OriginOddJobStationId.BRUSH)
+            f.requireStage(OriginOddJobStage.YARD_GROOM, "brush is ready without ties")
+            f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.LEAD, OriginYardGear.BRUSH)
+            f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
+            f.payments.size shouldBe 3
+        }
+    }
+
     "death removes stable supplies and retains already earned action credit without completing the order" {
         failOnUnsupportedMockBukkitOperation {
             f.begin(440, OriginOddJobVariant.YARD_WATER)
@@ -1130,6 +1107,9 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
                 every { isValid } returns true
                 every { type } returns if (id in config.yardAnimalIds) org.bukkit.entity.EntityType.HORSE else org.bukkit.entity.EntityType.VILLAGER
                 every { height } returns 1.6
+                every { boundingBox } answers { location.let { at ->
+                    org.bukkit.util.BoundingBox(at.x - 0.7, at.y, at.z - 0.7, at.x + 0.7, at.y + 1.6, at.z + 0.7)
+                } }
                 every { getAttribute(org.bukkit.attribute.Attribute.SCALE) } returns mockk { every { value } returns 1.0 }
                 every { hasLineOfSight(any<Entity>()) } returns true
             }
@@ -1146,7 +1126,6 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
             }
         }
         every { equipment.bind(any(), any(), any(), any()) } answers { activateGear = arg(3) }
-        every { equipment.available(any(), any()) } returns true
         every { equipment.target(any()) } answers {
             val job = firstArg<OriginOddJobSession>()
             originYardGearStep(job.stage)?.let { gearControl(job).nativeTarget?.location() }
@@ -1263,20 +1242,16 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
     private fun gearControl(job: OriginOddJobSession): ru.arc.paper.scene.SpatialControl<OriginYardGearStep> {
         val step = requireNotNull(originYardGearStep(job.stage))
         val pose = if (step.atRack) originYardGearSlots(stations).first { it.gear == step.gear }.pose
-            else originYardGearHorsePose(step.gear, entity(requireNotNull(job.yard).animalId))
-        return originYardGearControl(job, step, pose)
+            else OriginYardGearPose(entity(requireNotNull(job.yard).animalId).location)
+        return originYardGearControl(job, step, pose,
+            if (step.atRack) null else originYardHorseBounds(entity(requireNotNull(job.yard).animalId)))
     }
-    fun gearClick(left: Boolean = false, elapsed: Long = 700, oppositeSide: Boolean = false) {
+    fun gearClick(left: Boolean = false, elapsed: Long = 700) {
         now += elapsed
         val job = requireNotNull(game.currentJob(player.uniqueId))
         val native = requireNotNull(gearControl(job).nativeTarget)
         val target = native.location().add(0.0, native.height / 2.0, 0.0)
-        val at = if (oppositeSide) {
-            val pose = originYardGearHorsePose(OriginYardGear.SADDLE, entity(requireNotNull(job.yard).animalId))
-            val side = if (job.stage == OriginOddJobStage.YARD_STIRRUP_LEFT) 1.8f else -1.8f
-            val offset = pose.rotation.transform(org.joml.Vector3f(side,0f,0f))
-            Location(world,pose.at.x+offset.x,target.y-player.eyeHeight,pose.at.z+offset.z)
-        } else target.clone().add(0.0, -player.eyeHeight, -1.8)
+        val at = target.clone().add(0.0, -player.eyeHeight, -1.8)
         at.setDirection(target.toVector().subtract(at.clone().add(0.0, player.eyeHeight, 0.0).toVector()))
         player.teleport(at)
         val event = PlayerInteractEvent(player, if(left) Action.LEFT_CLICK_AIR else Action.RIGHT_CLICK_AIR,
@@ -1286,15 +1261,12 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
     }
     fun finishTack() {
         requireStage(OriginOddJobStage.YARD_BRUSH_RETURN, "brush must return first")
-        repeat(10) { gearClick(left = it % 2 == 0) }
-        requireStage(OriginOddJobStage.YARD_UNTIE_FIRST, "pad saddle girth bridle and both stirrups fitted")
+        repeat(3) { gearClick(left = it % 2 == 0) }
+        requireStage(OriginOddJobStage.YARD_DELIVER, "ordinary saddle placed")
     }
-    fun returnTack() {
-        val jobId = requireStage(OriginOddJobStage.YARD_UNTACK_BRIDLE, "ride ends before untacking").id
-        repeat(7) { index ->
-            payments.none { it.id == jobId } shouldBe true
-            gearClick(left = index % 2 == 0)
-        }
+    fun finishRide() {
+        game.currentJob(player.uniqueId) shouldBe null
+        game.tick(now)
         game.currentJob(player.uniqueId) shouldBe null
     }
     fun open(id: Int, flush: Boolean = true, sneaking: Boolean = true) { clickNpc(id, sneaking); if (flush) scheduler.executeImmediate() }
@@ -1313,31 +1285,11 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
     fun pickupBlank() {
         stroke(OriginOddJobStationId.BLANK); stockClick(); scheduler.tick(); player.closeInventory()
     }
-    fun leadToTies() {
+    fun leadToCare() {
         stroke(OriginOddJobStationId.SADDLE_RACK)
         clickNpc(game.currentJob(player.uniqueId)!!.yard!!.animalId, sneaking = false)
         game.tick(now)
-        game.currentJob(player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_TIE_FIRST
-    }
-    fun aimTie(side: Int): OriginOddJobStation {
-        now += 700
-        val station = tieStations[side]
-        val at = station.point.clone().add(station.point.direction.multiply(1.8)).apply { y = 70.0 }
-        at.setDirection(station.point.toVector().subtract(at.clone().add(0.0, player.eyeHeight, 0.0).toVector()))
-        player.teleport(at)
-        return station
-    }
-    fun strokeTie(side: Int = originYardTieTargets(game.currentJob(player.uniqueId)!!).first()) {
-        val station = aimTie(side)
-        val event = PlayerInteractEvent(player, Action.RIGHT_CLICK_BLOCK, null, station.block,
-            if (side == 0) BlockFace.EAST else BlockFace.WEST, EquipmentSlot.HAND)
-        game.onBlock(event)
-        event.useInteractedBlock() shouldBe Event.Result.DENY
-    }
-    fun tieBoth() {
-        leadToTies()
-        val animal = game.currentJob(player.uniqueId)!!.yard!!.animalId
-        repeat(2) { strokeTie(); clickNpc(animal, sneaking = false) }
+        requireStage(OriginOddJobStage.YARD_BRUSH, "care point needs no ties")
     }
     fun strokeCart(elapsed: Long = 700) {
         val job = game.currentJob(player.uniqueId)!!

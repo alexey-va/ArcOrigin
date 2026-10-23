@@ -129,6 +129,73 @@ class OriginOddJobCartTest : StringSpec({
         settled(example, 13.0, 74.0)
     }
 
+    "same-tick cart callers advance and render only once" {
+        CartDisplayFixture(layout).use { f ->
+            f.autoAdvanceTick = false
+            f.tick = 10
+            f.at.z += 0.2
+            val before = requireNotNull(f.cart.point(f.player.uniqueId, f.request))
+            f.cart.follow(f.player, f.request)
+            val advanced = requireNotNull(f.cart.point(f.player.uniqueId, f.request))
+            (advanced.z > before.z) shouldBe true
+            val teleportsAfterFirst = f.teleports.toMap()
+
+            f.cart.follow(f.player, f.request)
+            f.cart.sync(f.player, f.request, true, listOf(f.cargo))
+            f.cart.follow(f.player, f.request)
+
+            f.cart.point(f.player.uniqueId, f.request) shouldBe advanced
+            f.teleports shouldBe teleportsAfterFirst
+            f.tick++
+            f.cart.follow(f.player, f.request)
+            (requireNotNull(f.cart.point(f.player.uniqueId, f.request)).z > advanced.z) shouldBe true
+        }
+    }
+
+    "same-tick duplicate follows do not count as stuck ticks or recover the cart" {
+        CartDisplayFixture(layout).use { f ->
+            f.autoAdvanceTick = false
+            f.tick = 10
+            f.obstacles[Triple(0, 70, 1)] = BoundingBox(0.375, 0.0, 0.375, 0.625, 1.5, 0.625)
+            f.at.z = 2.0
+            f.cart.follow(f.player, f.request)
+            val pointAfterFirst = requireNotNull(f.cart.point(f.player.uniqueId, f.request))
+            val teleportsAfterFirst = f.teleports.toMap()
+
+            repeat(80) { f.cart.follow(f.player, f.request) }
+
+            f.cart.point(f.player.uniqueId, f.request) shouldBe pointAfterFirst
+            f.teleports shouldBe teleportsAfterFirst
+        }
+    }
+
+    "job cart and cargo displays are private to their worker" {
+        CartDisplayFixture(layout).use { f ->
+            val firstWorkerDisplays = f.locations.keys.toSet()
+            firstWorkerDisplays.forEach { display ->
+                f.visibleByDefault[display] shouldBe false
+                f.shownTo[display] shouldBe setOf(f.player.uniqueId)
+            }
+
+            val secondPlayer = mockk<Player>(relaxed = true)
+            val secondId = UUID.randomUUID()
+            every { secondPlayer.uniqueId } returns secondId
+            every { secondPlayer.world } returns f.world
+            val secondRequest = UUID.randomUUID()
+            f.cart.sync(secondPlayer, secondRequest, false, listOf(f.cargo))
+
+            firstWorkerDisplays.forEach { display ->
+                f.shownTo.getValue(display).contains(secondId) shouldBe false
+            }
+            val secondWorkerDisplays = f.locations.keys - firstWorkerDisplays
+            (secondWorkerDisplays.isNotEmpty()) shouldBe true
+            secondWorkerDisplays.forEach { display ->
+                f.visibleByDefault[display] shouldBe false
+                f.shownTo[display] shouldBe setOf(secondId)
+            }
+        }
+    }
+
     "a low headroom passage and a full height wall cannot be climbed or tunnelled through" {
         val wall = listOf(floor, platform(2.0, 2.04, 2.0))
         val example = drive("thin-wall", wall, start(), 3.5)
@@ -226,10 +293,11 @@ class OriginOddJobCartTest : StringSpec({
                 cleaning.sync(f.player, job)
                 cleaning.canPark(f.player.uniqueId, job.copy(stage = OriginOddJobStage.CLEAN_RETURN)) shouldBe false
                 cleaning.tick(f.player, job) shouldBe null
-                repeat(60) { cleaning.tick(f.player, job) }
+                repeat(60) { f.nextTick(); cleaning.tick(f.player, job) }
                 val station = requireNotNull(cleaning.station(f.player.uniqueId, job))
                 abs(station.point.y - 0.65 - floorTop) shouldBeLessThan 0.012
                 cleaning.canPark(f.player.uniqueId, job) shouldBe true
+                f.nextTick()
                 cleaning.tick(f.player, job) shouldBe OriginOddJobAction.PARK_CART
                 val handle = station.point.clone().add(0.4, 0.2, -1.04)
                 val eye = f.at.clone().add(0.0, 1.62, 0.0).apply { setDirection(handle.toVector().subtract(toVector())) }
@@ -238,8 +306,9 @@ class OriginOddJobCartTest : StringSpec({
                 originOddJobAimed(f.player, station.copy(interactionBounds = null), 4.5, null, virtualTarget = true) shouldBe false
                 val home = job.copy(stage = OriginOddJobStage.CLEAN_RETURN)
                 f.at.x = 0.4; f.at.z = -0.8
-                repeat(60) { cleaning.tick(f.player, job) }
+                repeat(60) { f.nextTick(); cleaning.tick(f.player, job) }
                 cleaning.canPark(f.player.uniqueId, home) shouldBe true
+                f.nextTick()
                 cleaning.tick(f.player, home) shouldBe OriginOddJobAction.CART_ARRIVE
                 val parking = home.copy(stage = OriginOddJobStage.CLEAN_PARK)
                 val parked = requireNotNull(cleaning.station(f.player.uniqueId, parking)).point
@@ -389,9 +458,15 @@ private class CartDisplayFixture(layout: OriginForgeCartLayout, floorTop: Double
     val obstacles = mutableMapOf<Triple<Int, Int, Int>, BoundingBox>()
     val transforms = linkedMapOf<PacketDisplay, Transformation>()
     val locations = linkedMapOf<PacketDisplay, Location>()
+    val teleports = linkedMapOf<PacketDisplay, Int>()
+    val visibleByDefault = linkedMapOf<PacketDisplay, Boolean>()
+    val shownTo = linkedMapOf<PacketDisplay, MutableSet<UUID>>()
+    var tick = 0
+    var autoAdvanceTick = true
     val cargo = originForgeCargoPieces(OriginForgeCargo.IRON)
     val cart: OriginOddJobCart
     val owner = mockk<PaperPacketDisplays>(relaxed = true)
+    fun nextTick() = paper.performTicks(1)
     init {
         every { world.uid } returns UUID.randomUUID()
         every { world.minHeight } returns -64
@@ -418,12 +493,18 @@ private class CartDisplayFixture(layout: OriginForgeCartLayout, floorTop: Double
         fun track(display: PacketDisplay, at: Location) {
             every { display.isValid } returns true
             locations[display] = at.clone()
+            every { display.isVisibleByDefault = any() } answers { visibleByDefault[display] = firstArg() }
+            every { display.showTo(any<Player>()) } answers { shownTo.getOrPut(display) { mutableSetOf() }.add(firstArg<Player>().uniqueId); Unit }
             every { display.transformation = any() } answers { transforms[display] = firstArg() }
-            every { display.teleport(any()) } answers { locations[display] = firstArg<Location>().clone() }
+            every { display.teleport(any()) } answers {
+                teleports[display] = (teleports[display] ?: 0) + 1
+                locations[display] = firstArg<Location>().clone()
+            }
         }
         every { owner.spawnItem(any(), any()) } answers { mockk<PacketItemDisplay>(relaxed = true).also { track(it, firstArg()) } }
         every { owner.spawnBlock(any(), any()) } answers { mockk<PacketBlockDisplay>(relaxed = true).also { track(it, firstArg()) } }
-        cart = OriginOddJobCart(layout, { ItemStack(Material.MINECART) }, { owner })
+        cart = OriginOddJobCart(layout, { ItemStack(Material.MINECART) }, { owner },
+            currentTick = { if (autoAdvanceTick) tick++ else tick })
         cart.sync(player, request, true, listOf(cargo))
     }
     override fun close() { cart.close(); paper.close() }

@@ -1,6 +1,7 @@
 package ru.arc.origin
 
 import dev.lone.itemsadder.api.CustomStack
+import org.bukkit.Bukkit
 import org.bukkit.Color
 import org.bukkit.Location
 import org.bukkit.World
@@ -302,15 +303,16 @@ internal class OriginOddJobCart(
     private val layout: OriginForgeCartLayout? = null,
     private val resolveItem: (String) -> ItemStack? = { CustomStack.getInstance(it)?.itemStack?.clone() },
     private val createOwner: () -> PaperPacketDisplays = { PaperPacketDisplays(ArcOriginPlugin.instance, "forge-cart") },
-    private val privateToWorker: Boolean = false,
+    private val privateToWorker: Boolean = true,
     softObstacles: Boolean = false,
+    private val currentTick: () -> Int = { Bukkit.getCurrentTick() },
 ) : AutoCloseable {
     private data class Cart(val request: UUID, val world: World, val display: PacketItemDisplay,
         val cargo: MutableMap<Int, OriginWorkshopProp> = mutableMapOf(),
         val handles: MutableList<PacketDisplay> = mutableListOf(),
         var point: OriginWorkshopPoint, var yaw: Float, var pitch: Float = 0f,
         var velocityX: Double = 0.0, var velocityZ: Double = 0.0, var velocityY: Double = 0.0,
-        var grounded: Boolean = false, var stalledTicks: Int = 0)
+        var grounded: Boolean = false, var stalledTicks: Int = 0, var followedAtTick: Int? = null)
     private val carts = mutableMapOf<UUID, Cart>()
     private val space = PaperSpatialSpace()
     private val motion = layout?.let { OriginOddJobCartMotion(it, softObstacles) }
@@ -406,6 +408,9 @@ internal class OriginOddJobCart(
         carts[playerId]?.takeIf { it.request == requestId }?.cargo?.remove(index)
 
     private fun follow(player: Player, cart: Cart) {
+        val tick = currentTick()
+        if (cart.followedAtTick == tick) return
+        cart.followedAtTick = tick
         val at = player.location
         val offset = originForgeCartCarryPose(at.yaw.toDouble()).center
         val desired = OriginWorkshopPoint(at.x + offset.x, at.y, at.z + offset.z)

@@ -14,7 +14,7 @@ import org.joml.Vector3f
 
 class OriginYardGearTest : StringSpec({
     "every physical tool has bounded finite solid geometry and only contents change when filled" {
-        OriginYardGear.entries.forEach { gear ->
+        OriginYardGear.entries.filterNot { it in setOf(OriginYardGear.PAD,OriginYardGear.BRIDLE) }.forEach { gear ->
             val pieces = originYardGearPieces(gear)
             (pieces.size in 1..25) shouldBe true
             pieces.forEach { p ->
@@ -24,8 +24,18 @@ class OriginYardGearTest : StringSpec({
         }
         originYardGearPieces(OriginYardGear.BUCKET, true).dropLast(1) shouldBe originYardGearPieces(OriginYardGear.BUCKET)
         originYardGearPieces(OriginYardGear.SHOVEL, true).dropLast(1) shouldBe originYardGearPieces(OriginYardGear.SHOVEL)
-        originYardGearPieces(OriginYardGear.SADDLE, leftStirrup = true).zip(originYardGearPieces(OriginYardGear.SADDLE))
-            .count { (a,b) -> a != b } shouldBe 5
+        originYardGearPieces(OriginYardGear.PAD) shouldBe emptyList()
+        originYardGearPieces(OriginYardGear.BRIDLE) shouldBe emptyList()
+        val saddle=originYardGearPieces(OriginYardGear.SADDLE)
+        saddle.size shouldBe 5
+        saddle.all { it.center.y-it.size.y/2 >= -.071 } shouldBe true
+    }
+    "retired tack stages expose no prop interaction or carried item" {
+        val retired=OriginOddJobStage.entries.filter { stage ->
+            listOf("YARD_PAD", "YARD_BRIDLE", "YARD_GIRTH", "YARD_STIRRUP", "YARD_UNTACK",
+                "YARD_SADDLE_RETURN", "YARD_LEAD_RETURN").any { stage.name.startsWith(it) }
+        }
+        retired.forEach { originYardGearStep(it) shouldBe null }
     }
     "export exact representative gear geometry on the surveyed barrel and carpet" {
         YardGearPreviewExport.write(Path.of("build/yard-gear-preview/scene.json"))
@@ -64,66 +74,29 @@ internal object YardGearPreviewExport {
                 box(1.0,.5,0.0,1f,1f,1f,Material.BARREL),box(1.0,1.5,0.0,1f,1f,1f,Material.BARREL),
                 box(0.0,.5,1.0,1f,1f,1f,Material.BARREL),box(0.0,1.5,1.0,1f,1f,1f,Material.BARREL)))
             val support=export("stand",originYardSaddleStandPieces(),pose(y=1.0625))+export("hooks",originYardSaddleHooksPieces())
-            val rest=native+support+listOf(OriginYardGear.PAD,OriginYardGear.BRIDLE,OriginYardGear.LEAD).flatMap {
+            val rest=native+support+listOf(OriginYardGear.LEAD).flatMap {
                 export(it.name,originYardGearPieces(it),slot(it)) }
             val saddle=originYardGearPieces(OriginYardGear.SADDLE)
             val rack=rest+export("saddle",saddle,slot(OriginYardGear.SADDLE))
             val carryPose=originYardGearCarryPose(OriginYardGear.SADDLE,180f,false)
             val carryAt=Location(world,-1.0,0.0,-1.2).add(carryPose.center.x,carryPose.center.y,carryPose.center.z)
             val carried=export("saddle",saddle,OriginYardGearPose(carryAt,carryPose.rotation))
-            val carriedAfterRide=export("saddle",originYardGearPieces(OriginYardGear.SADDLE,
-                girthTight=true,leftStirrup=true,rightStirrup=true),OriginYardGearPose(carryAt,carryPose.rotation))
             fun carried(gear: OriginYardGear): List<Map<String,Any>> {
                 val local=originYardGearCarryPose(gear,180f,false)
                 val at=Location(world,-1.0,0.0,-1.2).add(local.center.x,local.center.y,local.center.z)
                 return export(gear.name,originYardGearPieces(gear),OriginYardGearPose(at,local.rotation))
             }
-            // Native mesh is baked from official 26.1.2 classes by NativeHorseExport.java, then merged
-            // into these source poses. No hand-authored horse mannequin participates in acceptance.
-            val horse=emptyList<Map<String,Any>>()
-            val equipped=listOf(OriginYardGear.PAD,OriginYardGear.SADDLE,OriginYardGear.BRIDLE).flatMap { gear ->
-                export(gear.name,originYardGearPieces(gear,girthTight=true,leftStirrup=true,rightStirrup=true),
-                    originYardGearHorsePose(gear,Location(world,0.0,0.0,0.0),180f)) }
-            val unsaddled=horse+export("PAD",originYardGearPieces(OriginYardGear.PAD),
-                originYardGearHorsePose(OriginYardGear.PAD,Location(world,0.0,0.0,0.0),180f))
             fun camera(x:Double,y:Double,z:Double,tx:Double=0.0,ty:Double=1.2,tz:Double=0.0)=mapOf(
                 "position" to mapOf("x" to x,"y" to y,"z" to z),"target" to mapOf("x" to tx,"y" to ty,"z" to tz),"fovDegrees" to 70)
             fun state(id:String,title:String,pieces:List<Map<String,Any>>,camera:Map<String,Any>)=mapOf(
-                "id" to id,"title" to title,"role" to "Source geometry and production poses. Official native mesh merged after source export; client lighting unverified.",
+                "id" to id,"title" to title,"role" to "Source-derived station/hand props only. Native horse saddle and client lighting require a Minecraft client.",
                 "pieces" to pieces,"camera" to camera)
-            val movingFrames=(0..80).map { tick ->
-                val t=tick/80.0
-                val yaw=(180+90*t*t*(3-2*t)).toFloat()
-                val feet=Location(world,.8*t,0.0,-.7*t)
-                val fitted=listOf(OriginYardGear.PAD,OriginYardGear.SADDLE,OriginYardGear.BRIDLE).flatMap { gear ->
-                    export(gear.name,originYardGearPieces(gear,girthTight=true,leftStirrup=true,rightStirrup=true),
-                        originYardGearHorsePose(gear,feet,yaw)) }
-                mapOf("pieces" to fitted,"nativeHorse" to mapOf("tick" to tick,"yaw" to yaw,"x" to feet.x,"z" to feet.z))
-            }
-            val moving=state("moving-turn","Шаг и поворот — native passenger origin",equipped,
-                camera(-2.6,1.62,-2.7,.2,1.2,-.3))+mapOf("frames" to movingFrames,"frameMillis" to 50)
-            val adjusting=(0..16).map { tick ->
-                val t=(tick/8.0).coerceIn(0.0,1.0); val eased=t*t*(3-2*t)
-                val fitted=listOf(OriginYardGear.PAD,OriginYardGear.SADDLE,OriginYardGear.BRIDLE).flatMap { gear ->
-                    export(gear.name,originYardGearPieces(gear,false,eased,eased,eased),originYardGearHorsePose(gear,Location(world,0.0,0.0,0.0),180f)) }
-                mapOf("pieces" to fitted)
-            }
-            val adjustment=state("tightening","Подпруга и стремена — непрерывная деформация",adjusting.first().getValue("pieces"),camera(-2.2,1.62,-1.3))+
-                mapOf("frames" to adjusting,"frameMillis" to 50)
             val transferring=(0..20).map { tick ->
                 val target=OriginYardGearPose(carryAt,carryPose.rotation)
                 mapOf("pieces" to rest+export("saddle",saddle,originYardGearTransfer(slot(OriginYardGear.SADDLE),target,tick/10.0)))
             }
             val transfer=state("transfer","Стойка → рука — production transfer",transferring.first().getValue("pieces"),camera(-2.4,1.62,-3.0,-.4,1.1,-.6))+
                 mapOf("frames" to transferring,"frameMillis" to 50)
-            val returnMotion=OriginYardGearMotion()
-            returnMotion.sample(OriginYardGearPose(carryAt,carryPose.rotation),"hand",0,false)
-            val returning=(1..21).map { tick ->
-                val pose=returnMotion.sample(slot(OriginYardGear.SADDLE),"rack",tick,tick==1)
-                mapOf("pieces" to rest+export("saddle",saddle,pose))
-            }
-            val lastReturn=state("last-return","Последний возврат продолжается после закрытия поручения",returning.first().getValue("pieces"),
-                camera(-2.4,1.62,-3.0,-.4,1.1,-.6))+mapOf("frames" to returning,"frameMillis" to 50)
             val yawStates=listOf(0f,90f,270f).map { yaw ->
                 val grip=originYardGearCarryPose(OriginYardGear.BRUSH,yaw,false)
                 val p=OriginYardGearPose(Location(world,grip.center.x,grip.center.y,grip.center.z),grip.rotation)
@@ -137,17 +110,10 @@ internal object YardGearPreviewExport {
                 return mapOf("text" to requireNotNull(text.getString("text.gear-hints.${stage.name.lowercase()}")),
                     "anchor" to mapOf("x" to point.x,"y" to point.y,"z" to point.z),"style" to mapOf("scale" to .34,"lineWidth" to 160))
             }
-            val focusStates=listOf(OriginOddJobStage.YARD_GIRTH,OriginOddJobStage.YARD_STIRRUP_LEFT,OriginOddJobStage.YARD_STIRRUP_RIGHT).map { stage ->
-                val focus=requireNotNull(originYardGearFocus(stage))
-                val pieces=equipped.map { p -> if(p["key"] in focus.map { "SADDLE-$it" }) p+mapOf("highlight" to true) else p }
-                state("focus-${stage.name.lowercase()}","Текущий ремень · ${stage.name}",pieces,
-                    camera(if(stage==OriginOddJobStage.YARD_STIRRUP_RIGHT) 2.6 else -2.6,1.62,-1.6))+
-                    mapOf("guidance" to cue(stage,originYardGearHorsePose(OriginYardGear.SADDLE,Location(world,0.0,0.0,0.0),180f)))
-            }
-            val pickup=state("pickup-pad","Вальтрап — текущий предмет",rack.map { p -> if((p["key"] as String).startsWith("PAD-")) p+mapOf("highlight" to true) else p },camera(-1.35,1.62,-2.0))+
-                mapOf("guidance" to cue(OriginOddJobStage.YARD_PAD_RACK,slot(OriginYardGear.PAD)))
+            val pickup=state("pickup-saddle","Седло — текущий предмет",rack.map { p -> if((p["key"] as String).startsWith("saddle-")) p+mapOf("highlight" to true) else p },camera(-1.35,1.62,-2.0))+
+                mapOf("guidance" to cue(OriginOddJobStage.YARD_TACK,slot(OriginYardGear.SADDLE)))
             val scene=mapOf("states" to listOf(
-                state("rack","Амуниция на стойке",rack,camera(-1.35,1.62,-2.0)),
+                state("rack","Седло и повод на стойке",rack,camera(-1.35,1.62,-2.0)),
                 state("carry","Седло в руке — production carry pose",rest+carried,camera(-2.4,1.62,-3.0,-.4,1.1,-.6)),
                 state("carry-eye-saddle","Седло: вид несущего игрока",carried(OriginYardGear.SADDLE),camera(-1.0,1.62,-1.2,-1.0,1.62,-4.2)),
                 state("carry-eye-bucket","Ведро: вид несущего игрока",carried(OriginYardGear.BUCKET),camera(-1.0,1.62,-1.2,-1.0,1.62,-4.2)),
@@ -156,10 +122,7 @@ internal object YardGearPreviewExport {
                 state("carry-down-bucket","Ведро: взгляд вниз 30°",carried(OriginYardGear.BUCKET),camera(-1.0,1.62,-1.2,-1.0,1.62-kotlin.math.sqrt(3.0),-4.2)),
                 state("carry-down-shovel","Лопата: взгляд вниз 30°",carried(OriginYardGear.SHOVEL),camera(-1.0,1.62,-1.2,-1.0,1.62-kotlin.math.sqrt(3.0),-4.2)),
                 state("brush-hand","Щётка — правая ладонь native player",carried(OriginYardGear.BRUSH),camera(-2.6,1.62,-2.9,-1.0,1.0,-1.2)),
-                state("horse-left","Лошадь: вальтрап, седло, подпруга, уздечка",horse+equipped,camera(-2.6,1.62,-1.6)),
-                state("horse-right","Лошадь: второе стремя",horse+equipped,camera(2.6,1.62,-1.6)),
-                state("untack","Седло снято вручную",unsaddled+carriedAfterRide,camera(-2.6,1.62,-2.0)),
-                state("return","Седло возвращено на ту же опору",rack,camera(-1.35,1.62,-2.0)))+listOf(moving,adjustment,transfer,lastReturn,pickup)+yawStates+focusStates)
+                state("empty-stand","Седло взято — опора остаётся",rest,camera(-1.35,1.62,-2.0)))+listOf(transfer,pickup)+yawStates)
             Files.createDirectories(output.parent)
             Files.writeString(output,GsonBuilder().setPrettyPrinting().create().toJson(scene))
         }
