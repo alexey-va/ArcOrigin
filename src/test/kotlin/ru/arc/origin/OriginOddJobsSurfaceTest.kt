@@ -4,6 +4,7 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.every
 import io.mockk.mockk
 import net.kyori.adventure.text.Component
@@ -196,25 +197,69 @@ class OriginOddJobsSurfaceTest : StringSpec({
         originOddJobGuide(config, forge, 60_000) shouldBe config.line("guide.forge-heat-ready")
         originOddJobProgress(forge, 60_000) shouldBe 0.4f
     }
-    "lesson progress grows through preparation and the complete field route" {
+    "lesson progress grows through physical preparation route and manual equipment returns" {
         val progress = OriginOddJobsProgress(240_000)
         val player = UUID.randomUUID()
         val job = progress.begin(player, OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_LESSON, 8, false), 0,
             yardTarget = OriginYardWork(422, "Буран", routeTotal = 9))!!
         val values = mutableListOf(originOddJobProgress(job, 0))
-        val actions = listOf(
-            OriginOddJobAction.TACK, OriginOddJobAction.LEAD, OriginOddJobAction.ARRIVE,
-            OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.TIE, OriginOddJobAction.BRUSH,
-            OriginOddJobAction.GROOM, OriginOddJobAction.GROOM, OriginOddJobAction.GROOM,
-            OriginOddJobAction.TACK, OriginOddJobAction.SADDLE, OriginOddJobAction.UNTIE,
-            OriginOddJobAction.UNTIE, OriginOddJobAction.ARRIVE, OriginOddJobAction.HANDOFF,
-        ) + List(9) { OriginOddJobAction.ARRIVE } + OriginOddJobAction.RETURN
-        for ((index, action) in actions.withIndex()) {
-            val current = (progress.act(player, action, index + 1L, zone = if (progress.current(player)!!.stage in setOf(OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_UNTIE_SECOND)) 0 else 1) as OriginOddJobStep.Changed).job
-            values += originOddJobProgress(current, index + 1L)
-            if (current.stage == OriginOddJobStage.YARD_LESSON_WALK && current.yard!!.routeIndex == 0) values.last() shouldBe 0.5f
+        var now = 0L
+        fun advance(action: OriginOddJobAction, expected: OriginOddJobStage, zone: Int = 1): OriginOddJobSession {
+            val current = progress.act(player, action, ++now, zone).shouldBeInstanceOf<OriginOddJobStep.Changed>().job
+            current.stage shouldBe expected
+            values += originOddJobProgress(current, now)
+            return current
         }
+        advance(OriginOddJobAction.TACK, OriginOddJobStage.YARD_LEAD)
+        advance(OriginOddJobAction.LEAD, OriginOddJobStage.YARD_LEAD_OUT)
+        advance(OriginOddJobAction.ARRIVE, OriginOddJobStage.YARD_TIE_FIRST)
+        advance(OriginOddJobAction.TIE, OriginOddJobStage.YARD_TIE_HORSE_FIRST)
+        advance(OriginOddJobAction.TIE, OriginOddJobStage.YARD_TIE_SECOND)
+        advance(OriginOddJobAction.TIE, OriginOddJobStage.YARD_TIE_HORSE_SECOND, zone = 0)
+        advance(OriginOddJobAction.TIE, OriginOddJobStage.YARD_BRUSH)
+        advance(OriginOddJobAction.BRUSH, OriginOddJobStage.YARD_GROOM)
+        repeat(2) { advance(OriginOddJobAction.GROOM, OriginOddJobStage.YARD_GROOM) }
+        advance(OriginOddJobAction.GROOM, OriginOddJobStage.YARD_BRUSH_RETURN)
+        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_PAD_RACK)
+        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_PAD)
+        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_TACK)
+        advance(OriginOddJobAction.TACK, OriginOddJobStage.YARD_SADDLE)
+        advance(OriginOddJobAction.SADDLE, OriginOddJobStage.YARD_GIRTH)
+        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_BRIDLE_RACK)
+        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_BRIDLE)
+        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_STIRRUP_LEFT)
+        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_STIRRUP_RIGHT, zone = 0)
+        advance(OriginOddJobAction.GEAR, OriginOddJobStage.YARD_UNTIE_FIRST)
+        advance(OriginOddJobAction.UNTIE, OriginOddJobStage.YARD_UNTIE_SECOND)
+        advance(OriginOddJobAction.UNTIE, OriginOddJobStage.YARD_DELIVER, zone = 0)
+        advance(OriginOddJobAction.ARRIVE, OriginOddJobStage.YARD_HANDOFF)
+        val walking = advance(OriginOddJobAction.HANDOFF, OriginOddJobStage.YARD_LESSON_WALK)
+        walking.yard!!.routeIndex shouldBe 0
+        walking.yard.tieMask shouldBe 0
+        values.last() shouldBe 0.72f
+        for (checkpoint in 1..9) {
+            val expected = if (checkpoint == 9) OriginOddJobStage.YARD_UNTACK_BRIDLE else OriginOddJobStage.YARD_LESSON_WALK
+            val before = values.last()
+            advance(OriginOddJobAction.ARRIVE, expected).yard!!.routeIndex shouldBe checkpoint
+            (values.last() > before && values.last() < 1f) shouldBe true
+        }
+        val afterRoute = requireNotNull(progress.current(player))
+        afterRoute.yard!!.borrowed shouldBe setOf(OriginYardGear.LEAD, OriginYardGear.PAD, OriginYardGear.SADDLE, OriginYardGear.BRIDLE)
+        progress.act(player, OriginOddJobAction.RETURN, ++now).shouldBeInstanceOf<OriginOddJobStep.Rejected>()
+        progress.current(player) shouldBe afterRoute
+        for (expected in listOf(OriginOddJobStage.YARD_BRIDLE_RETURN, OriginOddJobStage.YARD_UNTACK_SADDLE,
+                OriginOddJobStage.YARD_SADDLE_RETURN, OriginOddJobStage.YARD_UNTACK_PAD,
+                OriginOddJobStage.YARD_PAD_RETURN, OriginOddJobStage.YARD_LEAD_RETURN)) {
+            val current = advance(OriginOddJobAction.GEAR, expected)
+            current.yard!!.borrowed.isNotEmpty() shouldBe true
+            (values.last() < 1f) shouldBe true
+        }
+        val returned = advance(OriginOddJobAction.GEAR, OriginOddJobStage.RETURN)
+        returned.yard!!.borrowed shouldBe emptySet()
+        returned.yard.equipped shouldBe emptySet()
+        advance(OriginOddJobAction.RETURN, OriginOddJobStage.PAYOUT)
         values.zipWithNext().all { (before, after) -> after >= before } shouldBe true
+        values.all { it in 0f..1f } shouldBe true
         values.last() shouldBe 1f
     }
     "taking a full cleaning cart does not reset physical work progress" {

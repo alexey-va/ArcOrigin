@@ -36,7 +36,29 @@ class OriginYardCrossTiesTest : StringSpec({
             originYardTieMask(crossTieJob(OriginOddJobStage.YARD_TIE_HORSE_SECOND, 1 shl first, second)) shouldBe (1 shl first)
             originYardTieTargets(crossTieJob(OriginOddJobStage.YARD_UNTIE_FIRST, 3)) shouldBe listOf(0, 1)
             originYardTieTargets(crossTieJob(OriginOddJobStage.YARD_UNTIE_SECOND, 1 shl second)) shouldBe listOf(second)
-            OriginOddJobSupplies().requiresWorkpiece(pending) shouldBe true
+            OriginOddJobSupplies().requiresWorkpiece(pending) shouldBe false
+        }
+    }
+
+    "both cross ties stay attached through physical preparation and release before the route and gear returns" {
+        for (stage in listOf(OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_GROOM,
+                OriginOddJobStage.YARD_BRUSH_RETURN, OriginOddJobStage.YARD_PAD_RACK, OriginOddJobStage.YARD_PAD,
+                OriginOddJobStage.YARD_TACK, OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_GIRTH,
+                OriginOddJobStage.YARD_BRIDLE_RACK, OriginOddJobStage.YARD_BRIDLE,
+                OriginOddJobStage.YARD_STIRRUP_LEFT, OriginOddJobStage.YARD_STIRRUP_RIGHT)) {
+            val job = crossTieJob(stage, mask = 3)
+            originYardTieMask(job) shouldBe 3
+            originYardTieTargets(job) shouldBe emptyList()
+            OriginOddJobSupplies().requiresWorkpiece(job) shouldBe false
+        }
+        for (stage in listOf(OriginOddJobStage.YARD_DELIVER, OriginOddJobStage.YARD_LESSON_WALK,
+                OriginOddJobStage.YARD_UNTACK_BRIDLE, OriginOddJobStage.YARD_BRIDLE_RETURN,
+                OriginOddJobStage.YARD_UNTACK_SADDLE, OriginOddJobStage.YARD_SADDLE_RETURN,
+                OriginOddJobStage.YARD_UNTACK_PAD, OriginOddJobStage.YARD_PAD_RETURN,
+                OriginOddJobStage.YARD_LEAD_RETURN, OriginOddJobStage.RETURN)) {
+            val job = crossTieJob(stage)
+            originYardTieMask(job) shouldBe null
+            originYardTieTargets(job) shouldBe emptyList()
         }
     }
 
