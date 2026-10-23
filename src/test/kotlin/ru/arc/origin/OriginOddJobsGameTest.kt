@@ -417,9 +417,10 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.isWorking(f.player.uniqueId) shouldBe false
         }
     }
-    "stable orders retain their lease until physical tools and tack are returned before one credit" {
+    "stable orders credit each action and complete once after physical tools and tack are returned" {
         for (variant in listOf(OriginOddJobVariant.YARD_WATER, OriginOddJobVariant.YARD_RATIONS,
             OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE)) {
+            f.close(); f = OddJobsFixture()
             failOnUnsupportedMockBukkitOperation {
                 f.begin(440, variant)
                 val job = f.game.currentJob(f.player.uniqueId)!!
@@ -432,12 +433,12 @@ class OriginOddJobsGameTest : StringSpec({
                         f.requireStage(OriginOddJobStage.YARD_DRINKING, "water is in use")
                         f.game.tick(f.now); f.gearClick(left = true)
                         f.game.currentJob(f.player.uniqueId) shouldBe null
-                        f.payments.count { it.id == job.id } shouldBe 1
+                        f.payments.size shouldBe 4
                     }
                     OriginOddJobVariant.YARD_RATIONS -> {
                         f.stroke(OriginOddJobStationId.HAY); f.clickNpc(requireNotNull(job.yard).animalId, sneaking = false)
                         f.game.currentJob(f.player.uniqueId) shouldBe null
-                        f.payments.count { it.id == job.id } shouldBe 1
+                        f.payments.size shouldBe 2
                     }
                     OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE -> {
                         f.tieBoth(); f.stroke(OriginOddJobStationId.BRUSH)
@@ -452,7 +453,7 @@ class OriginOddJobsGameTest : StringSpec({
                         f.requireStage(OriginOddJobStage.YARD_HANDED, "rider route owns this order")
                         f.game.tick(f.now)
                         f.returnTack()
-                        f.payments.count { it.id == job.id } shouldBe 1
+                        f.payments.size shouldBe 29
                     }
                     else -> error("unexpected stable variant")
                 }
@@ -460,17 +461,23 @@ class OriginOddJobsGameTest : StringSpec({
                 if (variant in setOf(OriginOddJobVariant.YARD_WATER, OriginOddJobVariant.YARD_RATIONS)) verify(exactly = 0) { f.glow.setEntityGlowingFor(employer, f.player, true) }
                 val screens = f.screens.size
                 f.game.tick(f.now); f.game.tick(f.now)
-                val payment = f.payments.single { it.id == job.id }
-                payment.kind shouldBe OriginSideJobKind.MOUNTYARD
+                f.payments.map { it.id }.distinct().size shouldBe f.payments.size
+                f.payments.all { it.id != job.id && it.kind == OriginSideJobKind.MOUNTYARD } shouldBe true
+                f.completedOrders shouldBe emptyList()
                 f.game.currentJob(f.player.uniqueId) shouldBe null
                 f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
-                payment.callback(SideJobRewardOutcome.CREDITED); payment.callback(SideJobRewardOutcome.CREDITED)
+                f.payments.toList().forEach { it.callback(SideJobRewardOutcome.CREDITED); it.callback(SideJobRewardOutcome.CREDITED) }
+                f.completedOrders shouldBe listOf(job.id)
                 f.game.tick(f.now); f.scheduler.executeImmediate()
                 (f.game.currentJob(f.player.uniqueId)!!.id != job.id) shouldBe true
                 f.screens.size shouldBe screens
-                f.actionBars().count { "Поручение принято" in it } shouldBe 1
                 f.open(440, sneaking = false); f.press("odd_job_finish")
                 f.game.isWorking(f.player.uniqueId) shouldBe false
+                f.earned.values.single().amount shouldBe when (variant) {
+                    OriginOddJobVariant.YARD_WATER -> 80L
+                    OriginOddJobVariant.YARD_RATIONS -> 40L
+                    else -> 580L
+                }
             }
         }
     }
@@ -487,7 +494,7 @@ class OriginOddJobsGameTest : StringSpec({
             f.requireStage(OriginOddJobStage.YARD_HANDOFF, "horse reaches mounting place")
             f.game.tick(f.now); f.game.tick(f.now)
             f.requireStage(OriginOddJobStage.YARD_HANDOFF, "lesson must wait for explicit NPC click")
-            f.payments shouldBe emptyList()
+            f.payments.size shouldBe 22
             f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed.contains(OriginYardGear.LEAD) shouldBe true
             f.clickNpc(requireNotNull(f.config.yardRider).npcId, sneaking = false)
             f.requireStage(OriginOddJobStage.YARD_LESSON_WALK, "mounted lesson begins")
@@ -495,14 +502,17 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.currentJob(f.player.uniqueId)!!.yard!!.routeIndex shouldBe 0
             f.lessonArrival = true
             repeat(3) { index ->
-                f.payments shouldBe emptyList()
+                f.payments.size shouldBe 23
                 f.game.currentJob(f.player.uniqueId)!!.yard!!.routeIndex shouldBe index
                 f.game.tick(f.now)
             }
             f.returnTack()
-            f.payments.count { it.id == job.id } shouldBe 1
+            f.payments.size shouldBe 30
             f.game.tick(f.now); f.game.tick(f.now)
-            f.payments.count { it.id == job.id } shouldBe 1
+            f.payments.size shouldBe 30
+            f.payments.toList().forEach { it.callback(SideJobRewardOutcome.CREDITED) }
+            f.completedOrders shouldBe listOf(job.id)
+            f.earned.values.single().amount shouldBe 600L
         }
     }
     "cleaning uses shovel and cart stages and accepts only the returned empty cart" {
@@ -524,29 +534,32 @@ class OriginOddJobsGameTest : StringSpec({
                 f.strokeCleaning(left = index % 2 != 0)
                 f.game.currentJob(f.player.uniqueId)!!.cleaning!!.collected shouldBe index + 1
             }
-            f.payments shouldBe emptyList()
+            f.payments.size shouldBe 9
             f.strokeCleaning()
             f.requireStage(OriginOddJobStage.CLEAN_PUSH, "loaded cart attached")
             f.cleaningArrival = true; f.game.tick(f.now); f.cleaningArrival = false
             f.requireStage(OriginOddJobStage.CLEAN_UNLOAD, "cart at unloading pad")
             f.strokeCleaning()
             f.requireStage(OriginOddJobStage.CLEAN_RETURN, "empty cart still needs return")
-            f.payments shouldBe emptyList()
+            f.payments.size shouldBe 11
             f.game.tick(f.now)
             f.requireStage(OriginOddJobStage.CLEAN_RETURN, "waiting until cart is actually home")
             f.cleaningArrival = true; f.game.tick(f.now); f.cleaningArrival = false
             f.requireStage(OriginOddJobStage.CLEAN_PARK, "home arrival needs parking")
-            f.payments shouldBe emptyList()
+            f.payments.size shouldBe 11
             f.strokeCleaning(); f.game.tick(f.now)
             f.requireStage(OriginOddJobStage.CLEAN_TOOL_RETURN, "parked cart still holds the shovel loan")
-            f.payments shouldBe emptyList()
+            f.payments.size shouldBe 12
             f.gearClick(left = true); f.game.tick(f.now)
             f.game.currentJob(f.player.uniqueId) shouldBe null
-            f.payments.count { it.id == job.id } shouldBe 1
+            f.payments.size shouldBe 13
             f.released shouldBe f.leases
             verify { f.cleaning.clear(f.player.uniqueId, job.id) }
             f.game.tick(f.now)
-            f.payments.count { it.id == job.id } shouldBe 1
+            f.payments.size shouldBe 13
+            f.payments.toList().forEach { it.callback(SideJobRewardOutcome.CREDITED) }
+            f.completedOrders shouldBe listOf(job.id)
+            f.earned.values.single().amount shouldBe 260L
         }
     }
     "revoking a cleaning scene removes work supplies and cannot accept unfinished manure" {
@@ -556,7 +569,8 @@ class OriginOddJobsGameTest : StringSpec({
             f.stroke(OriginOddJobStationId.BRUSH); f.strokeCleaning(); f.strokeCleaning(); f.strokeCleaning(left = true)
             f.worksiteRevocations.getValue(f.leases.single().token).invoke()
             f.game.currentJob(f.player.uniqueId) shouldBe null
-            f.payments shouldBe emptyList()
+            f.payments.size shouldBe 4
+            f.completedOrders shouldBe emptyList()
             f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
             verify { f.cleaning.clear(f.player.uniqueId, job.id) }
             f.released shouldBe f.leases
@@ -575,7 +589,8 @@ class OriginOddJobsGameTest : StringSpec({
             every { receiver.location } returns Location(f.world, 30.0, 70.0, 0.0)
             f.game.tick(f.now)
             f.game.currentJob(f.player.uniqueId) shouldBe null
-            f.payments shouldBe emptyList()
+            f.payments.size shouldBe 22
+            f.completedOrders shouldBe emptyList()
             f.released shouldBe f.leases
         }
     }
@@ -595,9 +610,10 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.tick(f.now); f.gearClick()
             f.game.currentJob(f.player.uniqueId) shouldBe null
             f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
-            f.payments.single().kind shouldBe OriginSideJobKind.MOUNTYARD
+            f.payments.size shouldBe 4
+            f.payments.all { it.kind == OriginSideJobKind.MOUNTYARD } shouldBe true
             f.game.tick(f.now)
-            f.payments.size shouldBe 1
+            f.payments.size shouldBe 4
             f.screens.size shouldBe screens
         }
     }
@@ -607,15 +623,15 @@ class OriginOddJobsGameTest : StringSpec({
             val first = f.game.currentJob(f.player.uniqueId)!!
             f.stroke(OriginOddJobStationId.WELL); f.stroke(OriginOddJobStationId.WATER)
             f.clickNpc(first.yard!!.animalId, sneaking = false)
-            f.payments shouldBe emptyList()
+            f.payments.size shouldBe 3
             f.game.tick(f.now); f.gearClick(left = true)
             f.game.currentJob(f.player.uniqueId) shouldBe null
-            f.payments.single().id shouldBe first.id
-            f.payments.single().callback(SideJobRewardOutcome.CREDITED)
+            f.payments.size shouldBe 4
+            f.payments.toList().forEach { it.callback(SideJobRewardOutcome.CREDITED) }
             f.game.tick(f.now); f.scheduler.executeImmediate()
             val next = f.game.currentJob(f.player.uniqueId)!!
             (next.yard!!.animalId != first.yard.animalId) shouldBe true
-            f.payments.count { it.id == first.id } shouldBe 1
+            f.completedOrders shouldBe listOf(first.id)
         }
     }
     "feeding targets the assigned animal rather than the old fixed feed station" {
@@ -628,7 +644,9 @@ class OriginOddJobsGameTest : StringSpec({
             f.clickNpc(if (first.yard!!.animalId == 422) 423 else 422, sneaking = false)
             f.requireStage(OriginOddJobStage.YARD_FEED, "only assigned animal accepts hay")
             f.clickNpc(first.yard.animalId, sneaking = false)
-            f.payments.single().id shouldBe first.id
+            f.payments.size shouldBe 2
+            f.payments.map { it.id }.distinct().size shouldBe 2
+            f.payments.none { it.id == first.id } shouldBe true
         }
     }
     "yard pickup preserves every personal hotbar slot without adding an inventory token" {
@@ -641,7 +659,8 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.HAY)
             f.clickNpc(f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId, sneaking = false)
             f.game.currentJob(f.player.uniqueId) shouldBe null
-            f.payments.single().kind shouldBe OriginSideJobKind.MOUNTYARD
+            f.payments.size shouldBe 2
+            f.payments.all { it.kind == OriginSideJobKind.MOUNTYARD } shouldBe true
             verify { f.yard.sync(f.player, match { it.stage == OriginOddJobStage.RETURN }, any(), any()) }
             f.game.close()
             f.player.inventory.contents.filterNotNull().filter { it.type == Material.DIAMOND }.sumOf { it.amount } shouldBe 45
@@ -743,7 +762,9 @@ class OriginOddJobsGameTest : StringSpec({
         f.gearClick(left = false, elapsed = 0)
         f.requireStage(OriginOddJobStage.YARD_PAD_RACK, "duplicate cannot immediately take the next loan")
         f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.LEAD)
-        f.payments shouldBe emptyList()
+        f.payments.size shouldBe 11
+        f.payments.map { it.id }.distinct().size shouldBe 11
+        f.completedOrders shouldBe emptyList()
     }
     "each stirrup requires its physical side instead of clicking through the horse" {
         f.begin(440, OriginOddJobVariant.YARD_GROOM)
@@ -759,7 +780,8 @@ class OriginOddJobsGameTest : StringSpec({
             f.gearClick(left = left)
         }
         f.requireStage(OriginOddJobStage.YARD_UNTIE_FIRST, "both sides adjusted")
-        f.payments shouldBe emptyList()
+        f.payments.size shouldBe 20
+        f.completedOrders shouldBe emptyList()
     }
     "only the named animal receives grooming and the same target is part of the scene lease" {
         failOnUnsupportedMockBukkitOperation {
@@ -773,7 +795,8 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.currentJob(f.player.uniqueId)!!.yard!!.brushStrokes shouldBe 0
             repeat(ODD_JOB_GROOM_STROKES) { f.clickNpc(target.animalId, sneaking = false) }
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_BRUSH_RETURN
-            f.payments shouldBe emptyList()
+            f.payments.size shouldBe 10
+            f.completedOrders shouldBe emptyList()
         }
     }
     "the same animal target reasserts viewer glow after an entity tracking reset" {
@@ -829,7 +852,9 @@ class OriginOddJobsGameTest : StringSpec({
         }
     }
     "cross-ties accept either first wall and require the assigned halter after each wall" {
-        for (firstSide in 0..1) failOnUnsupportedMockBukkitOperation {
+        for (firstSide in 0..1) {
+            f.close(); f = OddJobsFixture()
+            failOnUnsupportedMockBukkitOperation {
             f.begin(440, OriginOddJobVariant.YARD_GROOM)
             f.leadToTies()
             val animal = f.game.currentJob(f.player.uniqueId)!!.yard!!.animalId
@@ -849,9 +874,11 @@ class OriginOddJobsGameTest : StringSpec({
             every { f.yard.readyForCare(any(), any()) } returns false
             f.clickNpc(animal, sneaking = false)
             f.game.currentJob(f.player.uniqueId)!!.yard!!.brushStrokes shouldBe 0
-            f.payments shouldBe emptyList()
+            f.payments.size shouldBe 7
+            f.completedOrders shouldBe emptyList()
             every { f.yard.readyForCare(any(), any()) } returns true
             f.game.stop(f.player.uniqueId, "test")
+            }
         }
     }
     "cross ties use the authoritative lead loan even with an empty personal inventory" {
@@ -863,10 +890,11 @@ class OriginOddJobsGameTest : StringSpec({
             f.game.currentJob(f.player.uniqueId)!!.stage shouldBe OriginOddJobStage.YARD_TIE_HORSE_FIRST
             f.game.currentJob(f.player.uniqueId)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.LEAD)
             f.player.inventory.contents.filterNotNull().none { it.type == Material.STRUCTURE_VOID } shouldBe true
-            f.payments shouldBe emptyList()
+            f.payments.size shouldBe 3
+            f.completedOrders shouldBe emptyList()
         }
     }
-    "death removes the stable service item and releases its actor without paying" {
+    "death removes stable supplies and retains already earned action credit without completing the order" {
         failOnUnsupportedMockBukkitOperation {
             f.begin(440, OriginOddJobVariant.YARD_WATER)
             f.stroke(OriginOddJobStationId.WELL)
@@ -879,7 +907,10 @@ class OriginOddJobsGameTest : StringSpec({
             collectedDrops shouldBe emptyList()
             f.game.currentJob(f.player.uniqueId) shouldBe null
             verify { f.yard.clear(f.player.uniqueId, job.id, any()) }
-            f.payments shouldBe emptyList()
+            f.payments.size shouldBe 1
+            f.payments.single().callback(SideJobRewardOutcome.CREDITED)
+            f.earned.values.single().amount shouldBe 20L
+            f.completedOrders shouldBe emptyList()
         }
     }
     "teleport and reload terminate stable care and close the animal owner" {
@@ -969,6 +1000,7 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
     val screens = mutableListOf<PaperDialogScreen>()
     var dismiss: () -> Unit = {}
     val payments = mutableListOf<Payment>()
+    val completedOrders = mutableListOf<UUID>()
     val settlements = mutableListOf<UUID>()
     val earned = mutableMapOf<UUID, SideJobShiftEarnings>()
     val leases = mutableListOf<OriginSceneLease>()
@@ -1046,9 +1078,7 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
         every { OriginServices.viewerGlow } returns glow
         every { rewards.amount } returns 20
         every { rewards.status(any(), any()) } answers { nextStatus }
-        every { rewards.credit(any(), any(), any(), any(), any(), any()) } answers {
-            val kind = firstArg<OriginSideJobKind>(); val shift = thirdArg<UUID>(); val order = arg<UUID>(3)
-            val quality = arg<Int>(4); val callback = arg<(SideJobRewardResult) -> Unit>(5)
+        fun recordPayment(kind: OriginSideJobKind, shift: UUID, order: UUID, quality: Int, callback: (SideJobRewardResult) -> Unit) {
             payments += Payment(kind, order) { result ->
                 if (result.outcome == SideJobRewardOutcome.CREDITED) {
                     val old = earned[shift]
@@ -1058,11 +1088,19 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
                 callback(result)
             }
         }
+        every { rewards.credit(any(), any(), any(), any(), any(), any()) } answers {
+            recordPayment(firstArg(), thirdArg(), arg(3), arg(4), arg(5))
+        }
+        every { rewards.creditWorkUnit(any(), any(), any(), any(), any(), any()) } answers {
+            recordPayment(firstArg(), thirdArg(), arg(3), arg(4), arg(5))
+        }
+        every { rewards.orderCompleted(any(), any(), any()) } answers { completedOrders += thirdArg<UUID>() }
         every { rewards.settle(any(), any(), any()) } answers {
             val shift = secondArg<UUID>(); settlements += shift
             thirdArg<(SideJobRewardResult) -> Unit>()(SideJobRewardResult(SideJobRewardOutcome.PAID, earned[shift]))
         }
         every { visuals.target(any(), any(), any(), any(), any()) } answers { target = arg<Location?>(2)?.clone() }
+        every { visuals.gearTarget(any(), any(), any(), any()) } answers { target = arg<Location?>(2)?.clone() }
         every { visuals.wallTarget(any(), any(), any(), any()) } answers { target = arg<Location>(2).clone() }
         every { visuals.destination(any(), any(), any(), any()) } answers { target = arg<Location>(2).clone() }
         every { visuals.forgeProfile(any(), any(), any(), any(), any()) } answers { forgeWork = arg(3) }
@@ -1074,6 +1112,7 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
                 every { isValid } returns true
                 every { type } returns if (id in config.yardAnimalIds) org.bukkit.entity.EntityType.HORSE else org.bukkit.entity.EntityType.VILLAGER
                 every { height } returns 1.6
+                every { getAttribute(org.bukkit.attribute.Attribute.SCALE) } returns mockk { every { value } returns 1.0 }
                 every { hasLineOfSight(any<Entity>()) } returns true
             }
             actors[id] = mockk<NPC> {
@@ -1176,6 +1215,10 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
             owns = { leaseValid && it !in released }, release = { released += it; worksiteRevocations.remove(it.token) }, otherWork = { otherWork }, clock = { now },
             resolveStations = { resolveAttempts++; resolvedStations }, dispatch = { kind ->
                 run {
+                    if (kind == OriginOddJobKind.MOUNTYARD) {
+                        return@run (7..500).asSequence().map { OriginOddJobDispatch(kind, kotlin.random.Random(it)) }
+                            .first { desiredVariant == null || it.nextAvailable(OriginWorkShiftPhase.OPENING) { true }?.variant == desiredVariant }
+                    }
                     val board = OriginOddJobDispatch(kind, kotlin.random.Random(7))
                     repeat(36) {
                         val shown = board.offers(OriginWorkShiftPhase.OPENING)

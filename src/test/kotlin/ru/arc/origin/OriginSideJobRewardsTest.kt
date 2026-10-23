@@ -20,6 +20,42 @@ import java.util.logging.Level
 import java.util.logging.Logger
 
 class OriginSideJobRewardsTest : StringSpec({
+    "physical-action receipts retain twenty coins each without advancing whole-order quests" {
+        SideJobRewardFixture().use { f ->
+            val unit = UUID.randomUUID()
+            f.workUnit(unit); f.ackCredit()
+            f.workUnit(unit); f.scheduler.executeImmediate()
+            f.workUnit(); f.ackCredit()
+            f.record()!!.count shouldBe 2
+            f.record()!!.earnings!!.amount shouldBe 40L
+            f.questEvents shouldBe emptyList()
+            f.amounts shouldBe emptyList()
+            val order = UUID.randomUUID()
+            f.rewards.orderCompleted(OriginSideJobKind.MOUNTYARD, f.playerId, order)
+            f.questEvents shouldBe listOf("$order:${f.playerId}" to "sidejob.complete:mountyard")
+            f.settle(); f.finishPayment()
+            f.amounts shouldBe listOf(40.0)
+        }
+    }
+    "settlement retries a lost physical-action acknowledgement without emitting an order quest" {
+        SideJobRewardFixture().use { f ->
+            f.workUnit(); f.redis.failWrite(applyFirst = true); f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.RETRY
+            f.settle(); f.scheduler.executeImmediate(); f.finishPayment()
+            f.amounts shouldBe listOf(20.0)
+            f.questEvents shouldBe emptyList()
+        }
+    }
+    "stable action credits share the existing hundred-receipt daily quota with other jobs" {
+        SideJobRewardFixture().use { f ->
+            repeat(100) { f.workUnit(); f.ackCredit() }
+            f.workUnit(); f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.DAILY_LIMIT
+            f.record()!!.count shouldBe 100
+            f.record()!!.earnings!!.amount shouldBe 2_000L
+            f.questEvents shouldBe emptyList()
+        }
+    }
     "quest credit follows the durable completed order and quota rejection produces no quest event" {
         SideJobRewardFixture(OriginSideJobRewardPolicy(dailyOrderLimit = 1)).use { f ->
             val id = UUID.randomUUID()
@@ -347,6 +383,7 @@ private class SideJobRewardFixture(val policy: OriginSideJobRewardPolicy = Origi
             CompletableFuture.completedFuture(ExternalProgressResult.APPLIED)
         } }, Logger.getAnonymousLogger()))
     fun credit(requestId: UUID = UUID.randomUUID()) = rewards.credit(OriginSideJobKind.FORGE, playerId, shiftId, requestId, 80, results::add)
+    fun workUnit(requestId: UUID = UUID.randomUUID()) = rewards.creditWorkUnit(OriginSideJobKind.MOUNTYARD, playerId, shiftId, requestId, 80, results::add)
     fun settle() = rewards.settle(playerId, shiftId, results::add)
     fun ackCredit() { redis.completeWrite(); scheduler.executeImmediate() }
     fun finishPayment() { redis.completeWrite(); scheduler.executeImmediate(); redis.completeWrite(); scheduler.executeImmediate() }

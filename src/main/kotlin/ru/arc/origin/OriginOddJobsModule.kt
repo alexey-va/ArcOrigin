@@ -194,8 +194,11 @@ internal class OriginOddJobsGame(
         var settling: Boolean = false, var assigningSince: Long? = null,
         var lastYardAnimal: Int? = null, var assignmentFailure: String = "no-available-offer", val unavailableOffers: MutableSet<UUID> = mutableSetOf())
     private data class Accepted(val job: OriginOddJobSession, val shiftId: UUID, val quality: Int, var nextAttempt: Long = 0, var inFlight: Boolean = false)
+    private data class AcceptedWorkUnit(val playerId: UUID, val requestId: UUID, val jobId: UUID,
+        val shiftId: UUID, val quality: Int, var nextAttempt: Long = 0, var inFlight: Boolean = false)
     private val shifts = mutableMapOf<UUID, Shift>()
     private val accepted = mutableMapOf<UUID, Accepted>()
+    private val workUnits = mutableMapOf<UUID, AcceptedWorkUnit>()
     private val glowing = mutableMapOf<UUID, LivingEntity>()
     private val bars = mutableMapOf<UUID, BossBar>()
     private val supplies = OriginOddJobSupplies { config.line(it) }
@@ -515,7 +518,7 @@ internal class OriginOddJobsGame(
 
     private fun nextOrder(player: Player, shift: Shift) {
         val id = player.uniqueId; val now = clock()
-        if (closed || shifts[id] !== shift || id in accepted || progress.current(id) != null) return
+        if (closed || shifts[id] !== shift || id in accepted || pendingWork(id) || progress.current(id) != null) return
         if (!shift.score.acceptsOrders(now)) { finishIfReady(id, now); return }
         if (shift.assigningSince == null) shift.assigningSince = now
         if (assignmentExpired(player, shift, now) || id in requests || (retryAt[id] ?: 0) > now) return
@@ -802,13 +805,20 @@ internal class OriginOddJobsGame(
                 if (step.job.kind == OriginOddJobKind.MOUNTYARD && step.job.variant != OriginOddJobVariant.YARD_CLEANUP && !syncYard(player, step.job)) {
                     cancelOrder(player.uniqueId, "yard-route-unavailable"); feedback(player, "mountyard.route-unavailable"); return
                 }
+                if (!supplies.sync(player, step.job)) {
+                    stop(player.uniqueId, "workpiece-missing"); feedback(player, "unavailable"); return
+                }
+                step.workUnitId?.let { requestId ->
+                    val shift = shifts[player.uniqueId] ?: return
+                    val work = workUnits.getOrPut(requestId) { AcceptedWorkUnit(player.uniqueId, requestId, step.job.id,
+                        shift.score.id, step.job.finalQuality(clock())) }
+                    payWorkUnit(work)
+                }
+                if (progress.current(player.uniqueId)?.id != step.job.id) return
                 if (step.job.kind == OriginOddJobKind.MOUNTYARD && step.job.stage == OriginOddJobStage.RETURN &&
                     (step.job.variant in setOf(OriginOddJobVariant.YARD_RATIONS, OriginOddJobVariant.YARD_WATER) || step.job.variant.isYardPreparation())) {
                     apply(player, progress.act(player.uniqueId, OriginOddJobAction.RETURN, clock()))
                     return
-                }
-                if (!supplies.sync(player, step.job)) {
-                    stop(player.uniqueId, "workpiece-missing"); feedback(player, "unavailable"); return
                 }
                 if (!render(player, step.job, clock())) return
                 guide(player, step.job, clock(), true)
@@ -839,6 +849,15 @@ internal class OriginOddJobsGame(
             Bukkit.getPlayer(id)?.takeIf { it.isOnline }?.let { this@OriginOddJobsGame.feedback(it, key, *values) }
         }
         if (closed || accepted[id] !== result || result.inFlight || clock() < result.nextAttempt) return
+        if (result.job.kind == OriginOddJobKind.MOUNTYARD) {
+            if (workUnits.values.any { it.playerId == id && it.jobId == result.job.id }) return
+            accepted.remove(id, result)
+            rewards.orderCompleted(result.job.kind.rewardKind, id, result.job.id)
+            info("ORIGIN_ODD_JOBS phase=FINISHED player={} request={} kind={} variant={} actions={} quality={}",
+                id, result.job.id, result.job.kind, result.job.variant, result.job.completedActions, result.quality)
+            finishIfReady(id, clock())
+            return
+        }
         result.inFlight = true; feedback("paying")
         rewards.credit(result.job.kind.rewardKind, id, result.shiftId, result.job.id, result.quality) onPaid@ { payment ->
             if (accepted[id] !== result) return@onPaid
@@ -870,6 +889,39 @@ internal class OriginOddJobsGame(
         }
     }
 
+    private fun pendingWork(playerId: UUID): Boolean = workUnits.values.any { it.playerId == playerId }
+
+    /** Earned physical work survives the later cancellation or completion of its order. */
+    private fun payWorkUnit(work: AcceptedWorkUnit) {
+        if (closed || workUnits[work.requestId] !== work || work.inFlight || clock() < work.nextAttempt) return
+        work.inFlight = true
+        rewards.creditWorkUnit(OriginSideJobKind.MOUNTYARD, work.playerId, work.shiftId, work.requestId, work.quality) { payment ->
+            if (workUnits[work.requestId] !== work) return@creditWorkUnit
+            work.inFlight = false
+            if (payment.outcome == SideJobRewardOutcome.RETRY) {
+                work.nextAttempt = clock() + 1_000
+                return@creditWorkUnit
+            }
+            workUnits.remove(work.requestId, work)
+            val shift = shifts[work.playerId]?.takeIf { it.score.id == work.shiftId }
+            if (payment.outcome == SideJobRewardOutcome.CREDITED) {
+                if (shift != null) shift.score = shift.score.record(work.requestId, rewards.amount, work.quality)
+            } else {
+                if (shift != null) shift.score = shift.score.requestFinish()
+                cancelOrder(work.playerId, "work-credit-unavailable")
+                Bukkit.getPlayer(work.playerId)?.takeIf { it.isOnline }?.let { player -> feedback(player, when (payment.outcome) {
+                    SideJobRewardOutcome.DAILY_LIMIT -> "daily-limit"
+                    SideJobRewardOutcome.UNCONFIRMED -> "unconfirmed"
+                    else -> "cash-unavailable"
+                }) }
+            }
+            info("ORIGIN_ODD_JOBS phase=WORK_UNIT_CREDITED player={} request={} order={} outcome={}",
+                work.playerId, work.requestId, work.jobId, payment.outcome)
+            accepted[work.playerId]?.let { pay(work.playerId, it) }
+            finishIfReady(work.playerId, clock())
+        }
+    }
+
     private fun finishRequested(player: Player) {
         val shift = shifts[player.uniqueId] ?: return
         shift.score = shift.score.requestFinish()
@@ -880,7 +932,7 @@ internal class OriginOddJobsGame(
     private fun finishIfReady(id: UUID, now: Long) {
         val shift = shifts[id] ?: return
         if (now >= shift.score.hardStopAt) cancelOrder(id, "expired")
-        if (id in accepted || progress.current(id) != null || !shift.score.shouldFinish(now, false)) return
+        if (id in accepted || pendingWork(id) || progress.current(id) != null || !shift.score.shouldFinish(now, false)) return
         if (shift.settling) return
         shift.settling = true
         Bukkit.getPlayer(id)?.takeIf { it.isOnline }?.let { feedback(it, "settling") }
@@ -958,6 +1010,7 @@ internal class OriginOddJobsGame(
     }
 
     fun tick(now: Long) {
+        workUnits.values.toList().forEach(::payWorkUnit)
         accepted.toList().forEach { (id, result) -> pay(id, result) }
         shifts.toList().forEach { (id, shift) ->
             val player = Bukkit.getPlayer(id); val job = progress.current(id)
@@ -1101,15 +1154,15 @@ internal class OriginOddJobsGame(
         else if (stationId == OriginOddJobStationId.HAUL_DELIVERY) visuals.destination(player, job.id,
             stations.getValue(stationId).point.clone().add(0.0, 0.05, 0.0), config.line("targets.haul-delivery"))
         else if (tieTarget != null) visuals.wallTarget(player, job.id, tieTarget, caption)
-        else if (originYardGearStep(job.stage) != null) visuals.target(player, job.id, equipment.target(job),
-            originOddJobGuide(config, job, now), outline = false)
+        else if (originYardGearStep(job.stage) != null) visuals.gearTarget(player, job.id, equipment.target(job),
+            config.line("gear-hints.${job.stage.name.lowercase()}"))
         else visuals.target(player, job.id, cartTarget ?: stationId?.let { id -> stations.getValue(id).let { station ->
             if (workpieceTarget) station.point else station.block.location.clone().add(0.5, 0.5, 0.5)
         } }, caption, outline = !workpieceTarget && cartTarget == null)
         visuals.glowWorkpiece(player, job.id, originOddJobWorkpieceGlows(job, now))
         if (stationId == null) targets.remove(player.uniqueId) else targets[player.uniqueId] = stationId
         val npcId = when (job.stage) {
-            OriginOddJobStage.YARD_GROOM, OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_LEAD,
+            OriginOddJobStage.YARD_GROOM, OriginOddJobStage.YARD_PAD, OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_BRIDLE, OriginOddJobStage.YARD_LEAD,
             OriginOddJobStage.YARD_LEAD_OUT, OriginOddJobStage.YARD_DELIVER, OriginOddJobStage.YARD_LESSON_WALK, OriginOddJobStage.YARD_WATER, OriginOddJobStage.YARD_FEED,
             OriginOddJobStage.YARD_TIE_HORSE_FIRST, OriginOddJobStage.YARD_TIE_HORSE_SECOND -> job.yard?.animalId
             OriginOddJobStage.YARD_HANDOFF -> config.yardRider?.npcId
@@ -1265,11 +1318,15 @@ internal class OriginOddJobsGame(
     }
     override fun close() {
         accepted.forEach { (id, result) ->
-            if (!result.inFlight) rewards.credit(result.job.kind.rewardKind, id, result.shiftId, result.job.id, result.quality) {}
+            if (result.job.kind == OriginOddJobKind.MOUNTYARD) rewards.orderCompleted(result.job.kind.rewardKind, id, result.job.id)
+            else if (!result.inFlight) rewards.credit(result.job.kind.rewardKind, id, result.shiftId, result.job.id, result.quality) {}
+        }
+        workUnits.values.filterNot { it.inFlight }.forEach { work ->
+            rewards.creditWorkUnit(OriginSideJobKind.MOUNTYARD, work.playerId, work.shiftId, work.requestId, work.quality) {}
         }
         closed = true; tasks.close(); requests.clear()
         shifts.keys.toList().forEach { stop(it, "reload") }
-        accepted.clear(); visuals.close(); forge.close(); cleaning.close(); equipment.close(); yard.close(); rewards.close(); lastClicks.clear(); noticeUntil.clear(); retryAt.clear()
+        accepted.clear(); workUnits.clear(); visuals.close(); forge.close(); cleaning.close(); equipment.close(); yard.close(); rewards.close(); lastClicks.clear(); noticeUntil.clear(); retryAt.clear()
     }
 }
 

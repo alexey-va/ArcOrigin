@@ -271,24 +271,25 @@ internal fun originOddJobsScreen(
     openShop: (() -> Unit)? = null,
 ): PaperDialogScreen {
     val prefix = venue.kind.key()
+    val yard = venue.kind == OriginOddJobKind.MOUNTYARD
     val gate = originOddJobStatusKey(status, now)
     fun button(id: String, key: String, color: Int, action: () -> Unit) = PaperDialogButton(
         PaperDialogActionId.of(id), waiterText(config.line(key), TextColor.color(color)),
         width = 155, closeDialogBeforeAction = true, onClick = { action() })
     val body = buildList {
         if (shift == null) {
-            add(PaperDialogBody(waiterText(config.line("$prefix.introduction")), 310))
+            add(PaperDialogBody(waiterText(config.line("$prefix.introduction", "amount" to amount)), 310))
             add(DialogTables.body(buildList {
                 add(waiterText(config.line("table.duration")) to waiterText(config.line("table.duration-value", "minutes" to config.shiftMillis / 60_000)))
-                add(waiterText(config.line("table.pay")) to waiterText(config.line("table.pay-value", "amount" to amount), TextColor.color(0x9BD48D)))
-                if (status != null) add(waiterText(config.line("table.quota")) to waiterText(config.line("table.quota-value", "count" to status.remainingOrders)))
+                add(waiterText(config.line(if(yard) "table.yard-pay" else "table.pay")) to waiterText(config.line("table.pay-value", "amount" to amount), TextColor.color(0x9BD48D)))
+                if (status != null) add(waiterText(config.line("table.quota")) to waiterText(config.line(if(yard) "table.yard-quota-value" else "table.quota-value", "count" to status.remainingOrders)))
             }, null, DialogTables.Frame.EPIC, 310, DialogTables.Columns.VALUE_WIDE))
             val reason = notice ?: gate?.let { config.line(it, "seconds" to waiterSeconds((status?.nextAtMillis ?: now) - now)) }
             reason?.let { add(PaperDialogBody(waiterText(it), 310)) }
         } else {
             add(DialogTables.body(listOf(
                 waiterText(config.line("table.time-left")) to waiterText(originOddJobClock(shift.closesAt - now)),
-                waiterText(config.line("table.completed")) to waiterText(config.line("table.completed-value", "done" to shift.completedOrders, "amount" to shift.earnedAmount), TextColor.color(0x9BD48D)),
+                waiterText(config.line(if(yard) "table.yard-completed" else "table.completed")) to waiterText(config.line("table.completed-value", "done" to shift.completedOrders, "amount" to shift.earnedAmount), TextColor.color(0x9BD48D)),
                 waiterText(config.line("table.active")) to waiterText(if (job == null) "0" else "1")),
                 null, DialogTables.Frame.EPIC, 310, DialogTables.Columns.VALUE_WIDE))
             add(PaperDialogBody(waiterText(job?.let { originOddJobGuide(config, it, now) }

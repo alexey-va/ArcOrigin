@@ -143,9 +143,10 @@ internal class OriginYardCrossTies(
     }
 
     private fun cheek(horse: Location, height: Double, side: Int): Location {
-        val forward = horse.direction.setY(0).normalize()
-        val sideways = org.bukkit.util.Vector(forward.z, 0.0, -forward.x).multiply(if (side == 0) 0.2 else -0.2)
-        return horse.clone().add(forward.multiply(0.8)).add(0.0, height * 0.82, 0.0).add(sideways)
+        val scale=(height/1.6).toFloat()
+        val pose=originYardGearHorsePose(OriginYardGear.BRIDLE,horse,horse.yaw,scale,horse.yaw,horse.pitch)
+        val cheek=pose.rotation.transform(Vector3f(if(side==0) -.18f else .18f,-.18f,-.425f).mul(scale))
+        return pose.at.add(cheek.x.toDouble(),cheek.y.toDouble(),cheek.z.toDouble())
     }
 
     fun setStage(job: OriginOddJobSession, horse: Location, height: Double) {

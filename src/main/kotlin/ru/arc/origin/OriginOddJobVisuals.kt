@@ -211,6 +211,7 @@ internal class OriginOddJobVisuals(
         var targetOutline = true
         var groundTarget = false
         var wallTarget = false
+        var gearTarget = false
     }
 
     private var owner: PaperPacketDisplays? = null
@@ -278,7 +279,10 @@ internal class OriginOddJobVisuals(
     fun wallTarget(player: Player, requestId: UUID, location: Location, caption: String) =
         target(player, requestId, location, caption, outline = false, ground = false, wall = true)
 
-    private fun target(player: Player, requestId: UUID, location: Location?, caption: String, outline: Boolean, ground: Boolean, wall: Boolean) {
+    fun gearTarget(player: Player, requestId: UUID, location: Location?, caption: String) =
+        target(player, requestId, location, caption, outline = false, ground = false, wall = false, gear = true)
+
+    private fun target(player: Player, requestId: UUID, location: Location?, caption: String, outline: Boolean, ground: Boolean, wall: Boolean, gear: Boolean = false) {
         if (location == null) {
             owned[player.uniqueId]?.takeIf { it.requestId == requestId }?.let(::removeTarget)
             return
@@ -289,7 +293,7 @@ internal class OriginOddJobVisuals(
             val anchor = bounds?.let { Location(location.world, it.centerX, it.centerY, it.centerZ) } ?: location
             val size = bounds?.let { OriginWorkshopGamePartSize(it.widthX.toFloat(), it.height.toFloat(), it.widthZ.toFloat()) }
                 ?: OriginWorkshopGamePartSize(1f, 1f, 1f)
-            if (state.targetLocation == anchor && state.targetSize == size && state.targetOutline == outline && state.groundTarget == ground && state.wallTarget == wall) {
+            if (state.targetLocation == anchor && state.targetSize == size && state.targetOutline == outline && state.groundTarget == ground && state.wallTarget == wall && state.gearTarget == gear) {
                 state.label?.text(Component.text(caption, TextColor.color(0xe8dfd2)))
                 return@change
             }
@@ -302,7 +306,7 @@ internal class OriginOddJobVisuals(
                 it.glow(Color.fromRGB(239, 195, 113))
                 it.pieces.forEach { piece -> piece.display?.brightness = Display.Brightness(15, 15) }
             } else null
-            val labelLocation = anchor.clone().add(0.0, if (ground) 1.55 else if (outline) 0.95 else 0.42, 0.0)
+            val labelLocation = anchor.clone().add(0.0, if (gear) 0.0 else if (ground) 1.55 else if (outline) 0.95 else 0.42, 0.0)
             if (wall) {
                 labelLocation.pitch = 0f
                 labelLocation.add(labelLocation.direction.multiply(0.035))
@@ -315,10 +319,10 @@ internal class OriginOddJobVisuals(
                 label.viewRange = 0.35f
                 label.displayWidth = 2f
                 label.displayHeight = 1f
-                label.lineWidth = 180
+                label.lineWidth = if (gear) 160 else 180
                 label.backgroundColor = Color.fromARGB(150, 18, 14, 10)
                 label.isShadowed = true
-                label.transformation = Transformation(Vector3f(), Quaternionf(), Vector3f(0.45f), Quaternionf())
+                label.transformation = Transformation(Vector3f(), Quaternionf(), Vector3f(if (gear) 0.34f else 0.45f), Quaternionf())
                 label.showTo(player)
             }
             state.targetLocation = anchor.clone()
@@ -326,6 +330,7 @@ internal class OriginOddJobVisuals(
             state.targetOutline = outline
             state.groundTarget = ground
             state.wallTarget = wall
+            state.gearTarget = gear
         }
     }
 

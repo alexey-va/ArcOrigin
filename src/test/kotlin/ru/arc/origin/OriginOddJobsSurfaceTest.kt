@@ -139,6 +139,11 @@ class OriginOddJobsSurfaceTest : StringSpec({
             body shouldContain "100"
             body shouldContain "20 💰"
             body shouldContain "12"
+            if (venue.kind == OriginOddJobKind.MOUNTYARD) {
+                body shouldContain "За действие"
+                body shouldContain "12 из 100 действий"
+                body shouldContain "Каждое принятое действие приносит 20"
+            } else body shouldContain "За поручение"
             screen.buttons.map { it.id.value } shouldBe listOf("odd_job_start", "odd_job_later")
             plain(screen.buttons.first().label) shouldBe "Выйти на смену"
             screen.buttons.first().closeDialogBeforeAction shouldBe true

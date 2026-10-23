@@ -131,7 +131,7 @@ internal class OriginSideJobRewards(
     @Volatile private var recovering = false
 
     private data class CreditWrite(val shiftId: UUID, val kind: OriginSideJobKind, val orderId: UUID,
-        val amount: Int, val quality: Int, val day: Long, val at: Long, val done: CompletableFuture<Unit>)
+        val amount: Int, val quality: Int, val day: Long, val at: Long, val done: CompletableFuture<Unit>, val reportsOrder: Boolean)
     companion object {
         // The same process can replace module owners before their immutable Redis writes complete.
         private val creditWrites = ConcurrentHashMap<UUID, CreditWrite>()
@@ -180,15 +180,26 @@ internal class OriginSideJobRewards(
 
     /** Only immutable, already-completed work enters this method; leaving must not cancel its write. */
     fun credit(kind: OriginSideJobKind, playerId: UUID, shiftId: UUID, requestId: UUID, quality: Int,
-        callback: (SideJobRewardResult) -> Unit) {
+        callback: (SideJobRewardResult) -> Unit) = credit(kind, playerId, shiftId, requestId, quality, true, callback)
+
+    /** Physical-action receipts share the same quota and journal, without advancing whole-order quests. */
+    fun creditWorkUnit(kind: OriginSideJobKind, playerId: UUID, shiftId: UUID, requestId: UUID, quality: Int,
+        callback: (SideJobRewardResult) -> Unit) = credit(kind, playerId, shiftId, requestId, quality, false, callback)
+
+    fun orderCompleted(kind: OriginSideJobKind, playerId: UUID, requestId: UUID) {
+        quests?.orderCompleted(kind, playerId, requestId)
+    }
+
+    private fun credit(kind: OriginSideJobKind, playerId: UUID, shiftId: UUID, requestId: UUID, quality: Int,
+        reportsOrder: Boolean, callback: (SideJobRewardResult) -> Unit) {
         require(quality in 0..100)
         val store = updater
         if (closed || store == null) { callback(SideJobRewardResult(SideJobRewardOutcome.UNAVAILABLE)); return }
         if (settlements.containsKey(playerId)) { callback(SideJobRewardResult(SideJobRewardOutcome.RETRY)); return }
         val failed = failedCredits[playerId]?.get(requestId)
         val write = failed?.copy(done = CompletableFuture()) ?: CreditWrite(shiftId, kind, requestId, amount, quality,
-            clock() / DAY_MILLIS, clock().coerceAtLeast(1), CompletableFuture())
-        require(write.shiftId == shiftId && write.kind == kind)
+            clock() / DAY_MILLIS, clock().coerceAtLeast(1), CompletableFuture(), reportsOrder)
+        require(write.shiftId == shiftId && write.kind == kind && write.reportsOrder == reportsOrder)
         trackTerminal(write.done)
         val previous = creditWrites.put(playerId, write)
         val token = tasks.token(); val day = write.day; val now = write.at
@@ -229,7 +240,7 @@ internal class OriginSideJobRewards(
             write.done.complete(Unit)
             if (failure != null) warn("credit", playerId, requestId, failure)
             dispatch(token) {
-                if (outcome == SideJobRewardOutcome.CREDITED) quests?.orderCompleted(kind, playerId, requestId)
+                if (outcome == SideJobRewardOutcome.CREDITED && write.reportsOrder) orderCompleted(kind, playerId, requestId)
                 callback(SideJobRewardResult(outcome, earnings))
             }
         }
@@ -247,7 +258,7 @@ internal class OriginSideJobRewards(
             if (shiftId != null && failed.shiftId != shiftId) {
                 callback(SideJobRewardResult(SideJobRewardOutcome.UNCONFIRMED)); return
             }
-            credit(failed.kind, playerId, failed.shiftId, failed.orderId, failed.quality) { result ->
+            credit(failed.kind, playerId, failed.shiftId, failed.orderId, failed.quality, failed.reportsOrder) { result ->
                 if (result.outcome == SideJobRewardOutcome.CREDITED) settle(playerId, shiftId, callback)
                 else callback(SideJobRewardResult(SideJobRewardOutcome.UNAVAILABLE, result.earnings))
             }

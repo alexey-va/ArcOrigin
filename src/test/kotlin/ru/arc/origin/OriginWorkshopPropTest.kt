@@ -13,8 +13,10 @@ import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.block.data.BlockData
 import org.bukkit.entity.Player
+import org.bukkit.entity.LivingEntity
 import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
+import org.bukkit.util.Vector
 import org.joml.Quaternionf
 import org.joml.Vector3f
 import java.util.UUID
@@ -167,6 +169,38 @@ class OriginWorkshopPropTest : FreeSpec({
         verify { marker.showTo(viewer) }
         verify(exactly = 0) { marker.showTo(match<Player> { it !== viewer }) }
         prop.remove()
+    }
+
+    "native horse parent preserves pose through motion and deformation without follower teleports" {
+        val harness=PropDisplayHarness()
+        val shape=workshopPiece(OriginWorkshopPoint(.2,.1,-.3))
+        val prop=OriginWorkshopProp(harness.owner,Location(null,0.0,64.0,0.0),listOf(shape))
+        val horse=mockk<LivingEntity>(relaxed=true)
+        every { horse.uniqueId } returns UUID.randomUUID()
+        var feet=Location(null,4.0,70.0,8.0)
+        every { horse.location } answers { feet.clone() }
+        val seat=Vector(0.0,1.44375,0.0)
+        for(yaw in listOf(0f,90f,180f,270f)) {
+            feet.add(.25,0.0,-.25)
+            val rotation=Quaternionf().rotationY(Math.toRadians(180.0-yaw).toFloat())
+            val offset=rotation.transform(Vector3f(0f,1.4862875f,-.08f))
+            val center=feet.clone().add(offset.x.toDouble(),offset.y.toDouble(),offset.z.toDouble())
+            prop.attach(horse,center,rotation,seat)
+            val poses=mutableListOf<Transformation>()
+            verify { harness.blocks.single().transformation=capture(poses) }
+            val corner=Vector3f((shape.center.x-shape.size.x/2).toFloat(),(shape.center.y-shape.size.y/2).toFloat(),(shape.center.z-shape.size.z/2).toFloat())
+            val expected=rotation.transform(corner).add(offset).sub(0f,seat.y.toFloat(),0f)
+            poses.last().translation.distance(expected) shouldBeLessThan 0.00001f
+        }
+        val changed=shape.copy(center=OriginWorkshopPoint(.2,.2,-.3))
+        prop.deform(listOf(changed))
+        harness.blocks shouldHaveSize 1
+        prop.pieces.single().geometry shouldBe changed
+        verify(exactly=5) { harness.blocks.single().attachTo(horse,seat) }
+        verify(exactly=1) { harness.blocks.single().teleport(any()) }
+        verify(exactly=0) { harness.blocks.single().remove() }
+        prop.place(Location(null,0.0,65.0,0.0),Quaternionf())
+        verify(exactly=2) { harness.blocks.single().teleport(any()) }
     }
 
     "saw and drill preserve same-cuboid ids and replace only changed cuboids" {

@@ -77,6 +77,7 @@ internal class OriginOddJobMountyard(
         var release: (() -> Unit)? = null
         var recoveryDeadline = 0L
         var cleanupAttempts = 0
+        var releaseAttempts = 0
         var finishInBackground = false
         var mounted = false
         var rideControls: RideControls? = null
@@ -98,8 +99,9 @@ internal class OriginOddJobMountyard(
     fun target(offer: OriginOddJobOffer, previousAnimalId: Int? = null): OriginYardWork? {
         if (offer.variant.isYardPreparation() && (rider == null || (active.values + recovering.values).any { it.rider != null })) return null
         val candidates = animalIds.indices.map { animalIds[Math.floorMod(offer.seed + it, animalIds.size)] }
-        val id = candidates.firstOrNull { id -> id != previousAnimalId && !ownsAnimal(id) &&
-            (resolve(id) as? AbstractHorse)?.let { inStall(id, it) && !it.isLeashed && it.passengers.isEmpty() } == true } ?: return null
+        val available = candidates.filter { id -> !ownsAnimal(id) &&
+            (resolve(id) as? AbstractHorse)?.let { inStall(id, it) && !it.isLeashed && it.passengers.isEmpty() } == true }
+        val id = available.firstOrNull { it != previousAnimalId } ?: available.firstOrNull() ?: return null
         val animal = catalog.animals.firstOrNull { it.npcId == id } ?: return null
         return OriginYardWork(animal.npcId, animal.name)
     }
@@ -690,7 +692,9 @@ internal class OriginOddJobMountyard(
                             returnHorse(care)
                         }
                     }
-                    OriginYardRecovery.HORSE -> if (routes.isNavigating(care.actor)) pollRecovery(care)
+                    OriginYardRecovery.HORSE -> if (care.entity.world.uid == care.home.world.uid &&
+                        care.entity.location.distanceSquared(care.home) <= 0.25 && care.entity.passengers.isEmpty()) finishRecovery(care)
+                        else if (routes.isNavigating(care.actor)) pollRecovery(care)
                         else finishRecovery(care, if (routes.consumeOutcome(care.actor)?.successful == true &&
                             care.entity.location.distanceSquared(care.home) <= 1.0) null else "route-failed")
                 }
@@ -750,9 +754,16 @@ internal class OriginOddJobMountyard(
             else tasks.runLater(4) { finishRecovery(care, failure) }
             return
         }
-        recovering.remove(care.requestId)
+        val releaseFailure = runCatching { care.release?.invoke() }.exceptionOrNull()
+        if (releaseFailure != null && care.ownsLease()) {
+            warn("ORIGIN_ODD_JOBS phase=YARD_RELEASE_FAILED npc={} attempt={}", care.actor.id, ++care.releaseAttempts, releaseFailure)
+            if (care.releaseAttempts < 3 && (synchronous || closed)) finishRecovery(care, failure, synchronous = true)
+            else if (!closed) tasks.runLater(if (care.releaseAttempts < 3) 4 else 20) { finishRecovery(care, failure) }
+            return
+        }
+        care.release = null
+        recovering.remove(care.requestId, care)
         if (failure != null) warn("ORIGIN_ODD_JOBS phase=YARD_HOME_FAILED npc={} reason={}", care.actor.id, failure)
-        care.release?.also { care.release = null }?.invoke()
     }
 
     private fun renderer(): PaperPacketDisplays = displays ?: createDisplays().also { displays = it }

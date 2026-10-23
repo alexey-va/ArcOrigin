@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "title": "ArcOrigin MOUNTYARD physical-action payment assessment 2026-10-23",
+  "participants": [
+    5,
+    20,
+    50
+  ],
+  "assumptions": [
+    "Requested change: MOUNTYARD awards 20 Vault per accepted deliberate physical action instead of 20 per complete order. GROOM/SADDLE each29 actions=580; LESSON30=600; RATIONS2=40; WATER4=80; CLEANUP13=260. Automatic handoff for GROOM/SADDLE, timers, automatic arrivals/checkpoints, final RETURN/PAYOUT, rejected and duplicate clicks earn zero. No extra20 for final completion. Other side-job families remain20 per completed order.",
+    "Same serialized durable cashier, deterministic job+stage+ordinal UUIDs, unchanged stored amount20 per receipt. Earned work survives later cancellation; retries do not mint twice. Quests advance once per real completed order, never once per paid action. Shift-end Vault settlement remains the owner; no direct per-click Vault deposit.",
+    "Existing shared100 credit receipts per UUID per UTC-day remains: maximum2000 Vault/UUID-day across WAITER/MOUNTYARD/FORGE/AUCTION. On MOUNTYARD the unit is now actions, other families retain orders. This is an existing cap with changed counting unit, not an additional limit. No network weekly cap; unused capacity is shared, not independently doubled per family.",
+    "Matched-work sensitivities, not measured throughput or dispatch forecasts. Low1 RATIONS+1 WATER+1 CLEANUP=3 orders/19 actions in assumed0.25 active hours/day (76 actions/hour). Base2 of each short+1 GROOM=7 orders/67 actions in assumed0.75 active hours/day (89.3333 actions/hour). High6 of each short+GROOM+SADDLE+LESSON=21 orders/202 actions in assumed2 active hours/day (101 actions/hour). Participants5/20/50 are scenario assumptions, not an observed online. Before event counts3/7/21; after19/67/202 before cap.",
+    "Source old pool is uniform6-variant bag with3 long variants (50 percent long entries). Proposed weights each short6 and each long1: initial normalized long probability3/21=1/7, conditional on availability. At least3 short orders between any long-family order; only if no short can run may dispatch fall back. This changes player time mix; matched-work calculation intentionally does not claim unchanged hourly income.",
+    "Order deadline480seconds for preparation/lesson and240seconds otherwise; shift admission600seconds plus120seconds grace remain. Actual native completion time and post-change earnings/hour are unknown. Low/base/high time values above are explicit sensitivity inputs, not measurements.",
+    "Borrowed lead/brush/pad/saddle/bridle are temporary visual workpieces, have no permanent inventory grant, purchase cost, resale output or contract redemption. No token, XP, crystal, entitlement, price, tax or multiplier change. No additional MONEY boost or mount speed/farm perk stacking is introduced.",
+    "Compared with adjacent side jobs, only MOUNTYARD changes its receipt unit; the common2000 Vault/UUID-day ceiling stays. No current progression item or full-equipment price changes, so no invented saving-time forecast is made. Native speed measurement is still required before an hourly/progression claim.",
+    "Theoretical repeated fast valid actions are still bounded by state transitions and100 unique paid receipts/UTC-day. Each UUID can mint at most2000 per day; multiple UUIDs scale that existing ceiling linearly (e.g.10 UUIDs20000), no new multiaccount restriction or global budget is introduced. Failed clicks and repeated recovery cannot become paid work. Partial-work payment does increase emission from cancelled jobs until the same shared cap.",
+    "Read-only ledger and currencies are recorded separately in observed_ledger. Admin67000000 Vault and one-player concentrated sources do not establish ordinary earning rate. Current SELL remains active separate income; owner's SELL-to-contract transition is future and unchanged. Activity proxy buckets are not session hours."
+  ],
+  "currencies": {
+    "vault": {
+      "minor_per_unit": 100,
+      "flows": [
+        {
+          "id": "origin_mountyard_physical_work",
+          "kind": "mint",
+          "source": "OriginOddJobsModule / OriginOddJobsProgress / OriginSideJobRewards;0.1.60 source and accepted user request",
+          "basis": "Matched deliberate completed-work bundles; before whole order credits, after unique action credits. Shared2000 ceiling assumes no other side job has consumed it; other families consume the same remaining quota.",
+          "before": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "20",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              3,
+              7,
+              21
+            ],
+            "player_daily_cap": {
+              "value": "2000",
+              "unit": "major"
+            }
+          },
+          "after": {
+            "enabled": true,
+            "amount_per_event": {
+              "value": "20",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              19,
+              67,
+              202
+            ],
+            "player_daily_cap": {
+              "value": "2000",
+              "unit": "major"
+            }
+          }
+        }
+      ]
+    },
+    "tokens": {
+      "minor_per_unit": 1,
+      "flows": [
+        {
+          "id": "origin_mountyard_tokens",
+          "kind": "mint",
+          "source": "Unchanged MOUNTYARD reward contract",
+          "basis": "No tokens are awarded; separate currency.",
+          "before": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              3,
+              7,
+              21
+            ]
+          },
+          "after": {
+            "enabled": false,
+            "amount_per_event": {
+              "value": "0",
+              "unit": "major"
+            },
+            "events_per_player_day": [
+              19,
+              67,
+              202
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "observed_ledger": {
+    "generated_at_utc": "2026-10-23T09:42:47.627Z",
+    "since_utc": "2026-10-16T09:42:47.627Z",
+    "window_hours": 168,
+    "coverage": {
+      "oldest": 1792144841101,
+      "newest": 1792747695912,
+      "records": 3370,
+      "operations": 33792,
+      "players": 29,
+      "attempts": 246,
+      "enrichedRecords": 3370
+    },
+    "source_baseline": {
+      "version": "0.1.60",
+      "commit": "ade5ed9a30c6d5637e12ddbfc6c5a839b3ec6a4d",
+      "active_version_verified": true
+    },
+    "currencies": {
+      "vault": {
+        "minted": "67910862.78298615",
+        "burned": "2572343.3499999987",
+        "unclassified_operations": 128,
+        "unclassified_absolute_amount": "189141.78",
+        "admin_minted_excluded": "67000000"
+      },
+      "tokens": {
+        "minted": "62",
+        "burned": "15",
+        "unclassified_operations": 3,
+        "unclassified_absolute_amount": "15"
+      }
+    },
+    "cadence": "ArcEcoJobs-only jobs breakdown is not ArcOrigin cadence; no native action throughput measurement",
+    "current_sell_vault": "55995.33",
+    "sell_to_contract": "future and unchanged"
+  },
+  "prices": []
+}

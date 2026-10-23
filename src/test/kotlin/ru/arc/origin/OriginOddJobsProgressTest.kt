@@ -19,7 +19,7 @@ private fun yardActionZone(stage: OriginOddJobStage) = if (stage in setOf(Origin
     OriginOddJobStage.YARD_UNTIE_SECOND, OriginOddJobStage.YARD_STIRRUP_LEFT)) 0 else 1
 
 class OriginOddJobsProgressTest : StringSpec({
-    "a busy rider allows water for a free horse even after water left this variant bag" {
+    "a busy rider allows water for a free horse without exhausting the short work pool" {
         val board = OriginOddJobDispatch(OriginOddJobKind.MOUNTYARD, Random(4))
         for (variant in listOf(OriginOddJobVariant.YARD_RATIONS, OriginOddJobVariant.YARD_WATER)) {
             val offer = board.offers(OriginWorkShiftPhase.OPENING).first { it.variant == variant }
@@ -30,7 +30,34 @@ class OriginOddJobsProgressTest : StringSpec({
         board.offers(OriginWorkShiftPhase.CLOSING).count { it.id == selected.id } shouldBe 1
         board.accept(selected.id) shouldBe selected
         board.nextAvailable(OriginWorkShiftPhase.OPENING) { false } shouldBe null
-        board.offers(OriginWorkShiftPhase.OPENING).all { it.variant.isYardPreparation() || it.variant == OriginOddJobVariant.YARD_CLEANUP } shouldBe true
+        board.offers(OriginWorkShiftPhase.OPENING).map { it.variant }.toSet() shouldBe
+            OriginOddJobVariant.entries.filter { it.kind == OriginOddJobKind.MOUNTYARD }.toSet()
+    }
+    "stable preparation has one weight against six per short variant and leaves every variant eligible" {
+        val starts = List(2_100) { seed -> OriginOddJobDispatch(OriginOddJobKind.MOUNTYARD, Random(seed))
+            .nextAvailable(OriginWorkShiftPhase.OPENING) { true }!! }
+        starts.map { it.variant }.toSet() shouldBe OriginOddJobVariant.entries.filter { it.kind == OriginOddJobKind.MOUNTYARD }.toSet()
+        (starts.count { it.variant.isYardPreparation() } in 240..360) shouldBe true
+    }
+    "stable preparation leaves three runnable short orders before another long family order" {
+        val board = OriginOddJobDispatch(OriginOddJobKind.MOUNTYARD, Random(17))
+        var shorts = 3
+        repeat(300) {
+            val selected = board.nextAvailable(OriginWorkShiftPhase.OPENING) { true }!!
+            if (selected.variant.isYardPreparation()) {
+                (shorts >= 3) shouldBe true
+                shorts = 0
+            } else shorts++
+            board.accept(selected.id) shouldBe selected
+        }
+    }
+    "stable preparation gap yields only when no short order can run" {
+        val board = OriginOddJobDispatch(OriginOddJobKind.MOUNTYARD, Random(4))
+        val first = board.nextAvailable(OriginWorkShiftPhase.OPENING) { it.variant.isYardPreparation() }!!
+        board.accept(first.id)
+        val fallback = board.nextAvailable(OriginWorkShiftPhase.OPENING) { it.variant == OriginOddJobVariant.YARD_LESSON }!!
+        fallback.variant shouldBe OriginOddJobVariant.YARD_LESSON
+        board.offers(OriginWorkShiftPhase.CLOSING).first { it.id == fallback.id } shouldBe fallback
     }
     "new forge shifts randomize the starting craft and its variant" {
         val starts = List(120) { seed ->
@@ -45,7 +72,7 @@ class OriginOddJobsProgressTest : StringSpec({
         }
     }
     "reopening the employer cannot reroll offers and each bag covers all families" {
-        for (kind in OriginOddJobKind.entries.filterNot { it == OriginOddJobKind.FORGE }) {
+        for (kind in OriginOddJobKind.entries.filterNot { it in setOf(OriginOddJobKind.FORGE, OriginOddJobKind.MOUNTYARD) }) {
             val board = OriginOddJobDispatch(kind, Random(7))
             repeat(3) {
                 val accepted = OriginOddJobVariant.entries.filter { it.kind == kind }.map {
@@ -82,8 +109,8 @@ class OriginOddJobsProgressTest : StringSpec({
         auction.map { it.variant }.distinct().size shouldBe 2
         auction.map { it.urgent } shouldBe listOf(false, true)
     }
-    "water and rider orders cannot credit until every physical loan is returned" {
-        for (variant in listOf(OriginOddJobVariant.YARD_WATER, OriginOddJobVariant.YARD_RATIONS, OriginOddJobVariant.YARD_SADDLE)) {
+    "physical actions earn once while orders finish only after every loan is returned" {
+        for (variant in listOf(OriginOddJobVariant.YARD_WATER, OriginOddJobVariant.YARD_RATIONS, OriginOddJobVariant.YARD_GROOM, OriginOddJobVariant.YARD_SADDLE)) {
             val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
             val job = jobs.begin(id, offer(variant), 0, yardTarget = OriginYardWork(422, "Буран"))!!
             val actions = when (variant) {
@@ -92,16 +119,26 @@ class OriginOddJobsProgressTest : StringSpec({
                 OriginOddJobVariant.YARD_RATIONS -> listOf(OriginOddJobAction.HAY, OriginOddJobAction.FEED)
                 else -> yardPreparationActions + OriginOddJobAction.CARE_DONE + List(7) { OriginOddJobAction.GEAR }
             }
+            val units = mutableListOf<UUID>()
             actions.forEachIndexed { index, action ->
                 jobs.act(id, OriginOddJobAction.RETURN, index * 1_000L).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
-                (jobs.act(id, action, index * 1_000L + 1, yardActionZone(jobs.current(id)!!.stage)) is OriginOddJobStep.Changed) shouldBe true
+                val step = jobs.act(id, action, index * 1_000L + 1, yardActionZone(jobs.current(id)!!.stage)) as OriginOddJobStep.Changed
+                step.workUnitId?.let(units::add)
                 jobs.finish(id, job.id) shouldBe null
             }
+            val expected = when (variant) {
+                OriginOddJobVariant.YARD_WATER -> 4
+                OriginOddJobVariant.YARD_RATIONS -> 2
+                else -> 29
+            }
+            units.size shouldBe expected
+            units.distinct().size shouldBe expected
+            jobs.current(id)!!.completedActions shouldBe expected
             jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
             jobs.current(id)!!.yard!!.borrowed shouldBe emptySet()
             jobs.current(id)!!.yard!!.equipped shouldBe emptySet()
             jobs.current(id)!!.quality shouldBe 100
-            jobs.act(id, OriginOddJobAction.RETURN, 60_002)
+            (jobs.act(id, OriginOddJobAction.RETURN, 60_002) as OriginOddJobStep.Changed).workUnitId shouldBe null
             jobs.finish(id, job.id)!!.stage shouldBe OriginOddJobStage.PAYOUT
             jobs.finish(id, job.id) shouldBe null
         }
@@ -202,21 +239,24 @@ class OriginOddJobsProgressTest : StringSpec({
             yardTarget = OriginYardWork(422, "Буран", routeTotal = 9))!!
         yardPreparationActions.forEach { jobs.act(id, it, 1, yardActionZone(jobs.current(id)!!.stage)) }
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_LESSON_WALK
+        jobs.current(id)!!.completedActions shouldBe 23
         repeat(9) { index ->
             jobs.current(id)!!.yard!!.routeIndex shouldBe index
             jobs.act(id, OriginOddJobAction.RETURN, 2).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
             jobs.finish(id, job.id) shouldBe null
-            jobs.act(id, OriginOddJobAction.ARRIVE, 3)
+            (jobs.act(id, OriginOddJobAction.ARRIVE, 3) as OriginOddJobStep.Changed).workUnitId shouldBe null
         }
+        jobs.current(id)!!.completedActions shouldBe 23
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.YARD_UNTACK_BRIDLE
         jobs.current(id)!!.yard!!.borrowed shouldBe setOf(OriginYardGear.LEAD, OriginYardGear.PAD, OriginYardGear.SADDLE, OriginYardGear.BRIDLE)
         repeat(7) { jobs.act(id, OriginOddJobAction.GEAR, 4) }
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
-        jobs.act(id, OriginOddJobAction.RETURN, 5)
+        jobs.current(id)!!.completedActions shouldBe 30
+        (jobs.act(id, OriginOddJobAction.RETURN, 5) as OriginOddJobStep.Changed).workUnitId shouldBe null
         jobs.finish(id, job.id)!!.stage shouldBe OriginOddJobStage.PAYOUT
         jobs.finish(id, job.id) shouldBe null
     }
-    "cleaning cannot pay at collection or unloading and requires the empty cart back in its parking" {
+    "cleaning earns thirteen physical actions and requires the empty cart back before completion" {
         val jobs = OriginOddJobsProgress(240_000); val id = UUID.randomUUID()
         val job = jobs.begin(id, offer(OriginOddJobVariant.YARD_CLEANUP), 0)!!
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.CLEAN_TOOL
@@ -250,7 +290,8 @@ class OriginOddJobsProgressTest : StringSpec({
         jobs.act(id, OriginOddJobAction.RETURN, 18).reason() shouldBe OriginOddJobRejection.WRONG_ACTION
         jobs.act(id, OriginOddJobAction.GEAR, 18)
         jobs.current(id)!!.stage shouldBe OriginOddJobStage.RETURN
-        jobs.act(id, OriginOddJobAction.RETURN, 18)
+        jobs.current(id)!!.completedActions shouldBe 13
+        (jobs.act(id, OriginOddJobAction.RETURN, 18) as OriginOddJobStep.Changed).workUnitId shouldBe null
         jobs.act(id, OriginOddJobAction.PARK_CART, 19).reason() shouldBe OriginOddJobRejection.PAYOUT_PENDING
         jobs.finish(id, job.id)!!.kind.rewardKind shouldBe OriginSideJobKind.MOUNTYARD
         jobs.finish(id, job.id) shouldBe null

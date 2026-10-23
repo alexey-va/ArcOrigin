@@ -34,8 +34,25 @@ internal class OriginOddJobDispatch(private val kind: OriginOddJobKind, private 
     private val lastVariant = mutableMapOf<OriginOddJobKind, OriginOddJobVariant>()
     private var lastFamily: OriginOddJobKind? = null
     private var shown = emptyList<OriginOddJobOffer>()
+    private var yardShortOrders = 3
     fun offers(phase: OriginWorkShiftPhase): List<OriginOddJobOffer> {
         if (shown.isNotEmpty()) return shown
+        if (kind == OriginOddJobKind.MOUNTYARD) {
+            val remaining = OriginOddJobVariant.entries.filter { it.kind == kind }.toMutableList()
+            val ordered = buildList {
+                while (remaining.isNotEmpty()) {
+                    var ticket = random.nextInt(remaining.sumOf { if (it.isYardPreparation()) 1 else 6 })
+                    val chosen = remaining.first { variant ->
+                        ticket -= if (variant.isYardPreparation()) 1 else 6
+                        ticket < 0
+                    }
+                    add(chosen)
+                    remaining.remove(chosen)
+                }
+            }
+            shown = ordered.map { OriginOddJobOffer(UUID.randomUUID(), it, random.nextInt(1, 10_000), false) }
+            return shown
+        }
         if (families.isEmpty()) {
             families = (if (kind == OriginOddJobKind.FORGE)
                 listOf(kind, OriginOddJobKind.FORGE_HAUL, OriginOddJobKind.FORGE_ENGRAVE) else listOf(kind)).shuffled(random)
@@ -51,25 +68,27 @@ internal class OriginOddJobDispatch(private val kind: OriginOddJobKind, private 
             return bag
         }
         val candidates = if (kind == OriginOddJobKind.FORGE) families.take(2).map { bagFor(it).first() }
-            else if (kind == OriginOddJobKind.MOUNTYARD) bagFor(kind) else bagFor(kind).take(2)
+            else bagFor(kind).take(2)
         shown = candidates.mapIndexed { index, variant ->
             OriginOddJobOffer(UUID.randomUUID(), variant, random.nextInt(1, 10_000),
                 kind == OriginOddJobKind.AUCTION && phase == OriginWorkShiftPhase.RUSH && index == 1)
         }
         return shown
     }
-    /** A rider's background trip must not idle a worker while another stall horse can drink. */
+    /** Prefer three short jobs between preparation chains; unavailable short jobs never block usable work. */
     fun nextAvailable(phase: OriginWorkShiftPhase, available: (OriginOddJobOffer) -> Boolean): OriginOddJobOffer? {
+        if (kind == OriginOddJobKind.MOUNTYARD && yardShortOrders < 3)
+            offers(phase).firstOrNull { !it.variant.isYardPreparation() && available(it) }?.let { return it }
         offers(phase).firstOrNull(available)?.let { return it }
-        if (kind != OriginOddJobKind.MOUNTYARD || shown.any { it.variant == OriginOddJobVariant.YARD_WATER }) return null
-        val water = OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_WATER, random.nextInt(1, 10_000), false)
-        if (!available(water)) return null
-        shown = shown + water
-        return water
+        return null
     }
     fun accept(id: UUID): OriginOddJobOffer? = shown.firstOrNull { it.id == id }?.also {
-        families = families.filterNot { family -> family == it.kind }
-        variants[it.kind] = variants.getValue(it.kind).filterNot { variant -> variant == it.variant }
+        if (kind == OriginOddJobKind.MOUNTYARD) {
+            yardShortOrders = if (it.variant.isYardPreparation()) 0 else (yardShortOrders + 1).coerceAtMost(3)
+        } else {
+            families = families.filterNot { family -> family == it.kind }
+            variants[it.kind] = variants.getValue(it.kind).filterNot { variant -> variant == it.variant }
+        }
         lastFamily = it.kind; lastVariant[it.kind] = it.variant; shown = emptyList()
     }
 }
@@ -125,6 +144,7 @@ internal data class OriginOddJobSession(
     val haul: OriginForgeHaul? = null, val engraving: OriginForgeEngraving? = null,
     val employer: OriginOddJobKind = offer.kind,
     val cleaning: OriginYardCleaningWork? = null,
+    val completedActions: Int = 0,
 ) {
     val variant: OriginOddJobVariant get() = offer.variant
     val parcel: OriginAuctionParcel? get() = auction?.lot?.parcel
@@ -136,7 +156,7 @@ internal enum class OriginOddJobRejection {
     MANIFEST_MISMATCH, WRONG_RECEIPT, PAYOUT_PENDING,
 }
 internal sealed interface OriginOddJobStep {
-    data class Changed(val job: OriginOddJobSession) : OriginOddJobStep
+    data class Changed(val job: OriginOddJobSession, val workUnitId: UUID? = null) : OriginOddJobStep
     data class Rejected(val reason: OriginOddJobRejection, val job: OriginOddJobSession?) : OriginOddJobStep
 }
 internal const val ODD_JOB_HEAT_READY_MILLIS = 4_000L
@@ -284,7 +304,7 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
         ).also { jobs[playerId] = it }
     }
 
-    fun act(playerId: UUID, action: OriginOddJobAction, now: Long, zone: Int = 1): OriginOddJobStep = advance(playerId, now) { job ->
+    fun act(playerId: UUID, action: OriginOddJobAction, now: Long, zone: Int = 1): OriginOddJobStep = advance(playerId, now, action) { job ->
         fun next(stage: OriginOddJobStage, updated: OriginOddJobSession = job) = changed(updated.copy(stage = stage, stageStartedAt = now, progress = 0))
         fun wrong() = rejected(OriginOddJobRejection.WRONG_ACTION, job)
         val yard = job.yard; val forge = job.forge
@@ -472,11 +492,21 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
     fun finish(playerId: UUID, requestId: UUID): OriginOddJobSession? = jobs[playerId]
         ?.takeIf { it.id == requestId && it.stage == OriginOddJobStage.PAYOUT }?.let { jobs.remove(playerId) }
     fun cancel(playerId: UUID): OriginOddJobSession? = jobs.remove(playerId)
-    private fun advance(playerId: UUID, now: Long, action: (OriginOddJobSession) -> OriginOddJobStep): OriginOddJobStep {
+    private fun advance(playerId: UUID, now: Long, workAction: OriginOddJobAction? = null,
+        action: (OriginOddJobSession) -> OriginOddJobStep): OriginOddJobStep {
         val job = jobs[playerId] ?: return rejected(OriginOddJobRejection.NO_JOB, null)
         if (job.stage == OriginOddJobStage.PAYOUT) return rejected(OriginOddJobRejection.PAYOUT_PENDING, job)
         if (now >= job.expiresAt) return rejected(OriginOddJobRejection.EXPIRED, job)
-        return action(job).also { step ->
+        val step = action(job).let { result ->
+            if (result is OriginOddJobStep.Changed && job.kind == OriginOddJobKind.MOUNTYARD && workAction != null &&
+                workAction !in setOf(OriginOddJobAction.ARRIVE, OriginOddJobAction.CART_ARRIVE, OriginOddJobAction.CARE_DONE, OriginOddJobAction.RETURN) &&
+                (workAction != OriginOddJobAction.HANDOFF || job.variant == OriginOddJobVariant.YARD_LESSON)) {
+                val ordinal = Math.addExact(job.completedActions, 1)
+                result.copy(job = result.job.copy(completedActions = ordinal),
+                    workUnitId = UUID.nameUUIDFromBytes("${job.id}:${job.stage.name}:$ordinal".toByteArray(Charsets.UTF_8)))
+            } else result
+        }
+        return step.also {
             when (step) { is OriginOddJobStep.Changed -> step.job; is OriginOddJobStep.Rejected -> step.job }
                 ?.let { jobs[playerId] = it }
         }

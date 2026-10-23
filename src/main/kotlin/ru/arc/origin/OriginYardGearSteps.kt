@@ -4,6 +4,14 @@ package ru.arc.origin
 internal data class OriginYardGearStep(val gear: OriginYardGear, val action: OriginOddJobAction,
     val atRack: Boolean, val returning: Boolean = false, val zone: Int = 1)
 
+/** Only actual leather/metal parts glow; the forgiving click area remains invisible. */
+internal fun originYardGearFocus(stage:OriginOddJobStage):Set<Int>? = when(stage) {
+    OriginOddJobStage.YARD_GIRTH -> setOf(21,22,23,24)
+    OriginOddJobStage.YARD_STIRRUP_LEFT -> (5..10).toSet()
+    OriginOddJobStage.YARD_STIRRUP_RIGHT -> (13..18).toSet()
+    else -> null
+}
+
 internal fun originYardGearStep(stage: OriginOddJobStage): OriginYardGearStep? = when (stage) {
     OriginOddJobStage.YARD_HAY -> OriginYardGearStep(OriginYardGear.HAY, OriginOddJobAction.HAY, true)
     OriginOddJobStage.YARD_BUCKET -> OriginYardGearStep(OriginYardGear.BUCKET, OriginOddJobAction.WATER, true)

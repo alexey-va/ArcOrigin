@@ -76,11 +76,11 @@ class OriginOddJobMountyardTest : StringSpec({
             f.passengerVehicle = null
             every { f.actor.uniqueId } returns UUID.randomUUID()
             f.yard.target(offer) shouldBe OriginYardWork(423, "Рыжик")
-            f.yard.target(offer, 423) shouldBe null
+            f.yard.target(offer, 423) shouldBe OriginYardWork(423, "Рыжик")
             every { f.actor.uniqueId } returns f.catalog.animals.first { it.npcId == 422 }.npcUuid
             f.location = ORIGIN_YARD_CARE_PAD.inWorld(f.world)
             f.yard.target(offer) shouldBe OriginYardWork(423, "Рыжик")
-            f.yard.target(offer, 423) shouldBe null
+            f.yard.target(offer, 423) shouldBe OriginYardWork(423, "Рыжик")
             f.location = f.home.clone()
             f.yard.target(offer) shouldBe OriginYardWork(422, "Буран")
         }
@@ -174,7 +174,7 @@ class OriginOddJobMountyardTest : StringSpec({
             val other = if (id == 422) OriginYardWork(423, "Рыжик") else OriginYardWork(422, "Буран")
             val offer = OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_RATIONS, 0, false)
             f.yard.target(offer) shouldBe other
-            f.yard.target(offer, other.animalId) shouldBe null
+            f.yard.target(offer, other.animalId) shouldBe other
             f.now = duration - 1; f.scheduler.tick(4)
             props.all { it.isValid } shouldBe true
             released shouldBe 0
@@ -642,6 +642,69 @@ class OriginOddJobMountyardTest : StringSpec({
             f.yard.ownsAnimal(423) shouldBe false
             f.yard.close()
             releases shouldBe 1
+        }
+    }
+    "an ended horse return releases at its real home without waiting for an old route callback" {
+        YardFixture().use { f ->
+            f.location = Location(f.world, 60.5, 70.0, -124.5)
+            var releases = 0
+            f.yard.clear(f.player.uniqueId, f.job.id) { releases++ }
+            releases shouldBe 0
+            f.location = f.home.clone()
+            f.navigating shouldBe true
+            f.scheduler.tick(4)
+            releases shouldBe 1
+            f.yard.ownsAnimal(f.actor.id) shouldBe false
+            verify(exactly = 0) { f.horse.teleport(any<Location>()) }
+        }
+    }
+    "a failed lease release retains its owner and retries before discarding recovery" {
+        YardFixture(OriginOddJobVariant.YARD_RATIONS).use { f ->
+            var attempts = 0
+            f.yard.clear(f.player.uniqueId, f.job.id) {
+                if (++attempts == 1) error("temporary lease release failure")
+            }
+            attempts shouldBe 1
+            f.yard.ownsAnimal(f.actor.id) shouldBe true
+            f.scheduler.tick(4)
+            attempts shouldBe 2
+            f.yard.ownsAnimal(f.actor.id) shouldBe false
+            f.scheduler.tick(40)
+            attempts shouldBe 2
+        }
+    }
+    "a release failure after ownership changed never restores or stops the replacement owner" {
+        YardFixture(OriginOddJobVariant.YARD_RATIONS).use { f ->
+            var attempts = 0
+            f.yard.clear(f.player.uniqueId, f.job.id) {
+                attempts++
+                f.leaseValid = false
+                error("release acknowledgement failed after ownership ended")
+            }
+            clearMocks(f.routes, answers = false)
+            f.scheduler.tick(40)
+            attempts shouldBe 1
+            f.yard.ownsAnimal(f.actor.id) shouldBe false
+            verify(exactly = 0) { f.routes.stop(any()) }
+            verify(exactly = 0) { f.horse.teleport(any<Location>()) }
+        }
+    }
+    "three transient release failures keep retrying slowly instead of leaving the horse busy forever" {
+        YardFixture(OriginOddJobVariant.YARD_RATIONS).use { f ->
+            var attempts = 0
+            f.yard.clear(f.player.uniqueId, f.job.id) {
+                if (++attempts <= 3) error("temporary lease release failure")
+            }
+            f.scheduler.tick(8)
+            attempts shouldBe 3
+            f.yard.ownsAnimal(f.actor.id) shouldBe true
+            f.scheduler.tick(19)
+            attempts shouldBe 3
+            f.scheduler.tick()
+            attempts shouldBe 4
+            f.yard.ownsAnimal(f.actor.id) shouldBe false
+            f.scheduler.tick(40)
+            attempts shouldBe 4
         }
     }
     "blocked recovery and replaced NPC identity stop safely without teleporting or holding the lease" {

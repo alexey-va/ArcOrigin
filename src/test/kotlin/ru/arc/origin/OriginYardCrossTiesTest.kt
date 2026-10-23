@@ -106,7 +106,8 @@ class OriginYardCrossTiesTest : StringSpec({
                 (start(firstRope.first()).distance(hand()) < 0.00001) shouldBe true
                 material.values.count { it == Material.STRIPPED_OAK_WOOD } shouldBe 20
                 ties.setStage(crossTieJob(OriginOddJobStage.YARD_TIE_SECOND, 1 shl first), horse, 1.6)
-                val cheek = Vector3f(if (first == 0) -0.2f else 0.2f, 1.312f, -0.8f)
+                // Official 1.1 horse head pivot + cheek ring transformed by its resting 30-degree head pose.
+                val cheek = Vector3f(if (first == 0) -0.18f else 0.18f, 1.6963142f, -1.4428846f)
                 (start(firstRope.first()).distance(cheek) < 0.00001) shouldBe true
                 firstRope.none { it in removed } shouldBe true
                 val second = 1 - first

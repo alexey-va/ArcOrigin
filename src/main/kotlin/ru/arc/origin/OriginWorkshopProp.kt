@@ -5,9 +5,11 @@ import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.entity.Display
 import org.bukkit.entity.ItemDisplay
+import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
+import org.bukkit.util.Vector
 import org.joml.Matrix4f
 import org.joml.Quaternionf
 import org.joml.Vector3f
@@ -38,6 +40,9 @@ internal class OriginWorkshopProp(
     private var currentRotation = Quaternionf()
     private var removed = false
     private var carrier: Player? = null
+    private var entityCarrier: LivingEntity? = null
+    private var entityPassengerOrigin = Vector()
+    private var currentScale = 1f
     private val passengerTranslation = Vector3f()
     private var poseInterpolationDuration = 2
     private var poseTeleportDuration = 1
@@ -79,6 +84,19 @@ internal class OriginWorkshopProp(
         currentPieces = reconcileBlockPieces(geometry)
     }
 
+    /** An authored animation keeps each index's identity; arbitrary topology changes still use [update]. */
+    fun deform(geometry: List<OriginWorkshopWorkpiecePiece>) {
+        check(!removed && currentItemDisplay == null)
+        require(geometry.size == currentPieces.size) { "deformation must preserve semantic part count" }
+        currentPieces.zip(geometry).forEach { (piece, next) ->
+            piece.geometry = next
+            piece.display?.let { display ->
+                if (display.blockData.material != next.material) display.blockData = next.material.createBlockData()
+                applyBlockPose(display, next)
+            }
+        }
+    }
+
     /** Moves all visible parts around the same center and rotation pivot. */
     fun move(center: Location, rotation: Quaternionf) {
         setPose(center, rotation, interpolationDuration = 2, teleportDuration = 1)
@@ -97,6 +115,8 @@ internal class OriginWorkshopProp(
     ) {
         check(!removed) { "workshop prop has been removed" }
         carrier = null
+        entityCarrier = null
+        currentScale = 1f
         passengerTranslation.zero()
         poseInterpolationDuration = interpolationDuration
         poseTeleportDuration = teleportDuration
@@ -112,10 +132,31 @@ internal class OriginWorkshopProp(
         poseInterpolationDuration = if (carrier?.uniqueId == player.uniqueId) 1 else 0
         poseTeleportDuration = 0
         carrier = player
+        entityCarrier = null
+        currentScale = 1f
         currentCenter = player.location.add(pose.center.x, pose.center.y, pose.center.z).withoutViewRotation()
         currentRotation = Quaternionf(pose.rotation)
         // Vanilla 1.21.11 uses the player's pose height for PASSENGER and the display's feet for VEHICLE.
         passengerTranslation.set(pose.center.x.toFloat(), (pose.center.y - player.height).toFloat(), pose.center.z.toFloat())
+        currentPieces.forEach { piece -> piece.display?.let { applyBlockPose(it, piece.geometry) } }
+        currentItemDisplay?.let(::applyItemPose)
+    }
+
+    /** Native parent supplies movement; this world-axis pose compensates its real passenger origin. */
+    fun attach(entity: LivingEntity, center: Location, rotation: Quaternionf, passengerOrigin: Vector, scale: Float = 1f) {
+        check(!removed) { "workshop prop has been removed" }
+        require(scale.isFinite() && scale > 0f)
+        poseInterpolationDuration = if (entityCarrier?.uniqueId == entity.uniqueId) 3 else 0
+        poseTeleportDuration = 0
+        carrier = null
+        entityCarrier = entity
+        entityPassengerOrigin = passengerOrigin.clone()
+        currentCenter = center.clone().withoutViewRotation()
+        currentRotation = Quaternionf(rotation)
+        currentScale = scale
+        val feet = entity.location
+        passengerTranslation.set((center.x-feet.x-passengerOrigin.x).toFloat(),
+            (center.y-feet.y-passengerOrigin.y).toFloat(), (center.z-feet.z-passengerOrigin.z).toFloat())
         currentPieces.forEach { piece -> piece.display?.let { applyBlockPose(it, piece.geometry) } }
         currentItemDisplay?.let(::applyItemPose)
     }
@@ -127,7 +168,9 @@ internal class OriginWorkshopProp(
         return originWorkshopWorkpieceHitboxMatrix(
             OriginWorkshopPoint(at.x, at.y, at.z),
             currentRotation,
-            piece.geometry,
+            piece.geometry.let { geometry -> if (currentScale == 1f) geometry else geometry.copy(
+                center = OriginWorkshopPoint(geometry.center.x*currentScale, geometry.center.y*currentScale, geometry.center.z*currentScale),
+                size = OriginWorkshopGamePartSize(geometry.size.x*currentScale, geometry.size.y*currentScale, geometry.size.z*currentScale)) },
         )
     }
 
@@ -152,6 +195,7 @@ internal class OriginWorkshopProp(
         if (removed) return
         removed = true
         carrier = null
+        entityCarrier = null
         currentPieces.forEach { it.display?.remove() }
         currentPieces = emptyList()
         currentItemDisplay?.remove()
@@ -246,11 +290,11 @@ internal class OriginWorkshopProp(
             geometry.center.y.toFloat() - geometry.size.y / 2f,
             geometry.center.z.toFloat() - geometry.size.z / 2f,
         )
-        currentRotation.transform(localCorner).add(passengerTranslation)
+        currentRotation.transform(localCorner.mul(currentScale)).add(passengerTranslation)
         display.transformation = Transformation(
             localCorner,
             Quaternionf(currentRotation),
-            Vector3f(geometry.size.x, geometry.size.y, geometry.size.z),
+            Vector3f(geometry.size.x, geometry.size.y, geometry.size.z).mul(currentScale),
             Quaternionf(),
         )
     }
@@ -260,7 +304,7 @@ internal class OriginWorkshopProp(
         display.transformation = Transformation(
             Vector3f(passengerTranslation),
             originWorkshopBoardItemDisplayRotation(currentRotation),
-            Vector3f(1f),
+            Vector3f(currentScale),
             Quaternionf(),
         )
     }
@@ -269,7 +313,9 @@ internal class OriginWorkshopProp(
         val player = carrier
         display.interpolationDuration = poseInterpolationDuration
         display.teleportDuration = poseTeleportDuration
+        val entity = entityCarrier
         if (player != null) display.attachTo(player)
+        else if (entity != null) display.attachTo(entity, entityPassengerOrigin)
         else {
             display.detach()
             display.teleport(currentCenter.clone())
