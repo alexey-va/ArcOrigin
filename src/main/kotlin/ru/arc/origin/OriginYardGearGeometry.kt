@@ -125,11 +125,11 @@ internal fun originYardGearPieces(gear: OriginYardGear, filled: Boolean,
 }
 
 internal fun originYardSaddleStandPieces(): List<OriginWorkshopWorkpiecePiece> = listOf(
-    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(-.18,.045,-.10), OriginWorkshopGamePartSize(.08f,.09f,.44f), Material.DARK_OAK_PLANKS),
-    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(.18,.045,-.10), OriginWorkshopGamePartSize(.08f,.09f,.44f), Material.DARK_OAK_PLANKS),
-    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(-.18,.45,0.0), OriginWorkshopGamePartSize(.06f,.72f,.12f), Material.DARK_OAK_PLANKS),
-    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(.18,.45,0.0), OriginWorkshopGamePartSize(.06f,.72f,.12f), Material.DARK_OAK_PLANKS),
-    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(0.0,.845,0.0), OriginWorkshopGamePartSize(.44f,.07f,.62f), Material.DARK_OAK_PLANKS),
+    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(-.18,.045,-.10), OriginWorkshopGamePartSize(.08f,.09f,.44f), Material.SMOOTH_QUARTZ),
+    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(.18,.045,-.10), OriginWorkshopGamePartSize(.08f,.09f,.44f), Material.SMOOTH_QUARTZ),
+    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(-.18,.45,0.0), OriginWorkshopGamePartSize(.06f,.72f,.12f), Material.SMOOTH_QUARTZ),
+    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(.18,.45,0.0), OriginWorkshopGamePartSize(.06f,.72f,.12f), Material.SMOOTH_QUARTZ),
+    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(0.0,.845,0.0), OriginWorkshopGamePartSize(.44f,.07f,.62f), Material.SMOOTH_QUARTZ),
 )
 
 internal fun originYardSaddleHooksPieces(): List<OriginWorkshopWorkpiecePiece> = listOf(
