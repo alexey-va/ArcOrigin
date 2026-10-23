@@ -38,6 +38,34 @@ internal fun oddJobTestYardCatalog(): ru.arc.origin.mountyard.OriginMountYardAni
 }
 
 class OriginOddJobsSurfaceTest : StringSpec({
+    "single stock reach uses its block at both reported pickup positions and still rejects distant players" {
+        MockBukkitTestRuntime.open().use {
+            val world = mockk<World> { every { uid } returns UUID.randomUUID() }
+            val block = mockk<Block> {
+                every { x } returns 82; every { y } returns 72; every { z } returns 71
+                every { type } returns Material.CHEST
+                every { blockData } returns mockk<org.bukkit.block.data.type.Chest> {
+                    every { type } returns org.bukkit.block.data.type.Chest.Type.SINGLE
+                }
+            }
+            val station = OriginOddJobStation(Location(world, 82.5, 72.9, 71.5), block, setOf(Material.CHEST))
+            var eye = Location(world, 78.56896202929885, 71.62, 73.58093571451246)
+            val player = mockk<Player> { every { this@mockk.world } returns world; every { eyeLocation } answers { eye } }
+            val range = oddJobTestConfig().range
+            range shouldBe 4.5
+            (eye.distanceSquared(station.point) > range * range) shouldBe true
+            originOddJobStationInReach(player, station, range) shouldBe true
+            eye = Location(world, 78.64128744686796, 71.62, 72.60841123024804)
+            originOddJobStationInReach(player, station, range) shouldBe true
+            eye = Location(world, 77.5, 72.5, 71.5)
+            originOddJobStationInReach(player, station, range) shouldBe true
+            eye.x -= 0.01
+            originOddJobStationInReach(player, station, range) shouldBe false
+            every { player.world } returns mockk<World> { every { uid } returns UUID.randomUUID() }
+            originOddJobStationInReach(player, station, range) shouldBe false
+        }
+    }
+
     "either half of the same native double chest is reachable for every facing and chest type" {
         MockBukkitTestRuntime.open().use {
             for (material in listOf(Material.CHEST, Material.TRAPPED_CHEST)) for (facing in listOf(BlockFace.NORTH, BlockFace.EAST, BlockFace.SOUTH, BlockFace.WEST)) {
@@ -97,6 +125,9 @@ class OriginOddJobsSurfaceTest : StringSpec({
     }
     "all employers share a readable shift confirmation with only the explicit accept action" {
         val config = oddJobTestConfig()
+        val receipt = waiterText(config.line("shift.receipt-score", "done" to 3, "amount" to 60), TextColor.color(0x9BD48D))
+        plain(receipt) shouldBe "Получено: 60 💰"
+        components(receipt).filter { plain(it) == "💰" }.all { it.color() == NamedTextColor.WHITE } shouldBe true
         config.venues.map { it.npcId } shouldBe listOf(440, 349, 351, 354, 365)
         config.shiftMillis shouldBe 600_000
         for (venue in config.venues) {

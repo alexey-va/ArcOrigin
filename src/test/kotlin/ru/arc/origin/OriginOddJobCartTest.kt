@@ -1,6 +1,7 @@
 package ru.arc.origin
 
 import com.google.gson.GsonBuilder
+import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.doubles.shouldBeLessThan
 import io.kotest.matchers.shouldBe
@@ -143,6 +144,32 @@ class OriginOddJobCartTest : StringSpec({
         motion.next(start(), OriginWorkshopPoint(0.0, 70.0, 0.3), 180f, 70.0, emptyList()) shouldBe start()
     }
 
+    "narrow posts and fence rails obstruct the cart without becoming steps" {
+        val obstacles = listOf(
+            listOf(BoundingBox(-0.125, 70.0, 2.375, 0.125, 71.0, 2.625)),
+            listOf(BoundingBox(-0.125, 70.0, 2.375, 0.125, 71.5, 2.625),
+                BoundingBox(-0.5, 70.375, 2.4375, 0.5, 71.0, 2.5625)),
+            (70..72).map { BoundingBox(-0.5, it.toDouble(), 2.0, 0.5, it + 1.0, 3.0) },
+        )
+        for ((index, blocks) in obstacles.withIndex()) {
+            val example = drive("post-$index", listOf(floor) + blocks, start(), 3.5)
+            withClue("obstacle $index") { example.frames.maxOf { it.pose.point.y } shouldBeLessThan 70.02 }
+            example.frames.maxOf { it.pose.point.z } shouldBeLessThan 2.0
+        }
+    }
+
+    "a cart already raised by a narrow post can be pulled off it and settle on the floor" {
+        for (height in listOf(1.0, 1.5, 2.0)) {
+            val post = BoundingBox(-0.125, 70.0, 2.375, 0.125, 70.0 + height, 2.625)
+            val example = drive("post-recovery-$height", listOf(floor, post), start(2.5, 70.0 + height), 0.0, speed = 0.08)
+            val output = Path.of("build/odd-jobs-preview/cart-post-recovery-$height.json")
+            Files.createDirectories(output.parent)
+            Files.writeString(output, GsonBuilder().setPrettyPrinting().create().toJson(example))
+            bounded(example)
+            withClue("post height $height") { settled(example, 0.0, 70.0) }
+        }
+    }
+
     "turning is bounded and cannot sweep the handles through a thin post" {
         val motion = OriginOddJobCartMotion(layout)
         val post = BoundingBox(0.78, 70.0, -0.85, 0.82, 72.0, -0.55)
@@ -153,6 +180,34 @@ class OriginOddJobCartTest : StringSpec({
             pose = next
         }
         (pose.yaw < 270f) shouldBe true
+    }
+
+    "stable parking accepts real path and slab support and the held cart handles are clickable" {
+        for (floorTop in listOf(69.9375, 69.5)) CartDisplayFixture(layout, floorTop).use { f ->
+            val pad = ru.arc.origin.scene.OriginScenePoint(0.0, 70.0, 0.0)
+            val cleaningLayout = OriginStableCleaningLayout(layout, pad,
+                mapOf(422 to OriginStableCleaningStall(pad, List(3) { pad.copy(x = it + 2.0) })))
+            OriginOddJobStableCleaning(cleaningLayout, { ItemStack(Material.MINECART) }, { f.owner }).use { cleaning ->
+                val job = requireNotNull(OriginOddJobsProgress(240_000).begin(f.player.uniqueId,
+                    OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.YARD_CLEANUP, 1, false), 0,
+                    yardTarget = OriginYardWork(422, "Буран"))).copy(stage = OriginOddJobStage.CLEAN_PUSH)
+                cleaning.sync(f.player, job)
+                cleaning.canPark(f.player.uniqueId, job.copy(stage = OriginOddJobStage.CLEAN_RETURN)) shouldBe false
+                cleaning.tick(f.player, job.copy(stage = OriginOddJobStage.CLEAN_RETURN)) shouldBe null
+                repeat(60) { cleaning.tick(f.player, job) }
+                val station = requireNotNull(cleaning.station(f.player.uniqueId, job))
+                abs(station.point.y - 0.65 - floorTop) shouldBeLessThan 0.012
+                cleaning.canPark(f.player.uniqueId, job) shouldBe true
+                val handle = station.point.clone().add(0.4, 0.2, -1.04)
+                val eye = f.at.clone().add(0.0, 1.62, 0.0).apply { setDirection(handle.toVector().subtract(toVector())) }
+                every { f.player.eyeLocation } returns eye
+                originOddJobAimed(f.player, station, 4.5, null, virtualTarget = true) shouldBe true
+                originOddJobAimed(f.player, station.copy(interactionBounds = null), 4.5, null, virtualTarget = true) shouldBe false
+                val home = job.copy(stage = OriginOddJobStage.CLEAN_RETURN)
+                cleaning.canPark(f.player.uniqueId, home) shouldBe true
+                cleaning.tick(f.player, home) shouldBe OriginOddJobAction.CART_ARRIVE
+            }
+        }
     }
 
     "native collision snapshot is bounded and an unloaded or distant destination reads no blocks" {
@@ -218,7 +273,7 @@ class OriginOddJobCartTest : StringSpec({
     }
 })
 
-private class CartDisplayFixture(layout: OriginForgeCartLayout) : AutoCloseable {
+private class CartDisplayFixture(layout: OriginForgeCartLayout, floorTop: Double = 70.0) : AutoCloseable {
     private val paper = MockBukkitTestRuntime.open()
     val request: UUID = UUID.randomUUID()
     val world: World = mockk(relaxed = true)
@@ -231,6 +286,7 @@ private class CartDisplayFixture(layout: OriginForgeCartLayout) : AutoCloseable 
     val locations = linkedMapOf<PacketDisplay, Location>()
     val cargo = originForgeCargoPieces(OriginForgeCargo.IRON)
     val cart: OriginOddJobCart
+    val owner = mockk<PaperPacketDisplays>(relaxed = true)
     init {
         every { world.uid } returns UUID.randomUUID()
         every { world.minHeight } returns -64
@@ -239,14 +295,20 @@ private class CartDisplayFixture(layout: OriginForgeCartLayout) : AutoCloseable 
         every { world.getBlockAt(any<Int>(), any<Int>(), any<Int>()) } answers {
             blockReads++
             val key = Triple(firstArg<Int>(), secondArg<Int>(), thirdArg<Int>())
-            val box = obstacles[key] ?: if (key.second == 69) BoundingBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0) else null
-            mockk<Block> { every { collisionShape } returns mockk { every { boundingBoxes } returns listOfNotNull(box) } }
+            val box = obstacles[key] ?: if (key.second == 69) BoundingBox(0.0, 0.0, 0.0, 1.0, floorTop - 69.0, 1.0) else null
+            mockk<Block> {
+                every { collisionShape } returns mockk { every { boundingBoxes } returns listOfNotNull(box) }
+                every { type } returns if (box == null) Material.AIR else Material.STONE
+                every { isPassable } returns (box == null)
+                every { x } returns key.first; every { y } returns key.second; every { z } returns key.third
+            }
         }
+        every { world.getBlockAt(any<Location>()) } answers { firstArg<Location>().let { world.getBlockAt(it.blockX, it.blockY, it.blockZ) } }
+        every { world.rayTraceBlocks(any(), any(), any(), any(), any()) } returns null
         every { player.uniqueId } returns UUID.randomUUID()
         every { player.world } returns world
         every { player.location } answers { at.clone() }
         every { player.height } returns 1.8
-        val owner = mockk<PaperPacketDisplays>(relaxed = true)
         fun track(display: PacketDisplay, at: Location) {
             every { display.isValid } returns true
             locations[display] = at.clone()

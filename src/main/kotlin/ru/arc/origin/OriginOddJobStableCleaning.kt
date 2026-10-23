@@ -163,7 +163,9 @@ internal class OriginOddJobStableCleaning(
     fun canPark(playerId: UUID, job: OriginOddJobSession): Boolean {
         val cart = carts.point(playerId, job.id) ?: return false
         val pad = destination(playerId, job) ?: return false
-        return supported(cart) && originStableCartAt(cart, pad)
+        // The cart owner already checks real wheel/chassis support. A block
+        // type check at its centre rejects valid slabs, paths and edge parking.
+        return carts.grounded(playerId, job.id) && originStableCartAt(cart, pad)
     }
 
     fun tick(player: Player, job: OriginOddJobSession): OriginOddJobAction? {

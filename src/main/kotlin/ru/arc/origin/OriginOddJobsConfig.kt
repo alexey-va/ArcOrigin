@@ -96,7 +96,8 @@ internal fun originOddJobWorkpieceTarget(stage: OriginOddJobStage): Boolean = st
 internal fun originOddJobWorkpieceGlows(job: OriginOddJobSession, now: Long): Boolean = originOddJobWorkpieceTarget(job.stage) &&
     (job.stage != OriginOddJobStage.FORGE_HEATING || now - job.stageStartedAt >= originOddJobHeatReady(job))
 
-internal data class OriginOddJobStation(val point: Location, val block: Block, val materials: Set<Material>, val accessBlocks: List<Block> = emptyList()) {
+internal data class OriginOddJobStation(val point: Location, val block: Block, val materials: Set<Material>,
+    val accessBlocks: List<Block> = emptyList(), val interactionBounds: OriginWorkshopAabb? = null) {
     fun valid(): Boolean = block.world.isChunkLoaded(block.x shr 4, block.z shr 4) && block.type in materials
 }
 

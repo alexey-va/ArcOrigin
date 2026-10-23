@@ -9,7 +9,7 @@ import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import kotlin.math.abs
 
-/** One route owns both the physical orientation and Citizens' rendered body/head pose. */
+/** One owner controls body/head orientation; the native tracker owns client interpolation. */
 internal class NpcRouteRotation(
     private val npc: NPC,
     private val maxDegreesPerTick: Float,
@@ -43,8 +43,6 @@ internal class NpcRouteRotation(
         private set
     var pitch = entity.pitch
         private set
-    private val parameters = RotationTrait.RotationParams().filter { true }.immediate(true).linkedBody(true)
-    private val packets = rotation.createPacketSession(parameters)
     private var closed = false
 
     /** Completed actions may restore their pose, but never overwrite a newer route or action. */
@@ -53,9 +51,6 @@ internal class NpcRouteRotation(
 
     init {
         ownership.rotation = WeakReference(this)
-        // createPacketSession runs immediately: do not activate its default zero-degree target.
-        packets.session.rotateToHave(yaw, pitch)
-        parameters.persist(true)
     }
 
     fun turnToward(targetYaw: Float, targetPitch: Float = 0f): Boolean {
@@ -67,8 +62,6 @@ internal class NpcRouteRotation(
         yaw = turnNpcYawToward(yaw, targetYaw, maxDegreesPerTick)
         pitch += (targetPitch - pitch).coerceIn(-maxDegreesPerTick, maxDegreesPerTick)
         applyPhysical()
-        packets.session.rotateToHave(yaw, pitch)
-        packets.run(entity)
         return alignedWith(targetYaw, targetPitch)
     }
 
@@ -76,6 +69,8 @@ internal class NpcRouteRotation(
         abs(normalizedNpcYaw(targetYaw - yaw)) < 0.01f && abs(targetPitch - pitch) < 0.01f
 
     private fun applyPhysical() {
+        // Extra rotation-only packets restart the client's shared position/rotation interpolation
+        // between native movement updates, making a walking animal surge during turns.
         entity.setRotation(yaw, pitch)
         (entity as? LivingEntity)?.bodyYaw = yaw
         // The physical session is paused during navigation; replace any stale idle target.
@@ -86,7 +81,6 @@ internal class NpcRouteRotation(
         if (closed) return
         closed = true
         try {
-            packets.end()
             if (isLatestOwner && npc.isSpawned && npc.entity === entity && entity.world == world) applyPhysical()
         } finally {
             onClose()

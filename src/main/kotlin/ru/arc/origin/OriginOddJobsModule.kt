@@ -9,6 +9,7 @@ import org.bukkit.Bukkit
 import org.bukkit.GameMode
 import org.bukkit.FluidCollisionMode
 import org.bukkit.Location
+import org.bukkit.Material
 import org.bukkit.Sound
 import org.bukkit.SoundCategory
 import org.bukkit.block.Block
@@ -100,12 +101,13 @@ internal fun originClearAuctionJobHologram(venue: OriginOddJobVenue) {
     OriginNpcHolograms.patchHologram(npc.id, emptyList(), viewRange = -1)
 }
 
-/** Stock selection remains reachable from either connected chest half after the native click. */
+/** Stock selection uses the physical container volume, independent of its display anchor. */
 internal fun originOddJobStationInReach(player: Player, station: OriginOddJobStation, range: Double): Boolean {
     if (player.world.uid != station.point.world?.uid) return false
     val eye = player.eyeLocation
+    if (station.block.type !in setOf(Material.CHEST, Material.TRAPPED_CHEST, Material.BARREL))
+        return eye.distanceSquared(station.point) <= range * range
     val blocks = originOddJobStationBlocks(station.block)
-    if (blocks.size == 1) return eye.distanceSquared(station.point) <= range * range
     return blocks.any { block ->
         val dx = eye.x - eye.x.coerceIn(block.x.toDouble(), block.x + 1.0)
         val dy = eye.y - eye.y.coerceIn(block.y.toDouble(), block.y + 1.0)
@@ -133,7 +135,7 @@ internal fun originOddJobAimed(player: Player, station: OriginOddJobStation, ran
     val ray = eye.direction
     val p = station.point
     val distance = originWorkshopRayAabbHit(OriginWorkshopVec3(eye.x, eye.y, eye.z), OriginWorkshopVec3(ray.x, ray.y, ray.z),
-        OriginWorkshopAabb(p.x - 0.65 + blocks.minOf { it.x - station.block.x }, p.y - 0.8,
+        station.interactionBounds ?: OriginWorkshopAabb(p.x - 0.65 + blocks.minOf { it.x - station.block.x }, p.y - 0.8,
             p.z - 0.65 + blocks.minOf { it.z - station.block.z }, p.x + 0.65 + blocks.maxOf { it.x - station.block.x }, p.y + 0.95,
             p.z + 0.65 + blocks.maxOf { it.z - station.block.z }), range) ?: return false
     val blocker = player.world.rayTraceBlocks(eye, ray, distance + 0.02, FluidCollisionMode.NEVER, true)?.hitBlock ?: return true
@@ -255,6 +257,11 @@ internal class OriginOddJobsGame(
         }
         if (!left && progress.current(event.player.uniqueId)?.kind == OriginOddJobKind.MOUNTYARD &&
             event.clickedBlock?.let(yard::isStallGate) == true) {
+            if (progress.current(event.player.uniqueId)?.variant == OriginOddJobVariant.YARD_CLEANUP &&
+                work(event.player, left = false, clicked = event.clickedBlock)) {
+                event.isCancelled = true
+                return
+            }
             // Preserve native block access and any protection denial, while suppressing use of the loaned tool.
             if (supplies.isWorkpiece(event.item)) event.setUseItemInHand(org.bukkit.event.Event.Result.DENY)
             return

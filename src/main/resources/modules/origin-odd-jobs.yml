@@ -101,7 +101,7 @@ text:
     hud: "{guide} · {clock} · {amount} 💰"
     board-guide: "Следующее поручение готовится · {clock} · ✓{done}"
     receipt-title: "Смена завершена"
-    receipt-score: "Принято {done} · Получено {amount} 💰"
+    receipt-score: "Получено: {amount} 💰"
     receipt-pending: "Заработано {amount} 💰 · выплата ещё не подтверждена"
     receipt: "Смена завершена · Принято {done} · Заработано {amount} 💰 · Качество {quality}%"
   variants:

@@ -181,6 +181,32 @@ class OriginOddJobsGameTest : StringSpec({
             f.released.size shouldBe 1
         }
     }
+    "copper and iron blanks enter inventory on an ordinary click from the reachable stock edge" {
+        for (variant in listOf(OriginOddJobVariant.FORGE_HINGE, OriginOddJobVariant.FORGE_NEW)) {
+            f.close(); f = OddJobsFixture()
+            failOnUnsupportedMockBukkitOperation {
+                f.begin(349, variant)
+                val source = f.stations.getValue(OriginOddJobStationId.BLANK)
+                source.point.y = source.block.y + 0.9
+                f.stroke(OriginOddJobStationId.BLANK)
+                val stock = f.player.openInventory.topInventory
+                // The failed live LEFT click, translated from physical chest (82,72,71).
+                f.player.setLocation(source.block.location.add(-3.43103797070115, -2.0, 2.58093571451246))
+                (f.player.eyeLocation.distanceSquared(source.point) > f.config.range * f.config.range) shouldBe true
+                val click = org.bukkit.event.inventory.InventoryClickEvent(f.player.openInventory,
+                    org.bukkit.event.inventory.InventoryType.SlotType.CONTAINER, 4,
+                    org.bukkit.event.inventory.ClickType.LEFT, org.bukkit.event.inventory.InventoryAction.PICKUP_ALL)
+                f.game.onInventoryClick(click)
+                click.isCancelled shouldBe true
+                f.scheduler.tick()
+                f.requireStage(OriginOddJobStage.FORGE_HEAT, "a native reachable stock needs no shift-click")
+                val item = f.player.inventory.contents.filterNotNull().single { it.type == Material.STRUCTURE_VOID }
+                item.itemMeta.itemModel shouldBe org.bukkit.NamespacedKey.minecraft(f.game.currentJob(f.player.uniqueId)!!.forge!!.metal.itemModel)
+                stock.getItem(4) shouldBe null
+            }
+        }
+    }
+
     "stock is an inventory pickup with one visible service item and duplicate clicks cannot duplicate it" {
         failOnUnsupportedMockBukkitOperation {
             f.player.inventory.setItem(0, org.bukkit.inventory.ItemStack(Material.DIAMOND, 7))
@@ -482,7 +508,7 @@ class OriginOddJobsGameTest : StringSpec({
             f.requireStage(OriginOddJobStage.CLEAN_PUSH, "empty cart attached")
             f.cleaningParkReady = false; f.strokeCleaning()
             f.requireStage(OriginOddJobStage.CLEAN_PUSH, "cart cannot park away from stall")
-            f.cleaningParkReady = true; f.strokeCleaning()
+            f.cleaningParkReady = true; f.strokeCleaning(clickedGate = true)
             repeat(3) { index ->
                 f.strokeCleaning(left = true)
                 f.requireStage(OriginOddJobStage.CLEAN_LOAD, "shovel holds a portion")
@@ -1097,13 +1123,21 @@ internal class OddJobsFixture(deferStations: Boolean = false, doubleStocks: Bool
         event.useInteractedBlock() shouldBe Event.Result.DENY
         event.useItemInHand() shouldBe Event.Result.DENY
     }
-    fun strokeCleaning(left: Boolean = false) {
+    fun strokeCleaning(left: Boolean = false, clickedGate: Boolean = false) {
         now += 700
         val point = cleaningStation.point
         val at = point.clone().add(0.0, -0.4, -2.2)
         at.setDirection(point.toVector().subtract(at.clone().add(0.0, player.eyeHeight, 0.0).toVector()))
         player.teleport(at)
-        game.work(player, left, null) shouldBe true
+        if (clickedGate) {
+            val gate = world.getBlockAt(point.blockX, point.blockY, point.blockZ + 1)
+            gate.type = Material.OAK_FENCE_GATE
+            every { yard.isStallGate(gate) } returns true
+            val event = PlayerInteractEvent(player, Action.RIGHT_CLICK_BLOCK, player.inventory.itemInMainHand, gate, BlockFace.NORTH, EquipmentSlot.HAND)
+            game.onBlock(event)
+            event.useInteractedBlock() shouldBe Event.Result.DENY
+            event.useItemInHand() shouldBe Event.Result.DENY
+        } else game.work(player, left, null) shouldBe true
     }
     fun dragCart(step: Double = 0.22) {
         val stage = OriginOddJobStage.HAUL_PUSH
