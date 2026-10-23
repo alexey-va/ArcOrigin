@@ -283,15 +283,16 @@ internal fun originOddJobsScreen(
                 add(waiterText(config.line("table.duration")) to waiterText(config.line("table.duration-value", "minutes" to config.shiftMillis / 60_000)))
                 add(waiterText(config.line(if(yard) "table.yard-pay" else "table.pay")) to waiterText(config.line("table.pay-value", "amount" to amount), TextColor.color(0x9BD48D)))
                 if (status != null) add(waiterText(config.line("table.quota")) to waiterText(config.line(if(yard) "table.yard-quota-value" else "table.quota-value", "count" to status.remainingOrders)))
-            }, null, DialogTables.Frame.EPIC, 310, DialogTables.Columns.VALUE_WIDE))
+            }, null, if (yard) DialogTables.Frame.UNCOMMON else DialogTables.Frame.COMMON, 310, DialogTables.Columns.VALUE_WIDE))
             val reason = notice ?: gate?.let { config.line(it, "seconds" to waiterSeconds((status?.nextAtMillis ?: now) - now)) }
             reason?.let { add(PaperDialogBody(waiterText(it), 310)) }
         } else {
-            add(DialogTables.body(listOf(
+            add(DialogTables.filledBody(rows = listOf(
                 waiterText(config.line("table.time-left")) to waiterText(originOddJobClock(shift.closesAt - now)),
                 waiterText(config.line(if(yard) "table.yard-completed" else "table.completed")) to waiterText(config.line("table.completed-value", "done" to shift.completedOrders, "amount" to shift.earnedAmount), TextColor.color(0x9BD48D)),
-                waiterText(config.line("table.active")) to waiterText(if (job == null) "0" else "1")),
-                null, DialogTables.Frame.EPIC, 310, DialogTables.Columns.VALUE_WIDE))
+                waiterText(config.line("table.active")) to waiterText(if (job == null) "0" else "1"))
+                .map { (label, value) -> listOf(label.append(waiterText(": ")).append(value)) },
+                headers = null, width = 310, columnWeights = listOf(1)))
             add(PaperDialogBody(waiterText(job?.let { originOddJobGuide(config, it, now) }
                 ?: paymentGuide ?: config.line("shift.assigning")), 310))
             add(PaperDialogBody(waiterText(config.line("shift.leave-hint")), 310))
