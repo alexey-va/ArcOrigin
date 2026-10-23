@@ -26,6 +26,7 @@ class OriginWaiterSurfaceTest : StringSpec({
         config.shiftMillis shouldBe 600_000
         config.graceMillis shouldBe 120_000
         val screen = waiterScreen(config, config.venues.last(), null, emptyList(), 20, SideJobRewardStatus(true, 20, 0, false), 0)
+        exportShiftPreview("waiter-offer", screen)
         plain(screen.title) shouldBe "Смена · Ресторан"
         screen.title.color() shouldBe TextColor.color(0xFFB277)
         screen.title.decoration(TextDecoration.ITALIC) shouldBe TextDecoration.State.FALSE
@@ -44,6 +45,7 @@ class OriginWaiterSurfaceTest : StringSpec({
         for (stage in OriginWaiterStage.entries) {
             val job = OriginWaiterJob(waiterTarget(), 0, 180_000, stage, 10_000)
             val screen = waiterScreen(config, config.venues.last(), OriginWorkShift.begin(0), listOf(job), 20, null, 20_000)
+            if (stage == OriginWaiterStage.entries.first()) exportShiftPreview("waiter-active", screen)
             screen.id shouldBe "dining.waiter.restaurant"
             screen.buttons.map { plain(it.label) } shouldBe listOf("Продолжить смену", "Завершить смену")
             screen.buttons.map { it.id.value } shouldBe listOf("waiter_continue", "waiter_finish")
@@ -124,3 +126,15 @@ class OriginWaiterSurfaceTest : StringSpec({
 
 private fun plain(component: Component): String = PlainTextComponentSerializer.plainText().serialize(component)
 private fun components(component: Component): List<Component> = listOf(component) + component.children().flatMap(::components)
+
+/** Optional export of production presenter output for the canonical offline renderer. */
+internal fun exportShiftPreview(name: String, screen: ru.arc.paper.menu.PaperDialogScreen) {
+    val directory = System.getenv("DIALOGUE_HIERARCHY_PREVIEW_OUT") ?: return
+    val out = java.nio.file.Path.of(directory).resolve("$name.json")
+    Files.createDirectories(out.parent)
+    val gson = net.kyori.adventure.text.serializer.gson.GsonComponentSerializer.gson()
+    Files.writeString(out, com.google.gson.GsonBuilder().disableHtmlEscaping().setPrettyPrinting().create().toJson(mapOf(
+        "body" to screen.body.map { mapOf("width" to it.width, "text" to gson.serializeToTree(it.text)) },
+        "actions" to screen.buttons.map { it.id.value },
+    )))
+}

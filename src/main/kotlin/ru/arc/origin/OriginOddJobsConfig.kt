@@ -291,8 +291,8 @@ internal fun originOddJobsScreen(
                 waiterText(config.line("table.time-left")) to waiterText(originOddJobClock(shift.closesAt - now)),
                 waiterText(config.line(if(yard) "table.yard-completed" else "table.completed")) to waiterText(config.line("table.completed-value", "done" to shift.completedOrders, "amount" to shift.earnedAmount), TextColor.color(0x9BD48D)),
                 waiterText(config.line("table.active")) to waiterText(if (job == null) "0" else "1"))
-                .map { (label, value) -> listOf(label.append(waiterText(": ")).append(value)) },
-                headers = null, width = 310, columnWeights = listOf(1)))
+                .map { (label, value) -> listOf(label, value) },
+                headers = null, width = 310, columnWeights = listOf(1, 1)))
             add(PaperDialogBody(waiterText(job?.let { originOddJobGuide(config, it, now) }
                 ?: paymentGuide ?: config.line("shift.assigning")), 310))
             add(PaperDialogBody(waiterText(config.line("shift.leave-hint")), 310))

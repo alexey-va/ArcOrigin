@@ -172,8 +172,8 @@ internal fun waiterScreen(
         body = buildList {
             if (shift == null) add(PaperDialogBody(waiterText(config.line("shift-introduction")), width = 310))
             add(DialogTables.filledBody(
-                rows = rows.map { (label, value) -> listOf(label.append(waiterText(": ")).append(value)) },
-                headers = null, width = 310, columnWeights = listOf(1),
+                rows = rows.map { (label, value) -> listOf(label, value) },
+                headers = null, width = 310, columnWeights = listOf(1, 1),
             ))
             state?.let { add(PaperDialogBody(waiterText(it), width = 310)) }
             if (shift == null && receipt != null) add(PaperDialogBody(waiterText(config.line("last-shift",

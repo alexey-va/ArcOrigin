@@ -166,6 +166,7 @@ class OriginOddJobsSurfaceTest : StringSpec({
             val offer = OriginOddJobOffer(UUID.randomUUID(), OriginOddJobVariant.entries.first { it.kind == venue.kind }, 8, false)
             val job = OriginOddJobsProgress(240_000).begin(UUID.randomUUID(), offer, 0)!!
             val screen = originOddJobsScreen(config, venue, job, 20, null, 0, shift = OriginWorkShift.begin(0))
+            if (venue == config.venues.first()) exportShiftPreview("odd-job-active", screen)
             screen.buttons.map { it.id.value } shouldBe listOf("odd_job_continue", "odd_job_finish")
             screen.buttons.map { plain(it.label) } shouldBe listOf("Продолжить смену", "Завершить смену")
             screen.buttons[0].label.color() shouldBe TextColor.color(0xFFFFFF)
