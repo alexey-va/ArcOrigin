@@ -8,10 +8,11 @@ import io.mockk.verify
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.World
-import org.bukkit.entity.ItemDisplay
 import org.bukkit.inventory.ItemStack
 import ru.arc.paper.testing.MockBukkitTestRuntime
-import java.util.function.Consumer
+import ru.arc.paper.display.PacketItemDisplay
+import ru.arc.paper.display.PaperPacketDisplays
+import ru.arc.origin.scene.OriginSceneResources
 
 class OriginDiningDrinksTest : StringSpec({
     lateinit var paper: MockBukkitTestRuntime
@@ -19,11 +20,13 @@ class OriginDiningDrinksTest : StringSpec({
     afterEach { paper.close() }
 
     "mug persists at counter, is picked once, placed at table and becomes empty" {
-        val displays = mutableListOf<ItemDisplay>()
-        val world = drinkWorld(displays)
+        val displays = mutableListOf<PacketItemDisplay>()
+        val renderer = drinkRenderer(displays)
+        val world = mockk<World>(relaxed = true)
         val config = OriginDiningLifeConfig(drinkFullTicks = 40, drinkEmptyTicks = 20)
         val bar = DiningBar(439, OriginDiningPoint(0.0, 73.0, 0.0), setOf(431))
-        val drinks = OriginDiningDrinks(config) { ItemStack(Material.PAPER) }
+        val drinks = OriginDiningDrinks(config, { ItemStack(Material.PAPER) },
+            { OriginSceneResources(createDisplays = { renderer }) })
         drinks.ready(bar, Location(world, 0.0, 73.0, 0.0))
         drinks.ready(bar, Location(world, 0.0, 73.0, 0.0))
         displays.size shouldBe 1
@@ -38,18 +41,21 @@ class OriginDiningDrinksTest : StringSpec({
         drinks.needsDrink("table") shouldBe false
         drinks.hasPending(439) shouldBe false
         drinks.tick(40)
-        verify(exactly = 2) { displays.last().setItemStack(any()) }
+        verify(exactly = 2) { displays.last().itemStack = any() }
         drinks.tick(60)
         drinks.needsDrink("table") shouldBe true
         verify(exactly = 1) { displays.last().remove() }
         drinks.close()
+        verify(exactly = 0) { renderer.close(); renderer.closeAsync() }
     }
 
     "cancel after pickup recreates the counter mug and releases the guest reservation" {
-        val displays = mutableListOf<ItemDisplay>()
-        val world = drinkWorld(displays)
+        val displays = mutableListOf<PacketItemDisplay>()
+        val renderer = drinkRenderer(displays)
+        val world = mockk<World>(relaxed = true)
         val bar = DiningBar(439, OriginDiningPoint(0.0, 73.0, 0.0), setOf(431))
-        val drinks = OriginDiningDrinks(OriginDiningLifeConfig()) { ItemStack(Material.PAPER) }
+        val drinks = OriginDiningDrinks(OriginDiningLifeConfig(), { ItemStack(Material.PAPER) },
+            { OriginSceneResources(createDisplays = { renderer }) })
         drinks.ready(bar, Location(world, 0.0, 73.0, 0.0))
         val order = drinks.reserve("table", 431)!!
         drinks.pickup(order)
@@ -63,15 +69,12 @@ class OriginDiningDrinksTest : StringSpec({
     }
 })
 
-private fun drinkWorld(displays: MutableList<ItemDisplay>): World = mockk<World>(relaxed = true) {
-    every { isChunkLoaded(any<Int>(), any<Int>()) } returns false
-    every { spawn<ItemDisplay>(any<Location>(), ItemDisplay::class.java, any<Consumer<ItemDisplay>>()) } answers {
-        val display = mockk<ItemDisplay>(relaxed = true) {
+private fun drinkRenderer(displays: MutableList<PacketItemDisplay>): PaperPacketDisplays = mockk(relaxed = true) {
+    every { spawnItem(any(), any()) } answers {
+        val display = mockk<PacketItemDisplay>(relaxed = true) {
             every { isValid } returns true
-            every { teleport(any<Location>()) } returns true
         }
         displays += display
-        thirdArg<Consumer<ItemDisplay>>().accept(display)
         display
     }
 }

@@ -9,6 +9,8 @@ import ru.arc.core.Tasks
 import ru.arc.core.LifecycleTaskScope
 import ru.arc.core.BudgetedTaskQueue
 import ru.arc.core.BoundedAsyncExecutor
+import ru.arc.core.whenCompleteSync
+import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.api.ArcRedisService
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
@@ -46,6 +48,8 @@ open class ArcOriginPlugin : JavaPlugin() {
         private set
     private var lifecycleOpen = false
     private var pendingClose = CompletableFuture.completedFuture(Unit)
+    private var pendingDisplayClose = CompletableFuture.completedFuture(Unit)
+    private var props: PaperPacketDisplays? = null
     private var nativeDetachFailed = false
     @Volatile private var stopping = false
     private lateinit var io: BoundedAsyncExecutor
@@ -108,9 +112,27 @@ open class ArcOriginPlugin : JavaPlugin() {
     internal fun capture(isCurrent: () -> Boolean, step: () -> Boolean): CompletableFuture<Unit> =
         nativeWork.submit({ !stopping && isCurrent() }, step)
 
+    /** Shared, borrowed renderer for decorative auction and scene props in this generation. */
+    internal fun propDisplays(): PaperPacketDisplays {
+        check(lifecycleOpen && !stopping) { "Origin prop generation is closed" }
+        return props ?: createPropDisplays().also { props = it }
+    }
+
+    protected open fun createPropDisplays(): PaperPacketDisplays = PaperPacketDisplays(this, "origin-props")
+
+    private fun retirePropDisplays(): CompletableFuture<Unit> {
+        val owner = props ?: return pendingDisplayClose
+        props = null
+        val closing = runCatching { owner.closeAsync().thenApply { Unit } }
+            .getOrElse { CompletableFuture.failedFuture(it) }
+        pendingDisplayClose = CompletableFuture.allOf(pendingDisplayClose, closing).thenApply { Unit }
+        return pendingDisplayClose
+    }
+
     /** Called by ARC on the server thread; manual reload is a sequential lifecycle operation. */
     fun reloadOrigin() {
         if (stopping || runtime == null) return
+        stopping = true
         val host = OriginServices.configuration
         moduleHealth = RuntimeHealthContribution(state = RuntimeHealthState.STARTING)
         server.servicesManager.unregisterAll(this)
@@ -118,12 +140,20 @@ open class ArcOriginPlugin : JavaPlugin() {
         nativeWork.close()
         ModuleRegistry.shutdownAll()
         OriginMenus.close()
-        workScope.restart()
-        nativeWork = BudgetedTaskQueue(workScope)
+        val token = workScope.restart()
         redisClient?.let(::retireRedis)
         redisClient = null
         runtime?.reload()
-        prepare(host, reload = true)
+        pendingClose = retirePropDisplays()
+        pendingClose.whenCompleteSync(workScope, token) { _, failure ->
+            if (failure != null) {
+                logger.log(Level.SEVERE, "ArcOrigin reload blocked by prop cleanup", failure)
+                return@whenCompleteSync
+            }
+            nativeWork = BudgetedTaskQueue(workScope)
+            stopping = false
+            prepare(host, reload = true)
+        }
     }
 
     private fun prepare(host: ru.arc.origin.api.ArcOriginConfiguration, reload: Boolean) {
@@ -211,15 +241,25 @@ open class ArcOriginPlugin : JavaPlugin() {
         if (!lifecycleOpen) return
         lifecycleOpen = false
         val closing = runCatching { closeGeneration() }.getOrElse { CompletableFuture.failedFuture(it) }
-        pendingClose = closing
+        val displayClose = pendingDisplayClose
+        // The storage terminal may be joined below; packet retirement may still need a Paper turn.
+        pendingClose = CompletableFuture.allOf(closing, displayClose).handle { _, _ ->
+            val failure = runCatching { closing.getNow(Unit) }.exceptionOrNull()
+            val displayFailure = runCatching { displayClose.getNow(Unit) }.exceptionOrNull()
+            if (failure != null) {
+                displayFailure?.let(failure::addSuppressed)
+                throw failure
+            }
+            displayFailure?.let { throw it }
+            Unit
+        }
         if (!nativeDetachFailed) {
             // Closed reward owners complete their remaining Redis receipts without a Paper callback.
             runCatching { closing.join() }.onFailure { logger.log(Level.SEVERE, "Could not close ArcOrigin storage", it) }
-        } else {
-            // A failed native detach may leave a callback on main; never join that tail here.
-            closing.whenComplete { _, failure ->
-                if (failure != null) logger.log(Level.SEVERE, "ArcOrigin cleanup failed", failure)
-            }
+        }
+        // Failed native detach and visual retirement can both leave main-thread work outstanding.
+        pendingClose.whenComplete { _, failure ->
+            if (failure != null) logger.log(Level.SEVERE, "ArcOrigin cleanup failed", failure)
         }
     }
 
@@ -236,6 +276,7 @@ open class ArcOriginPlugin : JavaPlugin() {
         detach { if (::nativeWork.isInitialized) nativeWork.close() }
         detach { if (::workScope.isInitialized) workScope.close() }
         detach { detachModules() }
+        detach { retirePropDisplays() }
         detach { ru.arc.npc.NpcRouteRotation.closeAll() }
         detach { OriginMenus.close() }
         commandService = null

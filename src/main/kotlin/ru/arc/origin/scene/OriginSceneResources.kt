@@ -7,7 +7,6 @@ import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.block.Lidded
-import org.bukkit.entity.BlockDisplay
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.Display
 import org.bukkit.entity.LivingEntity
@@ -23,6 +22,10 @@ import org.joml.Vector3f
 import ru.arc.npc.NpcRouteRotation
 import ru.arc.npc.npcRouteYaw
 import ru.arc.npc.smoothNpcRotation
+import ru.arc.origin.ArcOriginPlugin
+import ru.arc.paper.display.PacketBlockDisplay
+import ru.arc.paper.display.PacketItemDisplay
+import ru.arc.paper.display.PaperPacketDisplays
 
 /** Open only authored fence gates; leave them open so recovery never closes across a player. */
 internal fun openOriginSceneStallGates(world: World, points: List<OriginScenePoint>): Boolean {
@@ -58,7 +61,10 @@ internal data class OriginSceneCleanupFailure(
  */
 internal class OriginSceneResources(
     private val smoothRotation: (NPC, Float, Float) -> NpcRouteRotation = ::smoothNpcRotation,
+    createDisplays: () -> PaperPacketDisplays = { ArcOriginPlugin.instance.propDisplays() },
 ) {
+    // Borrow the generation owner only when this cycle actually creates a visual prop.
+    private val renderer by lazy(createDisplays)
     private data class RotationSnapshot(
         val actor: NPC,
         val entity: Entity,
@@ -113,8 +119,8 @@ internal class OriginSceneResources(
     private val hands = linkedMapOf<Int, HandSnapshot>()
     private val poses = linkedMapOf<Int, PoseSnapshot>()
     private val containers = linkedSetOf<Location>()
-    private val displays = linkedMapOf<String, BlockDisplay>()
-    private val items = linkedMapOf<String, ItemDisplay>()
+    private val displays = linkedMapOf<String, PacketBlockDisplay>()
+    private val items = linkedMapOf<String, PacketItemDisplay>()
     private val rotations = linkedMapOf<Int, RotationSnapshot>()
     private val lookClose = linkedMapOf<Int, Pair<LookClose, Boolean>>()
     private val usingItems = linkedMapOf<Int, LivingEntity>()
@@ -199,7 +205,7 @@ internal class OriginSceneResources(
     }
 
     /**
-     * A bounded native prop for short, small scenes. Durable/interactive meals
+     * A bounded packet prop for short, small scenes. Durable/interactive meals
      * stay with their domain owner; this lease removes only its own props.
      * Model support lift must come from the configured model/context bounds.
      */
@@ -210,19 +216,13 @@ internal class OriginSceneResources(
         scale: Float,
         supportLift: Float,
         interpolationTicks: Int = 4,
-    ): ItemDisplay {
+    ): PacketItemDisplay {
         require(scale.isFinite() && scale in 0.01f..4f)
         require(supportLift.isFinite())
         require(interpolationTicks in 0..59)
         val display = items[key]?.takeIf { it.isValid } ?: run {
             check(displayCount < 4) { "Small scene prop budget exceeded" }
-            location.world.spawn(location, ItemDisplay::class.java) { candidate ->
-                items[key] = candidate
-                candidate.isPersistent = false
-                candidate.setGravity(false)
-                candidate.isInvulnerable = true
-                candidate.addScoreboardTag("arc_origin_scene_item")
-            }.also { items[key] = it }
+            renderer.spawnItem(location, stack).also { items[key] = it }
         }
         display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.GROUND
         display.billboard = Display.Billboard.FIXED
@@ -230,9 +230,9 @@ internal class OriginSceneResources(
         display.displayWidth = 2f
         display.displayHeight = 2f
         display.shadowRadius = 0f
-        display.setItemStack(stack)
+        display.itemStack = stack
         display.teleportDuration = interpolationTicks
-        check(display.teleport(location)) { "Scene item $key rejected movement" }
+        display.teleport(location)
         display.interpolationDelay = 0
         display.interpolationDuration = interpolationTicks
         display.transformation = Transformation(
@@ -255,7 +255,6 @@ internal class OriginSceneResources(
         context: OriginSceneItemDisplayContext,
         scale: OriginSceneVector,
         interpolationTicks: Int,
-        tags: Set<String>,
     ): Boolean {
         scale.requirePositive("origin scene item display scale")
         scale.requireBounded("origin scene item display scale", 4.0)
@@ -265,19 +264,13 @@ internal class OriginSceneResources(
         require(interpolationTicks in 0..59)
         require(!stack.type.isAir) { "origin scene item display $key cannot use AIR" }
         var created = false
-        val display = items[key]?.takeIf(ItemDisplay::isValid)
+        val display = items[key]?.takeIf { it.isValid }
             ?: run {
                 items.remove(key)
                 check(displayCount < 4) { "Small scene prop budget exceeded" }
-                val spawned = location.world.spawn(location, ItemDisplay::class.java) { candidate ->
-                    // Register before any consumer mutation so failed setup is still retryable on cleanup.
-                    items[key] = candidate
-                    candidate.isPersistent = false
-                    candidate.setGravity(false)
-                    candidate.isInvulnerable = true
-                    tags.forEach(candidate::addScoreboardTag)
-                }
-                if (items[key] !== spawned) items[key] = spawned
+                val spawned = renderer.spawnItem(location, stack)
+                // Register before consumer mutation so failed setup is still owned for cleanup.
+                items[key] = spawned
                 created = true
                 spawned
             }
@@ -288,11 +281,11 @@ internal class OriginSceneResources(
         display.displayWidth = 2f
         display.displayHeight = 2f
         display.shadowRadius = 0f
-        display.setItemStack(stack.clone())
+        display.itemStack = stack.clone()
         display.interpolationDelay = -1
         display.interpolationDuration = interpolationTicks
         display.teleportDuration = interpolationTicks
-        check(display.teleport(location)) { "Scene item display $key rejected teleport to $location" }
+        display.teleport(location)
         // Keep model-context placement separate from the level entity yaw in the location.
         display.transformation = Transformation(
             Vector3f(),
@@ -311,20 +304,17 @@ internal class OriginSceneResources(
     }
 
     /** A small geometric workstation prop, with an explicit lower-corner anchor. */
-    fun solid(key: String, location: Location, material: Material, scale: Vector3f): BlockDisplay {
+    fun solid(key: String, location: Location, material: Material, scale: Vector3f): PacketBlockDisplay {
         require(material.isBlock && scale.x > 0 && scale.y > 0 && scale.z > 0)
         check(displays[key]?.isValid == true || displayCount < 4) { "Small scene prop budget exceeded" }
-        val display = displays[key]?.takeIf { it.isValid } ?: location.world.spawn(location, BlockDisplay::class.java) {
-            displays[key] = it
-            it.isPersistent = false
-            it.addScoreboardTag("arc_origin_scene_prop")
-        }.also { displays[key] = it }
+        val display = displays[key]?.takeIf { it.isValid }
+            ?: renderer.spawnBlock(location, material.createBlockData()).also { displays[key] = it }
         display.block = material.createBlockData()
         display.viewRange = 0.5f
         display.displayWidth = 2f
         display.displayHeight = 2f
         display.teleportDuration = 4
-        check(display.teleport(location)) { "Scene block prop $key rejected movement" }
+        display.teleport(location)
         display.transformation = Transformation(Vector3f(), AxisAngle4f(), Vector3f(scale), AxisAngle4f())
         return display
     }
@@ -391,7 +381,6 @@ internal class OriginSceneResources(
         world: World,
         resolved: OriginSceneResolvedProp,
         step: OriginSceneStep.BlockDisplay,
-        tags: Set<String>,
         rotationYDegrees: Float = step.rotationYDegrees,
     ): Boolean {
         val material = requireNotNull(Material.matchMaterial(step.material)?.takeIf(Material::isBlock)) {
@@ -399,27 +388,19 @@ internal class OriginSceneResources(
         }
         val location = Location(world, resolved.x, resolved.y, resolved.z)
         var created = false
-        val display = displays[key]?.takeIf(BlockDisplay::isValid)
+        val display = displays[key]?.takeIf { it.isValid }
             ?: run {
                 // An invalid old entity is no longer useful, but the key must
                 // be replaced by the newly owned entity if spawning succeeds.
                 displays.remove(key)
-                val spawned = world.spawn(location, BlockDisplay::class.java) { candidate ->
-                    // Register before any consumer mutation. If a tag or
-                    // persistence call throws, cleanup still owns this entity.
-                    displays[key] = candidate
-                    candidate.isPersistent = false
-                    tags.forEach(candidate::addScoreboardTag)
-                }
-                if (displays[key] !== spawned) displays[key] = spawned
+                val spawned = renderer.spawnBlock(location, material.createBlockData())
+                displays[key] = spawned
                 created = true
                 spawned
             }
 
         display.block = material.createBlockData()
-        check(display.teleport(location)) {
-            "origin scene display $key rejected teleport to $location"
-        }
+        display.teleport(location)
         display.interpolationDelay = -1
         display.interpolationDuration = step.interpolationTicks
         display.teleportDuration = step.interpolationTicks.coerceAtMost(59)

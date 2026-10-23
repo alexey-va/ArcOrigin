@@ -6,7 +6,6 @@ import org.bukkit.Color
 import org.bukkit.FluidCollisionMode
 import org.bukkit.Location
 import org.bukkit.Material
-import org.bukkit.entity.BlockDisplay
 import org.bukkit.entity.Display
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Interaction
@@ -30,6 +29,11 @@ import ru.arc.origin.api.ArcOriginAuctions
 import ru.arc.origin.util.customModelDataOrNull
 import ru.arc.logging.ArcLogging.info
 import ru.arc.logging.ArcLogging.warn
+import ru.arc.paper.display.PacketBlockDisplay
+import ru.arc.paper.display.PacketDisplay
+import ru.arc.paper.display.PacketItemDisplay
+import ru.arc.paper.display.PacketTextDisplay
+import ru.arc.paper.display.PaperPacketDisplays
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
@@ -60,12 +64,15 @@ internal object AuctionShowcasePlanner {
     }
 }
 
-internal class AuctionShowcaseManager {
+internal class AuctionShowcaseManager(
+    private val displays: PaperPacketDisplays,
+    private val store: AuctionPedestalStore = AuctionPedestalStore(ArcOriginPlugin.instance.legacyDataPath),
+) {
     private data class Pedestal(
         val spec: AuctionPedestalSpec,
-        val base: BlockDisplay,
-        val item: ItemDisplay,
-        val text: TextDisplay,
+        val base: PacketBlockDisplay,
+        val item: PacketItemDisplay,
+        val text: PacketTextDisplay,
         val interaction: Interaction,
         var listingId: Int? = null,
     )
@@ -73,7 +80,6 @@ internal class AuctionShowcaseManager {
     private val tasks = LifecycleTaskScope()
     // IO completions survive a config reload, but cannot re-enter after shutdown.
     private val persistenceTasks = LifecycleTaskScope()
-    private val store = AuctionPedestalStore(ArcOriginPlugin.instance.legacyDataPath)
     private var saved: AuctionPedestalSnapshot? = null
     private var loaded = false
     private var persistenceFailed = false
@@ -345,7 +351,7 @@ internal class AuctionShowcaseManager {
         val current = config ?: return
         pedestal.listingId = listing?.id
         pedestal.interaction.isResponsive = true
-        pedestal.item.setItemStack(listing?.item?.clone() ?: ItemStack(Material.AIR))
+        pedestal.item.itemStack = listing?.item?.clone() ?: ItemStack(Material.AIR)
         pedestal.text.text(
             listing?.let { current.listingText(it.itemName, it.sellerName, it.price) } ?: Component.empty(),
         )
@@ -373,49 +379,60 @@ internal class AuctionShowcaseManager {
     }
 
     private fun spawnPedestal(world: org.bukkit.World, spec: AuctionPedestalSpec): Pedestal {
-        val floor = Location(world, spec.x, spec.y, spec.z, spec.yaw, 0f)
-        val base = world.spawn(floor, BlockDisplay::class.java)
-        configureDisplay(base)
-        base.block = Material.POLISHED_DEEPSLATE.createBlockData()
-        base.transformation =
-            Transformation(
-                Vector3f(-0.45f, 0f, -0.45f),
-                AxisAngle4f(),
-                Vector3f(0.9f, 0.24f, 0.9f),
-                AxisAngle4f(),
-            )
+        val created = mutableListOf<PacketDisplay>()
+        var createdInteraction: Interaction? = null
+        try {
+            val floor = Location(world, spec.x, spec.y, spec.z, spec.yaw, 0f)
+            val base = displays.spawnBlock(floor, Material.POLISHED_DEEPSLATE.createBlockData()).also(created::add)
+            configureDisplay(base)
+            base.block = Material.POLISHED_DEEPSLATE.createBlockData()
+            base.transformation =
+                Transformation(
+                    Vector3f(-0.45f, 0f, -0.45f),
+                    AxisAngle4f(),
+                    Vector3f(0.9f, 0.24f, 0.9f),
+                    AxisAngle4f(),
+                )
 
-        val item = world.spawn(floor.clone().add(0.0, 1.22, 0.0), ItemDisplay::class.java)
-        configureDisplay(item)
-        item.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.GROUND
-        item.interpolationDelay = 0
-        item.interpolationDuration = maxOf((config?.rotationTicks ?: 2L).toInt(), 2)
-        item.transformation =
-            Transformation(Vector3f(), AxisAngle4f(), Vector3f(ITEM_SCALE, ITEM_SCALE, ITEM_SCALE), AxisAngle4f())
+            val item = displays.spawnItem(floor.clone().add(0.0, 1.22, 0.0), ItemStack(Material.AIR)).also(created::add)
+            configureDisplay(item)
+            item.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.GROUND
+            item.interpolationDelay = 0
+            item.interpolationDuration = maxOf((config?.rotationTicks ?: 2L).toInt(), 2)
+            item.transformation =
+                Transformation(Vector3f(), AxisAngle4f(), Vector3f(ITEM_SCALE, ITEM_SCALE, ITEM_SCALE), AxisAngle4f())
 
-        val text = world.spawn(floor.clone().add(0.0, 3.62, 0.0), TextDisplay::class.java)
-        configureDisplay(text)
-        text.billboard = Display.Billboard.CENTER
-        text.alignment = TextDisplay.TextAlignment.CENTER
-        text.lineWidth = 220
-        text.backgroundColor = Color.fromARGB(96, 0, 0, 0)
-        text.isShadowed = true
-        text.isSeeThrough = false
+            val text = displays.spawnText(floor.clone().add(0.0, 3.62, 0.0), Component.empty()).also(created::add)
+            configureDisplay(text)
+            text.billboard = Display.Billboard.CENTER
+            text.alignment = TextDisplay.TextAlignment.CENTER
+            text.lineWidth = 220
+            text.backgroundColor = Color.fromARGB(96, 0, 0, 0)
+            text.isShadowed = true
+            text.isSeeThrough = false
 
-        val interaction = world.spawn(floor.clone().add(0.0, 0.08, 0.0), Interaction::class.java)
-        interaction.interactionWidth = 2.8f
-        interaction.interactionHeight = 4.15f
-        interaction.isResponsive = false
-        interaction.isPersistent = false
-        interaction.isInvulnerable = true
+            val interaction = world.spawn(floor.clone().add(0.0, 0.08, 0.0), Interaction::class.java)
+                .also { createdInteraction = it }
+            interaction.interactionWidth = 2.8f
+            interaction.interactionHeight = 4.15f
+            interaction.isResponsive = false
+            interaction.isPersistent = false
+            interaction.isInvulnerable = true
 
-        listOf(base, item, text, interaction).forEach { it.addScoreboardTag(ENTITY_TAG) }
-        return Pedestal(spec, base, item, text, interaction).also {
-            interactionSlots[interaction.uniqueId] = it
+            interaction.addScoreboardTag(ENTITY_TAG)
+            return Pedestal(spec, base, item, text, interaction).also {
+                interactionSlots[interaction.uniqueId] = it
+            }
+        } catch (failure: Exception) {
+            created.asReversed().forEach { display ->
+                runCatching { display.remove() }.exceptionOrNull()?.let(failure::addSuppressed)
+            }
+            runCatching { createdInteraction?.remove() }.exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
         }
     }
 
-    private fun configureDisplay(display: Display) {
+    private fun configureDisplay(display: PacketDisplay) {
         display.billboard = Display.Billboard.FIXED
         display.brightness = Display.Brightness(12, 15)
         display.shadowRadius = 0f
@@ -423,9 +440,6 @@ internal class AuctionShowcaseManager {
         display.viewRange = 1.5f
         display.displayWidth = 4f
         display.displayHeight = 4.5f
-        display.isPersistent = false
-        display.setGravity(false)
-        display.isInvulnerable = true
     }
 
     private fun cleanupTaggedEntities(world: org.bukkit.World, positions: List<AuctionPedestalSpec>) {
@@ -442,9 +456,8 @@ internal class AuctionShowcaseManager {
 
     private fun removeEntities() {
         pedestals.forEach { pedestal ->
-            listOf(pedestal.base, pedestal.item, pedestal.text, pedestal.interaction)
-                .filter(Entity::isValid)
-                .forEach(Entity::remove)
+            listOf(pedestal.base, pedestal.item, pedestal.text).forEach(PacketDisplay::remove)
+            if (pedestal.interaction.isValid) pedestal.interaction.remove()
         }
         pedestals.clear()
         interactionSlots.clear()

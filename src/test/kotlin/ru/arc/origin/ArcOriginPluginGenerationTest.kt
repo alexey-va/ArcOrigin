@@ -2,6 +2,10 @@ package ru.arc.origin
 
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
+import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.testing.MockBukkitTestRuntime
 import ru.arc.paper.testing.failOnUnsupportedMockBukkitOperation
 import java.util.concurrent.CompletableFuture
@@ -53,6 +57,34 @@ class ArcOriginPluginGenerationTest : FunSpec({
             }
         }
     }
+
+    test("packet props share a generation and pending cleanup blocks replacement without blocking disable") {
+        MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.loadSimplePlugin(PacketCleanupArcOriginPlugin::class.java)
+            plugin.propDisplays() shouldBe plugin.renderer
+            plugin.propDisplays() shouldBe plugin.renderer
+            plugin.created shouldBe 1
+            paper.server.pluginManager.disablePlugin(plugin)
+            plugin.retirement.isDone shouldBe false
+            verify(exactly = 1) { plugin.renderer.closeAsync() }
+            paper.server.pluginManager.enablePlugin(plugin)
+            plugin.starts shouldBe 1
+            plugin.retirement.complete(null)
+            paper.server.pluginManager.enablePlugin(plugin)
+            plugin.starts shouldBe 2
+        }
+    }
+
+    test("failed packet cleanup keeps the next generation closed") {
+        MockBukkitTestRuntime.open().use { paper ->
+            val plugin = paper.loadSimplePlugin(PacketCleanupArcOriginPlugin::class.java)
+            plugin.propDisplays()
+            paper.server.pluginManager.disablePlugin(plugin)
+            plugin.retirement.completeExceptionally(IllegalStateException("packet retirement failed"))
+            paper.server.pluginManager.enablePlugin(plugin)
+            plugin.starts shouldBe 1
+        }
+    }
 })
 
 open class ControlledArcOriginPlugin : ArcOriginPlugin() {
@@ -88,4 +120,20 @@ open class FailingDetachArcOriginPlugin : ArcOriginPlugin() {
         terminalCalls++
         return storage.closeAsync { closeOriginStorage(earnedWrite, retainedLeases) }
     }
+}
+
+open class PacketCleanupArcOriginPlugin : ArcOriginPlugin() {
+    var starts = 0
+    var created = 0
+    val retirement = CompletableFuture<Void>()
+    val renderer = mockk<PaperPacketDisplays>(relaxed = true).also {
+        every { it.closeAsync() } returns retirement
+    }
+    override fun startGeneration() { starts++ }
+    override fun createPropDisplays(): PaperPacketDisplays {
+        created++
+        return renderer
+    }
+    override fun detachModules() = Unit
+    override fun closeStorage(durable: CompletableFuture<Void>) = CompletableFuture.completedFuture(Unit)
 }

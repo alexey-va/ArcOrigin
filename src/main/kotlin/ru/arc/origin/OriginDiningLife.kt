@@ -23,6 +23,7 @@ import ru.arc.origin.scene.OriginSceneRecoveryPolicy
 import ru.arc.origin.scene.OriginSceneResources
 import ru.arc.logging.ArcLogging.info
 import ru.arc.logging.ArcLogging.warn
+import ru.arc.paper.display.PacketItemDisplay
 import java.util.UUID
 import kotlin.math.cos
 import kotlin.math.sin
@@ -123,18 +124,30 @@ internal class OriginDiningLife(
     }
 
     /** Animate the existing display; both normal completion and interruption settle exactly. */
-    fun serve(display: ItemDisplay, waiterId: Int) {
+    fun serve(display: ItemDisplay, waiterId: Int) = serve(
+        waiterId, display.location.clone(), copyTransform(display.transformation), { display.isValid },
+    ) { frame ->
+        display.interpolationDuration = 2
+        display.interpolationDelay = 0
+        display.transformation = frame
+    }
+
+    /** Decorative drinks share the serving motion while meals retain their native model. */
+    fun serve(display: PacketItemDisplay, waiterId: Int) = serve(
+        waiterId, display.location.clone(), copyTransform(display.transformation), { display.isValid },
+    ) { frame ->
+        display.interpolationDuration = 2
+        display.interpolationDelay = 0
+        display.transformation = frame
+    }
+
+    private fun serve(waiterId: Int, anchor: Location, finalTransform: Transformation,
+        isValid: () -> Boolean, applyFrame: (Transformation) -> Unit) {
         val npc = actor(waiterId) ?: return
-        val anchor = display.location.clone()
         if (!hasAudience(anchor)) return
-        val finalTransform = copyTransform(display.transformation)
         val start = handPoint(npc)
         fun settle() {
-            if (display.isValid) {
-                display.interpolationDuration = 2
-                display.interpolationDelay = 0
-                display.transformation = copyTransform(finalTransform)
-            }
+            if (isValid()) applyFrame(copyTransform(finalTransform))
         }
         val key = "serve:$waiterId"
         startCycle(key, setOf(waiterId), listOf(Beat("place", config.servingTicks + 2) { resources, execution ->
@@ -142,21 +155,19 @@ internal class OriginDiningLife(
             swing(npc)
             var elapsed = 0
             fun frame() {
-                if (!display.isValid) return
+                if (!isValid()) return
                 val offset = diningServingOffset(elapsed.toDouble() / config.servingTicks,
                     start.x - anchor.x, start.y - anchor.y, start.z - anchor.z)
                 val frame = copyTransform(finalTransform)
                 frame.translation.add(diningLocalOffset(offset, anchor.yaw, anchor.pitch))
-                display.interpolationDuration = 2
-                display.interpolationDelay = 0
-                display.transformation = frame
+                applyFrame(frame)
             }
             frame()
             execution.repeat(2) {
                 elapsed += 2
                 frame()
                 if (elapsed >= config.servingTicks) sound(anchor, Sound.BLOCK_DECORATED_POT_PLACE, 0.28f, 1.45f)
-                display.isValid && elapsed < config.servingTicks
+                isValid() && elapsed < config.servingTicks
             }
         }), cleanup = ::settle)
     }

@@ -819,7 +819,6 @@ private class OriginSceneService(
                     world,
                     resolved,
                     step,
-                    setOf(PROP_TAG, propRunTag(running)),
                     rotationYDegrees = rotation,
                 )
             }
@@ -854,7 +853,6 @@ private class OriginSceneService(
                     step.context,
                     step.scale,
                     step.interpolationTicks,
-                    setOf(PROP_TAG, propRunTag(running)),
                 )
             }
         }
@@ -1278,8 +1276,6 @@ private class OriginSceneService(
     }
 
     private fun isCurrent(running: ActiveOriginSceneCycle): Boolean = active[running.lease.token] === running
-
-    private fun propRunTag(running: ActiveOriginSceneCycle): String = "${PROP_TAG}_${running.lease.token.toString().take(8)}"
 
     private fun hasDeniedFlag(running: ActiveOriginSceneCycle): Boolean =
         running.cycle.actorIds.any { actorId ->

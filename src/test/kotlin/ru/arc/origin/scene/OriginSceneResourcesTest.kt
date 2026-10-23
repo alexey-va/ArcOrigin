@@ -23,7 +23,6 @@ import org.bukkit.block.Block
 import org.bukkit.block.BlockState
 import org.bukkit.block.Lidded
 import org.bukkit.block.data.BlockData
-import org.bukkit.entity.BlockDisplay
 import org.bukkit.entity.Cat
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.LivingEntity
@@ -41,7 +40,9 @@ import org.mockito.kotlin.verify as mockitoVerify
 import org.mockito.kotlin.whenever
 import ru.arc.paper.testing.MockBukkitTestRuntime
 import ru.arc.npc.NpcRouteRotation
-import java.util.function.Consumer
+import ru.arc.paper.display.PacketBlockDisplay
+import ru.arc.paper.display.PacketItemDisplay
+import ru.arc.paper.display.PaperPacketDisplays
 
 class OriginSceneResourcesTest : StringSpec({
     lateinit var paper: MockBukkitTestRuntime
@@ -288,10 +289,11 @@ class OriginSceneResourcesTest : StringSpec({
 
     "display removal is idempotent" {
         val display = mockDisplay()
-        val world = mockWorld(display)
-        val resources = OriginSceneResources()
+        val world = mockk<World>(relaxed = true)
+        val renderer = mockRenderer(display)
+        val resources = OriginSceneResources(createDisplays = { renderer })
         withBukkitBlockData {
-            resources.updateDisplay("hammer", world, resolvedProp(), displayStep(), setOf("scene-test")) shouldBe true
+            resources.updateDisplay("hammer", world, resolvedProp(), displayStep()) shouldBe true
             resources.displayCount shouldBe 1
 
             resources.removeDisplay("hammer") shouldBe true
@@ -299,20 +301,22 @@ class OriginSceneResourcesTest : StringSpec({
         }
 
         verify(exactly = 1) { display.remove() }
+        verify(exactly = 0) { renderer.close(); renderer.closeAsync() }
     }
 
     "invalid non-block material does not spawn or become owned" {
         val display = mockDisplay()
-        val world = mockWorld(display)
-        val resources = OriginSceneResources()
+        val world = mockk<World>(relaxed = true)
+        val renderer = mockRenderer(display)
+        val resources = OriginSceneResources(createDisplays = { renderer })
 
         shouldThrow<IllegalArgumentException> {
-            resources.updateDisplay("invalid", world, resolvedProp(), displayStep("DIAMOND"), setOf("scene-test"))
+            resources.updateDisplay("invalid", world, resolvedProp(), displayStep("DIAMOND"))
         }
 
         resources.displayCount shouldBe 0
         verify(exactly = 0) {
-            world.spawn<BlockDisplay>(any<Location>(), BlockDisplay::class.java, any<Consumer<BlockDisplay>>())
+            renderer.spawnBlock(any(), any())
         }
     }
 
@@ -329,11 +333,12 @@ class OriginSceneResourcesTest : StringSpec({
         }.whenever(equipment).set(eq(CitizensEquipment.EquipmentSlot.HAND), anyOrNull())
 
         val display = mockDisplay()
-        val world = mockWorld(display)
-        val resources = OriginSceneResources()
+        val world = mockk<World>(relaxed = true)
+        val renderer = mockRenderer(display)
+        val resources = OriginSceneResources(createDisplays = { renderer })
         resources.equip(npc, Material.IRON_SWORD)
         withBukkitBlockData {
-            resources.updateDisplay("hammer", world, resolvedProp(), displayStep(), setOf("scene-test")) shouldBe true
+            resources.updateDisplay("hammer", world, resolvedProp(), displayStep()) shouldBe true
         }
 
         val firstFailures = resources.cleanup()
@@ -347,13 +352,14 @@ class OriginSceneResourcesTest : StringSpec({
 
     "display mutation failure is owned and cleaned up" {
         val display = mockDisplay()
-        val world = mockWorld(display)
+        val world = mockk<World>(relaxed = true)
+        val renderer = mockRenderer(display)
         every { display.block = any() } throws IllegalStateException("display mutation failed")
 
-        val resources = OriginSceneResources()
+        val resources = OriginSceneResources(createDisplays = { renderer })
         withBukkitBlockData {
             shouldThrow<IllegalStateException> {
-                resources.updateDisplay("broken", world, resolvedProp(), displayStep(), setOf("scene-test"))
+                resources.updateDisplay("broken", world, resolvedProp(), displayStep())
             }
         }
         resources.displayCount shouldBe 1
@@ -364,21 +370,19 @@ class OriginSceneResourcesTest : StringSpec({
     }
 
     "item displays stay within the budget and cleanup removes every owned item" {
-        val spawned = mutableListOf<ItemDisplay>()
-        val world = mockk<World>(relaxed = true) {
-            every {
-                spawn<ItemDisplay>(any<Location>(), ItemDisplay::class.java, any<Consumer<ItemDisplay>>())
-            } answers {
-                val display = mockk<ItemDisplay>(relaxed = true) {
+        val spawned = mutableListOf<PacketItemDisplay>()
+        val world = mockk<World>(relaxed = true)
+        val renderer = mockk<PaperPacketDisplays>(relaxed = true) {
+            every { spawnItem(any(), any()) } answers {
+                val display = mockk<PacketItemDisplay>(relaxed = true) {
                     every { isValid } returns true
-                    every { teleport(any<Location>()) } returns true
+                    every { teleport(any<Location>()) } just runs
                 }
                 spawned += display
-                thirdArg<Consumer<ItemDisplay>>().accept(display)
                 display
             }
         }
-        val resources = OriginSceneResources()
+        val resources = OriginSceneResources(createDisplays = { renderer })
         val location = Location(world, 12.0, 64.0, -4.0)
 
         repeat(4) { index ->
@@ -395,21 +399,19 @@ class OriginSceneResourcesTest : StringSpec({
     }
 
     "ItemsAdder scene display restaging reuses the same entity key and removal owns it" {
-        val display = mockk<ItemDisplay>(relaxed = true) {
+        val display = mockk<PacketItemDisplay>(relaxed = true) {
             every { isValid } returns true
-            every { teleport(any<Location>()) } returns true
+            every { teleport(any<Location>()) } just runs
         }
         var spawnCount = 0
-        val world = mockk<World>(relaxed = true) {
-            every {
-                spawn<ItemDisplay>(any<Location>(), ItemDisplay::class.java, any<Consumer<ItemDisplay>>())
-            } answers {
+        val world = mockk<World>(relaxed = true)
+        val renderer = mockk<PaperPacketDisplays>(relaxed = true) {
+            every { spawnItem(any(), any()) } answers {
                 spawnCount++
-                thirdArg<Consumer<ItemDisplay>>().accept(display)
                 display
             }
         }
-        val resources = OriginSceneResources()
+        val resources = OriginSceneResources(createDisplays = { renderer })
         val stack = ItemStack(Material.PAPER)
         val scale = OriginSceneVector(1.0, 1.0, 1.0)
 
@@ -420,7 +422,6 @@ class OriginSceneResourcesTest : StringSpec({
             OriginSceneItemDisplayContext.GROUND,
             scale,
             4,
-            setOf("scene-test"),
         ) shouldBe true
         resources.updateItemDisplay(
             "wheelbarrow",
@@ -429,12 +430,11 @@ class OriginSceneResourcesTest : StringSpec({
             OriginSceneItemDisplayContext.GROUND,
             scale,
             4,
-            setOf("scene-test"),
         ) shouldBe false
 
         spawnCount shouldBe 1
         resources.displayCount shouldBe 1
-        verify(exactly = 2) { display.setItemStack(any()) }
+        verify(exactly = 2) { display.itemStack = any() }
         verify(exactly = 2) { display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.GROUND }
         resources.removeDisplay("wheelbarrow") shouldBe true
         resources.removeDisplay("wheelbarrow") shouldBe false
@@ -443,20 +443,18 @@ class OriginSceneResourcesTest : StringSpec({
     }
 
     "item display setup failure remains owned for cleanup" {
-        val display = mockk<ItemDisplay>(relaxed = true) {
+        val display = mockk<PacketItemDisplay>(relaxed = true) {
             every { isValid } returns true
-            every { teleport(any<Location>()) } returns true
-            every { setItemStack(any()) } throws IllegalStateException("item setup failed")
+            every { teleport(any<Location>()) } just runs
+            every { itemStack = any() } throws IllegalStateException("item setup failed")
         }
-        val world = mockk<World>(relaxed = true) {
-            every {
-                spawn<ItemDisplay>(any<Location>(), ItemDisplay::class.java, any<Consumer<ItemDisplay>>())
-            } answers {
-                thirdArg<Consumer<ItemDisplay>>().accept(display)
+        val world = mockk<World>(relaxed = true)
+        val renderer = mockk<PaperPacketDisplays>(relaxed = true) {
+            every { spawnItem(any(), any()) } answers {
                 display
             }
         }
-        val resources = OriginSceneResources()
+        val resources = OriginSceneResources(createDisplays = { renderer })
 
         shouldThrow<IllegalStateException> {
             resources.updateItemDisplay(
@@ -466,7 +464,6 @@ class OriginSceneResourcesTest : StringSpec({
                 OriginSceneItemDisplayContext.GROUND,
                 OriginSceneVector(1.0, 1.0, 1.0),
                 4,
-                setOf("scene-test"),
             )
         }
 
@@ -476,15 +473,16 @@ class OriginSceneResourcesTest : StringSpec({
         verify(exactly = 1) { display.remove() }
     }
 
-    "rejected display teleport fails with an owned resource for cleanup" {
+    "failed packet display movement remains owned for cleanup" {
         val display = mockDisplay()
-        every { display.teleport(any<Location>()) } returns false
-        val world = mockWorld(display)
-        val resources = OriginSceneResources()
+        every { display.teleport(any<Location>()) } throws IllegalStateException("movement failed")
+        val world = mockk<World>(relaxed = true)
+        val renderer = mockRenderer(display)
+        val resources = OriginSceneResources(createDisplays = { renderer })
 
         withBukkitBlockData {
             shouldThrow<IllegalStateException> {
-                resources.updateDisplay("teleport-failed", world, resolvedProp(), displayStep(), setOf("scene-test"))
+                resources.updateDisplay("teleport-failed", world, resolvedProp(), displayStep())
             }
         }
         resources.displayCount shouldBe 1
@@ -572,18 +570,13 @@ private fun mockNpc(id: Int): NPC = mockk {
     every { this@mockk.id } returns id
 }
 
-private fun mockDisplay(): BlockDisplay = mockk(relaxed = true) {
+private fun mockDisplay(): PacketBlockDisplay = mockk(relaxed = true) {
     every { isValid } returns true
-    every { teleport(any<Location>()) } returns true
+    every { teleport(any<Location>()) } just runs
 }
 
-private fun mockWorld(display: BlockDisplay): World = mockk(relaxed = true) {
-    every {
-        spawn<BlockDisplay>(any<Location>(), BlockDisplay::class.java, any<Consumer<BlockDisplay>>())
-    } answers {
-        thirdArg<Consumer<BlockDisplay>>().accept(display)
-        display
-    }
+private fun mockRenderer(display: PacketBlockDisplay): PaperPacketDisplays = mockk(relaxed = true) {
+    every { spawnBlock(any(), any()) } returns display
 }
 
 private fun resolvedProp() = OriginSceneResolvedProp(

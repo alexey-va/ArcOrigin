@@ -1,10 +1,10 @@
 package ru.arc.origin
 
 import org.bukkit.Location
-import org.bukkit.entity.ItemDisplay
 import org.bukkit.inventory.ItemStack
 import ru.arc.origin.scene.OriginSceneResources
 import ru.arc.logging.ArcLogging.info
+import ru.arc.paper.display.PacketItemDisplay
 import java.util.UUID
 
 internal enum class DiningDrinkPhase { READY, RESERVED, CARRIED, SERVED }
@@ -52,6 +52,7 @@ internal class DiningDrinkOrder(val bar: DiningBar, val station: Location) {
 internal class OriginDiningDrinks(
     private val config: OriginDiningLifeConfig,
     private val item: (DiningProp) -> ItemStack?,
+    private val createResources: () -> OriginSceneResources = { OriginSceneResources() },
 ) : AutoCloseable {
     private data class Counter(val order: DiningDrinkOrder, val resources: OriginSceneResources)
     private data class Served(val resources: OriginSceneResources, val anchor: Location, val emptyAt: Long,
@@ -68,7 +69,7 @@ internal class OriginDiningDrinks(
     fun ready(bar: DiningBar, station: Location) {
         if (hasPending(bar.actorId)) return
         val stack = item(config.mug) ?: return
-        val resources = OriginSceneResources()
+        val resources = createResources()
         try {
             resources.item("drink", station, stack, config.mug.scale, config.mug.lift)
             counters[bar.actorId] = Counter(DiningDrinkOrder(bar, station.clone()), resources)
@@ -90,7 +91,7 @@ internal class OriginDiningDrinks(
         return stack
     }
 
-    fun deliver(order: DiningDrinkOrder, mealAnchor: Location): ItemDisplay? {
+    fun deliver(order: DiningDrinkOrder, mealAnchor: Location): PacketItemDisplay? {
         val counter = counters[order.bar.actorId]?.takeIf { it.order === order } ?: return null
         if (order.phase != DiningDrinkPhase.CARRIED) return null
         val table = order.tableId ?: return null

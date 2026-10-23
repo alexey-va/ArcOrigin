@@ -38,7 +38,7 @@ object OriginSpawnModule : PluginModule, Listener {
             itemsAdderProtection = OriginItemsAdderProtection().also { Bukkit.getPluginManager().registerEvents(it, ArcOriginPlugin.instance) }
         }
         chunks = OriginSpawnChunkManager(OriginServices.chunkLeases)
-        showcase = AuctionShowcaseManager()
+        showcase = AuctionShowcaseManager(ArcOriginPlugin.instance.propDisplays())
         apply(OriginSpawnConfig.load(ArcOriginPlugin.instance.legacyDataPath, mergeDefaults = false))
     }
 
