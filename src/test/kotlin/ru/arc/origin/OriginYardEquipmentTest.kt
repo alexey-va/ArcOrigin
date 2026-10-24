@@ -63,21 +63,26 @@ class OriginYardEquipmentTest : StringSpec({
             }
         }
     }
-    "near and far workers see different bounded rack scales with matching private hint heights" {
+    "only the active pickup grows for a distant worker and switching targets restores ordinary size" {
         MockBukkitTestRuntime.open().use { paper ->
             paper.loadSimplePlugin(ControlledArcOriginPlugin::class.java)
             val world=WorldMock().also(paper.server::addWorld)
             fun viewer(name:String,z:Double)=paper.server.addPlayer(name).also { it.teleport(Location(world,.79,70.0,z)) }
             val near=viewer("Near",-.82); val far=viewer("Far",-6.82)
             world.getChunkAt(0,0)
-            val block=world.getBlockAt(0,70,0).also { it.type=Material.BARREL }
-            val station=OriginOddJobStation(block.location,block,setOf(Material.BARREL))
+            val block=world.getBlockAt(0,70,0).also { it.type=Material.WHITE_CONCRETE }
+            world.getBlockAt(0,71,0).type=Material.WHITE_CONCRETE
+            val station=OriginOddJobStation(block.location,block,setOf(Material.WHITE_CONCRETE))
+            val bucketBlock=world.getBlockAt(2,70,0).also { it.type=Material.WHITE_CONCRETE }
+            world.getBlockAt(2,71,0).type=Material.WHITE_CONCRETE
+            val bucketStation=OriginOddJobStation(bucketBlock.location,bucketBlock,setOf(Material.WHITE_CONCRETE))
             fun job()=OriginOddJobSession(UUID.randomUUID(),OriginOddJobKind.MOUNTYARD,OriginOddJobStage.YARD_BRUSH,0,240000,0,
                 OriginOddJobOffer(UUID.randomUUID(),OriginOddJobVariant.YARD_GROOM,0,false),yard=OriginYardWork(422,"Буран",tieMask=3))
-            val nearJob=job(); val farJob=job()
+            val nearJob=job(); var farJob=job()
             val harness=YardEquipmentDisplays()
             val equipment=OriginYardEquipment { harness.owner }
-            equipment.bind({mapOf(OriginOddJobStationId.BRUSH to station)},{listOf(near.uniqueId to nearJob,far.uniqueId to farJob)},{null}) { _,_,_ -> }
+            equipment.bind({mapOf(OriginOddJobStationId.BRUSH to station,OriginOddJobStationId.WELL to bucketStation)},
+                {listOf(near.uniqueId to nearJob,far.uniqueId to farJob)},{null}) { _,_,_ -> }
             try {
                 equipment.tick()
                 val small=harness.privateFor(near).filter { it.glowing }
@@ -85,6 +90,12 @@ class OriginYardEquipmentTest : StringSpec({
                 small.size shouldBe originYardGearPieces(OriginYardGear.BRUSH).size
                 small.size shouldBe large.size
                 small.zip(large).all { (a,b) -> kotlin.math.abs(b.transforms.last().scale.x/a.transforms.last().scale.x-1.55f)<.00001f } shouldBe true
+                val nearInactive=harness.privateFor(near).filterNot { it.glowing }
+                val farInactive=harness.privateFor(far).filterNot { it.glowing }
+                nearInactive.size shouldBe farInactive.size
+                nearInactive.zip(farInactive).all { (a,b) -> a.transforms.last().scale==b.transforms.last().scale } shouldBe true
+                val idle=harness.handles.filter { it.defaultVisible }
+                idle.map { it.transforms.last().scale } shouldBe harness.privateFor(near).map { it.transforms.last().scale }
                 val high=requireNotNull(equipment.target(far,farJob)).y
                 val low=requireNotNull(equipment.target(near,nearJob)).y
                 (high>low) shouldBe true
@@ -94,6 +105,11 @@ class OriginYardEquipmentTest : StringSpec({
                 (transition>low && transition<high) shouldBe true
                 large.all { it.interpolation.last()==2 } shouldBe true
                 small.all { it.valid } shouldBe true
+                far.teleport(Location(world,.79,70.0,-6.82))
+                farJob=farJob.copy(stage=OriginOddJobStage.YARD_BUCKET)
+                equipment.tick()
+                small.zip(large).all { (a,b) -> a.transforms.last().scale==b.transforms.last().scale } shouldBe true
+                harness.privateFor(far).filter { it.glowing }.size shouldBe originYardGearPieces(OriginYardGear.BUCKET).size
             } finally { equipment.close() }
         }
     }

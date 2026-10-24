@@ -6,11 +6,13 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import org.bukkit.Location
+import org.bukkit.Material
 import org.bukkit.entity.LivingEntity
 import org.bukkit.util.BoundingBox
 import org.joml.Quaternionf
 import org.joml.Vector3f
 import org.mockbukkit.mockbukkit.world.WorldMock
+import ru.arc.paper.testing.MockBukkitTestRuntime
 import java.util.UUID
 
 class OriginYardGearPoseTest : StringSpec({
@@ -28,12 +30,47 @@ class OriginYardGearPoseTest : StringSpec({
             (next in smooth..1.55f && next-smooth<.14f) shouldBe true
             smooth=next
         }
-        for(anchor in listOf(Vector3f(),Vector3f(0f,.2f,0f),Vector3f(-.11f,1.04f,0f))) {
+        for(anchor in listOf(Vector3f(),Vector3f(0f,-.025f,0f),Vector3f(0f,.2f,.0425f),Vector3f(-.13f,1.04f,0f))) {
             val base=OriginYardGearPose(Location(WorldMock(),.5,71.0,.5),Quaternionf().rotationY(.8f))
             val grown=originYardRackPose(base,1.55f,anchor)
             fun contact(pose:OriginYardGearPose)=pose.rotation.transform(Vector3f(anchor).mul(pose.scale))
                 .add(pose.at.x.toFloat(),pose.at.y.toFloat(),pose.at.z.toFloat())
             (contact(grown).distance(contact(base))<.00001f) shouldBe true
+        }
+    }
+    "concrete supplies touch their surveyed supports and clear the wall throughout active scaling" {
+        MockBukkitTestRuntime.open().use { paper ->
+            val world=WorldMock().also(paper.server::addWorld)
+            world.getChunkAt(3,-9)
+            fun station(z:Int):OriginOddJobStation {
+                val block=world.getBlockAt(55,70,z).also { it.type=Material.WHITE_CONCRETE }
+                world.getBlockAt(55,71,z).type=Material.WHITE_CONCRETE
+                return OriginOddJobStation(block.location,block,setOf(Material.WHITE_CONCRETE))
+            }
+            val slots=originYardGearSlots(mapOf(OriginOddJobStationId.WELL to station(-135),
+                OriginOddJobStationId.BRUSH to station(-134))).associateBy { it.gear }
+            for(scale in listOf(1f,1.275f,1.55f)) {
+                val bucket=slots.getValue(OriginYardGear.BUCKET).scaledPose(scale)
+                val bucketBounds=originYardGearBounds(originYardGearPieces(OriginYardGear.BUCKET),bucket)
+                bucketBounds.minY shouldBe (71.025 plusOrMinus .000001)
+                (bucketBounds.minX>56.0 && bucketBounds.maxX<57.0) shouldBe true
+                val bucketRest=slots.getValue(OriginYardGear.BUCKET).scaledPose(scale,true)
+                val bucketShelf=originYardGearBounds(originYardGearTargetPieces(OriginOddJobStage.YARD_BUCKET_RETURN,OriginYardGear.BUCKET),bucketRest)
+                bucketShelf.minY shouldBe (71.0 plusOrMinus .000001)
+                bucketShelf.minX shouldBe (56.0 plusOrMinus .000001)
+                (bucketShelf.maxY<71.62) shouldBe true
+                val brush=originYardRackPose(slots.getValue(OriginYardGear.BRUSH).pose,scale)
+                val bounds=originYardGearBounds(originYardGearPieces(OriginYardGear.BRUSH),brush)
+                bounds.minX shouldBe (56.025 plusOrMinus .000001)
+                (bounds.minY>71.4 && bounds.maxY<72.0 && bounds.minZ>-134.0 && bounds.maxZ< -133.0) shouldBe true
+                val brushRest=originYardRackPose(slots.getValue(OriginYardGear.BRUSH).pose,scale,Vector3f(0f,-.025f,0f))
+                originYardGearBounds(originYardGearTargetPieces(OriginOddJobStage.YARD_BRUSH_RETURN,OriginYardGear.BRUSH),brushRest)
+                    .minX shouldBe (56.0 plusOrMinus .000001)
+                val hook=originYardRackPose(slots.getValue(OriginYardGear.SHOVEL).pose,scale,Vector3f(-.13f,1.04f,0f))
+                originYardGearBounds(originYardShovelHookPieces(),hook).minX shouldBe (56.0 plusOrMinus .000001)
+            }
+            originYardGearBounds(originYardGearPieces(OriginYardGear.SHOVEL),slots.getValue(OriginYardGear.SHOVEL).pose)
+                .minX shouldBe (56.015 plusOrMinus .000001)
         }
     }
     "enlarged rack geometry hint and interaction bounds agree for pickups and returns" {

@@ -15,28 +15,41 @@ import ru.arc.paper.scene.*
 import java.util.UUID
 import kotlin.math.max
 
-internal data class OriginYardGearSlot(val gear: OriginYardGear, val pose: OriginYardGearPose, val station: OriginOddJobStation)
+internal data class OriginYardGearSlot(val gear: OriginYardGear, val pose: OriginYardGearPose,
+    val station: OriginOddJobStation, val anchor: Vector3f = Vector3f()) {
+    fun scaledPose(scale: Float, returning: Boolean = false): OriginYardGearPose = originYardRackPose(pose,scale,when {
+        returning && gear==OriginYardGear.SHOVEL -> Vector3f(-.13f,1.04f,0f)
+        returning -> Vector3f(anchor).add(0f,-.025f,0f)
+        else -> anchor
+    })
+}
 
-/** Locations are relative to the surveyed existing barrels. No blocks, inventories or chunks are changed. */
+/** Locations are relative to the surveyed supply supports. No blocks, inventories or chunks are changed. */
 internal fun originYardGearSlots(stations: Map<OriginOddJobStationId, OriginOddJobStation>): List<OriginYardGearSlot> = buildList {
     fun station(id: OriginOddJobStationId) = stations[id]?.takeIf {
         it.block.world.isChunkLoaded(it.block.x shr 4, it.block.z shr 4) && it.valid()
     }
-    fun put(gear: OriginYardGear, source: OriginOddJobStation, x: Double, y: Double, z: Double, rz: Double = 0.0, rx: Double = 0.0) {
+    fun put(gear: OriginYardGear, source: OriginOddJobStation, x: Double, y: Double, z: Double, rz: Double = 0.0, rx: Double = 0.0,
+        anchor: Vector3f = Vector3f()) {
         add(OriginYardGearSlot(gear, OriginYardGearPose(source.block.location.clone().add(.5+x,y,.5+z),
-            Quaternionf().rotationXYZ(Math.toRadians(rx).toFloat(),0f,Math.toRadians(rz).toFloat())), source))
+            Quaternionf().rotationXYZ(Math.toRadians(rx).toFloat(),0f,Math.toRadians(rz).toFloat())), source,anchor))
     }
     station(OriginOddJobStationId.SADDLE_RACK)?.let { source ->
         val above = source.block.getRelative(0,1,0)
         val carpet = if (above.type.name.endsWith("_CARPET")) 1.0/16 else 0.0
         put(OriginYardGear.SADDLE,source,0.0,1.88+carpet,0.0)
-        put(OriginYardGear.LEAD,source,-.28,.60,-.56)
+        put(OriginYardGear.LEAD,source,-.28,.60,-.56,anchor=Vector3f(0f,.2f,.0425f))
     }
-    station(OriginOddJobStationId.WELL)?.let { put(OriginYardGear.BUCKET,it,0.0,1.025,0.0) }
+    station(OriginOddJobStationId.WELL)?.let {
+        // The east shelf keeps both the bucket and its empty return target visible below the tall wall.
+        if(it.block.type==Material.WHITE_CONCRETE) put(OriginYardGear.BUCKET,it,.72,1.025,0.0,anchor=Vector3f(-.22f,0f,0f))
+        else put(OriginYardGear.BUCKET,it,0.0,1.025,0.0)
+    }
     station(OriginOddJobStationId.BRUSH)?.let {
-        // Its centre lantern remains clear: brush sits on the north-east corner, shovel on the east hook.
-        put(OriginYardGear.BRUSH,it,.29,1.025,-.32)
-        put(OriginYardGear.SHOVEL,it,.62,.04,.12)
+        // Concrete's surveyed east face is clear; the upper wall replaces the occupied barrel top.
+        if (it.block.type == Material.WHITE_CONCRETE) put(OriginYardGear.BRUSH,it,.525,1.65,0.0,rz=-90.0)
+        else put(OriginYardGear.BRUSH,it,.29,1.025,-.32)
+        put(OriginYardGear.SHOVEL,it,.63,.04,.12)
     }
     station(OriginOddJobStationId.HAY)?.let { put(OriginYardGear.HAY,it,0.0,1.0,0.0) }
 }
@@ -47,7 +60,7 @@ internal fun originYardHorseBounds(horse: LivingEntity): OriginWorkshopAabb = ho
 }
 
 private fun originYardGearRestPieces(gear: OriginYardGear): List<OriginWorkshopWorkpiecePiece> = listOf(
-    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(0.0,0.0,0.0),OriginWorkshopGamePartSize(
+    OriginWorkshopWorkpiecePiece(OriginWorkshopPoint(0.0,-.0125,0.0),OriginWorkshopGamePartSize(
         if(gear==OriginYardGear.BUCKET) .44f else .34f,.025f,if(gear==OriginYardGear.BUCKET) .42f else .21f),Material.DARK_OAK_PLANKS))
 
 internal fun originYardGearTargetPieces(stage: OriginOddJobStage, gear: OriginYardGear): List<OriginWorkshopWorkpiecePiece> = when(stage) {
@@ -158,9 +171,9 @@ internal class OriginYardEquipment(
         val scale=scene?.scales?.get(step.gear) ?: 1f
         if(step.returning) {
             if(step.gear==OriginYardGear.SHOVEL) return scene?.shovelHookPose ?: slot.pose
-            return originYardRackPose(OriginYardGearPose(slot.pose.at.clone().subtract(0.0,.0125,0.0)),scale,Vector3f(0f,.0125f,0f))
+            return slot.scaledPose(scale,true)
         }
-        return originYardRackPose(slot.pose,scale,if(step.gear==OriginYardGear.LEAD) Vector3f(0f,.2f,0f) else Vector3f())
+        return slot.scaledPose(scale)
     }
     private fun horseBounds(job:OriginOddJobSession,step:OriginYardGearStep):OriginWorkshopAabb? =
         if(step.atRack) null else job.yard?.animalId?.let(animal)?.let(::originYardHorseBounds)
@@ -236,28 +249,29 @@ internal class OriginYardEquipment(
             if(shovel!=null) scene.shovelHook=prop(shovel.pose.at,originYardShovelHookPieces())
         }
         scene.targets.clear()
+        val step=job?.let { originYardGearStep(it.stage) }?.takeIf { it.atRack }
         for(slot in slots) {
             val distance=scene.viewer?.eyeLocation?.takeIf { it.world?.uid==slot.pose.at.world?.uid }?.distance(slot.pose.at) ?: 0.0
-            // The full-height shovel already reads clearly; its small empty hook can grow independently.
-            val maximum=when(slot.gear) { OriginYardGear.SHOVEL -> 1f; OriginYardGear.SADDLE -> 1.2f; else -> 1.55f }
-            val desired=originYardGearDistanceScale(distance,maximum)
-            val scale=originYardGearScaleStep(scene.scales[slot.gear] ?: desired,desired).also { scene.scales[slot.gear]=it }
-            val anchor=if(slot.gear==OriginYardGear.LEAD) Vector3f(0f,.2f,0f) else Vector3f()
-            val rackPose=originYardRackPose(slot.pose,scale,anchor)
+            val active=step?.gear==slot.gear
+            val returning=active && step.returning
+            // Only the actionable object grows. The full-height shovel itself stays at ordinary size.
+            val maximum=when { slot.gear==OriginYardGear.SHOVEL && !returning -> 1f; slot.gear==OriginYardGear.SADDLE -> 1.2f; else -> 1.55f }
+            val desired=if(active) originYardGearDistanceScale(distance,maximum) else 1f
+            val scale=(if(active) originYardGearScaleStep(scene.scales[slot.gear] ?: desired,desired) else 1f)
+                .also { scene.scales[slot.gear]=it }
+            val rackPose=slot.scaledPose(if(active && !returning) scale else 1f)
             scene.targets[slot.gear]=rackPose
             if(slot.gear==OriginYardGear.SHOVEL) {
-                val hookScale=originYardGearScaleStep(scene.shovelHookPose?.scale ?: originYardGearDistanceScale(distance),originYardGearDistanceScale(distance))
-                val hookPose=originYardRackPose(slot.pose,hookScale,Vector3f(-.11f,1.04f,0f))
+                val hookPose=slot.scaledPose(if(returning) scale else 1f,true)
                 if(scene.shovelHookPose!=hookPose) scene.shovelHook?.move(hookPose.at,hookPose.rotation,hookPose.scale)
                 scene.shovelHookPose=hookPose
-                if(job?.stage==OriginOddJobStage.CLEAN_TOOL_RETURN) scene.targets[slot.gear]=hookPose
+                if(returning) scene.targets[slot.gear]=hookPose
             }
             if(slot.gear in setOf(OriginYardGear.BUCKET,OriginYardGear.BRUSH)) {
-                val base=slot.pose.at.clone().subtract(0.0,.0125,0.0)
-                val restPose=originYardRackPose(OriginYardGearPose(base),scale,Vector3f(0f,.0125f,0f))
-                scene.rests.getOrPut(slot.gear) { prop(base,originYardGearRestPieces(slot.gear)) }
+                val restPose=slot.scaledPose(if(returning) scale else 1f,true)
+                scene.rests.getOrPut(slot.gear) { prop(slot.pose.at,originYardGearRestPieces(slot.gear)) }
                     .move(restPose.at,restPose.rotation,restPose.scale)
-                if(originYardGearStep(job?.stage ?: OriginOddJobStage.RETURN)?.returning==true) scene.targets[slot.gear]=restPose
+                if(returning) scene.targets[slot.gear]=restPose
             }
             val borrowed=slot.gear in job?.yard?.borrowed.orEmpty()
             val carried=borrowed && originYardCarriedGear(requireNotNull(job))==slot.gear

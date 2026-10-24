@@ -37,7 +37,7 @@ class OriginYardGearTest : StringSpec({
         }
         retired.forEach { originYardGearStep(it) shouldBe null }
     }
-    "export exact representative gear geometry on the surveyed barrel and carpet" {
+    "export exact representative gear geometry on the surveyed supplies and carpet" {
         YardGearPreviewExport.write(Path.of("build/yard-gear-preview/scene.json"))
     }
 })
@@ -112,17 +112,47 @@ internal object YardGearPreviewExport {
             }
             val pickup=state("pickup-saddle","Седло — текущий предмет",rack.map { p -> if((p["key"] as String).startsWith("saddle-")) p+mapOf("highlight" to true) else p },camera(-1.35,1.62,-2.0))+
                 mapOf("guidance" to cue(OriginOddJobStage.YARD_TACK,slot(OriginYardGear.SADDLE)))
-            val readScales=listOf(2.0,4.0,6.0).map { distance ->
-                val scale=originYardGearDistanceScale(distance)
-                val brushPose=originYardRackPose(pose(.29,1.025,-.32),scale)
-                val bucketPose=originYardRackPose(pose(1.5,1.025,0.0),scale)
-                val support=export("shelves",listOf(box(0.0,.5,0.0,1f,1f,1f,Material.BARREL),
-                    box(1.5,.5,0.0,1f,1f,1f,Material.BARREL),box(0.0,1.5,0.0,1f,1f,1f,Material.LANTERN)))
-                state("distance-${distance.toInt()}","Предметы на полке · ${distance.toInt()} м · ×${"%.2f".format(java.util.Locale.ROOT,scale)}",
-                    support+export("brush",originYardGearPieces(OriginYardGear.BRUSH),brushPose)+export("bucket",originYardGearPieces(OriginYardGear.BUCKET),bucketPose),
-                    camera(.75,1.62,-distance,.75,1.35,0.0))+
-                    mapOf("guidance" to cue(OriginOddJobStage.YARD_BRUSH,brushPose))
+            world.getChunkAt(3,-9)
+            fun supplyStation(z:Int):OriginOddJobStation {
+                val block=world.getBlockAt(55,70,z).also { it.type=Material.WHITE_CONCRETE }
+                world.getBlockAt(55,71,z).type=Material.WHITE_CONCRETE
+                return OriginOddJobStation(block.location,block,setOf(Material.WHITE_CONCRETE))
             }
+            val supplySlots=originYardGearSlots(mapOf(OriginOddJobStationId.WELL to supplyStation(-135),
+                OriginOddJobStationId.BRUSH to supplyStation(-134))).associateBy { it.gear }
+            fun supplySlot(gear:OriginYardGear)=supplySlots.getValue(gear).let {
+                it.copy(pose=it.pose.copy(at=it.pose.at.clone().subtract(55.5,70.0,-133.5)))
+            }
+            val wall=export("concrete",listOf(box(0.0,1.0,0.0,1f,2f,1f,Material.WHITE_CONCRETE),
+                box(0.0,1.0,-1.0,1f,2f,1f,Material.WHITE_CONCRETE),
+                box(1.0,1.0,1.0,1f,2f,1f,Material.OAK_LOG)))
+            val readingStages=listOf(OriginOddJobStage.YARD_BUCKET,OriginOddJobStage.YARD_BRUSH,
+                OriginOddJobStage.CLEAN_TOOL,OriginOddJobStage.YARD_BUCKET_RETURN,
+                OriginOddJobStage.YARD_BRUSH_RETURN,OriginOddJobStage.CLEAN_TOOL_RETURN)
+            val readScales=readingStages.flatMap { stage -> listOf(2.0,6.0).map { distance ->
+                val step=requireNotNull(originYardGearStep(stage))
+                val scale=originYardGearDistanceScale(distance,if(step.gear==OriginYardGear.SHOVEL && !step.returning) 1f else 1.55f)
+                var target=supplySlot(step.gear).pose
+                fun highlighted(parts:List<Map<String,Any>>,active:Boolean)=parts.map { if(active) it+mapOf("highlight" to true) else it }
+                val pieces=wall+supplySlots.keys.flatMap { gear ->
+                    val slot=supplySlot(gear)
+                    val active=gear==step.gear
+                    val rackPose=slot.scaledPose(if(active && !step.returning) scale else 1f)
+                    val prop=if(active && step.returning) emptyList() else
+                        highlighted(export(gear.name,originYardGearPieces(gear),rackPose),active)
+                    val supportPose=slot.scaledPose(if(active && step.returning) scale else 1f,true)
+                    val restStage=when(gear) {
+                        OriginYardGear.SHOVEL -> OriginOddJobStage.CLEAN_TOOL_RETURN
+                        OriginYardGear.BRUSH -> OriginOddJobStage.YARD_BRUSH_RETURN
+                        else -> OriginOddJobStage.YARD_BUCKET_RETURN
+                    }
+                    if(active) target=if(step.returning) supportPose else rackPose
+                    prop+highlighted(export("${gear.name}-support",originYardGearTargetPieces(restStage,gear),supportPose),active && step.returning)
+                }
+                state("supplies-${stage.name.lowercase()}-${distance.toInt()}","${step.gear.title} · ${if(step.returning) "возврат" else "взять"} · ${distance.toInt()} м",
+                    pieces,camera(distance+.5,1.62,-2.4,.5,1.45,-.45))+
+                    mapOf("guidance" to cue(stage,target))
+            } }
             val carryTurns=listOf(OriginYardGear.BUCKET,OriginYardGear.HAY).map { gear ->
                 val frames=(0..80).map { frame ->
                     val yaw=(180.0+45.0*kotlin.math.sin(frame*Math.PI/40.0)).toFloat()

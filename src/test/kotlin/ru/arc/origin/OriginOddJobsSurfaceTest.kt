@@ -322,6 +322,14 @@ class OriginOddJobsSurfaceTest : StringSpec({
                 stations.getValue(OriginOddJobStationId.ORE_STOCK).block.type shouldBe Material.CHEST
                 stations.getValue(OriginOddJobStationId.ENGRAVING).point shouldBe Location(world, 79.5, 71.04, 67.5)
                 stations.values.all { it.valid() } shouldBe true
+                val supplyBlocks=listOf(Triple(55,70,-135),Triple(55,70,-134),Triple(65,70,-134))
+                supplyBlocks.forEach { blocks[it]=Material.WHITE_CONCRETE }
+                val concrete=originOddJobStations(plan,world)
+                for(id in listOf(OriginOddJobStationId.WELL,OriginOddJobStationId.BRUSH,OriginOddJobStationId.SADDLE_RACK)) {
+                    concrete.getValue(id).valid() shouldBe true
+                    concrete.getValue(id).block.type shouldBe Material.WHITE_CONCRETE
+                    concrete.getValue(id).point shouldBe stations.getValue(id).point
+                }
                 // A missing source must not silently resolve to the adjacent brush barrel or the animal's trough.
                 blocks[Triple(55, 70, -135)] = Material.AIR
                 originOddJobStations(plan, world).containsKey(OriginOddJobStationId.WELL) shouldBe false

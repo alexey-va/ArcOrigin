@@ -157,10 +157,11 @@ internal fun originOddJobStations(plan: OriginScenePlan, world: World): Map<Orig
     // The top of the hay pile is one block above its authored actor-facing anchor.
     around(OriginOddJobStationId.HAY, yard.anchors.getValue("hay-source").let { it.copy(y = it.y + 1) }, setOf(Material.HAY_BLOCK), 2, 1.02)
     around(OriginOddJobStationId.WATER, yard.anchors.getValue("water-trough"), setOf(Material.WATER_CAULDRON), 2, 0.9)
-    // These anchors identify the surveyed supply barrels, not a nearby floor or ambient display surface.
-    yard.anchors["water-source"]?.let { around(OriginOddJobStationId.WELL, it, setOf(Material.BARREL), 0, 1.02) }
-    yard.anchors["brush-source"]?.let { around(OriginOddJobStationId.BRUSH, it, setOf(Material.BARREL), 0, 1.02) }
-    yard.anchors["saddle-source"]?.let { around(OriginOddJobStationId.SADDLE_RACK, it, setOf(Material.BARREL), 0, 1.02) }
+    // Only the authored supply blocks qualify, including the owner's concrete replacement supports.
+    val supplySupports = setOf(Material.BARREL, Material.WHITE_CONCRETE)
+    yard.anchors["water-source"]?.let { around(OriginOddJobStationId.WELL, it, supplySupports, 0, 1.02) }
+    yard.anchors["brush-source"]?.let { around(OriginOddJobStationId.BRUSH, it, supplySupports, 0, 1.02) }
+    yard.anchors["saddle-source"]?.let { around(OriginOddJobStationId.SADDLE_RACK, it, supplySupports, 0, 1.02) }
     val feed = yard.anchors["job-feed-floor"] ?: OriginScenePoint(48.5, 70.05, -134.5)
     val feedX = floor(feed.x).toInt()
     val feedZ = floor(feed.z).toInt()
