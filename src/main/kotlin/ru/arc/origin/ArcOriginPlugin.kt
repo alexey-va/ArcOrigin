@@ -177,7 +177,7 @@ open class ArcOriginPlugin : JavaPlugin() {
             PaperLoggingPlatform("ArcOrigin", "ArcOrigin"),
             LoggingConfigSource { ConfigManager.of(legacyDataPath, "modules/logging.yml") },
         )
-        logger.info("ORIGIN_SIDE_JOB_POLICY orders=${sideJobRewardPolicy.dailyOrderLimit} amount=${sideJobRewardPolicy.rewardPerOrder} settlement=shift-end")
+        logger.info("ORIGIN_SIDE_JOB_POLICY orders=${sideJobRewardPolicy.dailyOrderLimit} amount=${sideJobRewardPolicy.rewardPerOrder} saddling_amount=${sideJobRewardPolicy.saddlingRewardPerOrder} settlement=shift-end")
         OriginMenus.initialize(this)
         ModuleRegistry.registerAll(
             OriginSpawnModule, OriginPortalsModule, OriginWorkshopTablesModule, OriginDiningModule,

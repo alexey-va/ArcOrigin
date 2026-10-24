@@ -314,7 +314,7 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
             if (action != OriginOddJobAction.GEAR || gear !in requireNotNull(yard).borrowed || gear in yard.equipped) wrong()
             else next(stage, job.copy(yard = yard.copy(borrowed = yard.borrowed - gear)))
         fun preparationDone(work: OriginYardWork = requireNotNull(yard)) = next(OriginOddJobStage.RETURN,
-            job.copy(yard = work.copy(borrowed = emptySet(), equipped = emptySet())))
+            job.copy(yard = work.copy(borrowed = emptySet(), equipped = emptySet(), tieMask = 0, pendingTieSide = null)))
         when (job.stage) {
             OriginOddJobStage.YARD_HAY -> if (action == OriginOddJobAction.HAY) borrow(OriginYardGear.HAY, OriginOddJobStage.YARD_FEED) else wrong()
             OriginOddJobStage.YARD_FEED -> if (action == OriginOddJobAction.FEED) next(OriginOddJobStage.RETURN, job.copy(yard = requireNotNull(yard).copy(borrowed = yard.borrowed - OriginYardGear.HAY))) else wrong()
@@ -326,7 +326,24 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
             OriginOddJobStage.YARD_WATER -> if (action == OriginOddJobAction.WATER) next(OriginOddJobStage.YARD_DRINKING) else wrong()
             OriginOddJobStage.YARD_LEAD_RACK -> if (action == OriginOddJobAction.TACK) borrow(OriginYardGear.LEAD, OriginOddJobStage.YARD_LEAD) else wrong()
             OriginOddJobStage.YARD_LEAD -> if (action == OriginOddJobAction.LEAD) next(OriginOddJobStage.YARD_LEAD_OUT) else wrong()
-            OriginOddJobStage.YARD_LEAD_OUT -> if (action == OriginOddJobAction.ARRIVE) next(OriginOddJobStage.YARD_BRUSH) else wrong()
+            OriginOddJobStage.YARD_LEAD_OUT -> if (action == OriginOddJobAction.ARRIVE) next(OriginOddJobStage.YARD_TIE_FIRST) else wrong()
+            OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND -> {
+                val work = requireNotNull(yard)
+                val expected = if (job.stage == OriginOddJobStage.YARD_TIE_FIRST) 0 else 1
+                if (action != OriginOddJobAction.TIE || zone !in 0..1 || work.pendingTieSide != null ||
+                    Integer.bitCount(work.tieMask) != expected || work.tieMask and (1 shl zone) != 0) wrong()
+                else next(if (expected == 0) OriginOddJobStage.YARD_TIE_HORSE_FIRST else OriginOddJobStage.YARD_TIE_HORSE_SECOND,
+                    job.copy(yard = work.copy(pendingTieSide = zone)))
+            }
+            OriginOddJobStage.YARD_TIE_HORSE_FIRST, OriginOddJobStage.YARD_TIE_HORSE_SECOND -> {
+                val work = requireNotNull(yard)
+                val side = work.pendingTieSide
+                val expected = if (job.stage == OriginOddJobStage.YARD_TIE_HORSE_FIRST) 0 else 1
+                if (action != OriginOddJobAction.TIE || side !in 0..1 || Integer.bitCount(work.tieMask) != expected ||
+                    work.tieMask and (1 shl requireNotNull(side)) != 0) wrong()
+                else next(if (expected == 0) OriginOddJobStage.YARD_TIE_SECOND else OriginOddJobStage.YARD_BRUSH,
+                    job.copy(yard = work.copy(tieMask = work.tieMask or (1 shl requireNotNull(side)), pendingTieSide = null)))
+            }
             OriginOddJobStage.YARD_DELIVER -> if (action == OriginOddJobAction.ARRIVE) next(OriginOddJobStage.YARD_HANDOFF) else wrong()
             OriginOddJobStage.YARD_HANDOFF -> if (action == OriginOddJobAction.HANDOFF)
                 next(if (job.variant == OriginOddJobVariant.YARD_LESSON) OriginOddJobStage.YARD_LESSON_WALK else OriginOddJobStage.YARD_HANDED) else wrong()
@@ -359,7 +376,8 @@ internal class OriginOddJobsProgress(private val lifetimeMillis: Long) {
             OriginOddJobStage.YARD_TACK -> if (action == OriginOddJobAction.TACK) borrow(OriginYardGear.SADDLE, OriginOddJobStage.YARD_SADDLE) else wrong()
             OriginOddJobStage.YARD_SADDLE -> if (action == OriginOddJobAction.SADDLE && OriginYardGear.SADDLE in requireNotNull(yard).borrowed &&
                 OriginYardGear.SADDLE !in yard.equipped)
-                next(OriginOddJobStage.YARD_DELIVER, job.copy(yard = yard.copy(equipped = yard.equipped + OriginYardGear.SADDLE))) else wrong()
+                next(OriginOddJobStage.YARD_DELIVER, job.copy(yard = yard.copy(equipped = yard.equipped + OriginYardGear.SADDLE,
+                    tieMask = 0, pendingTieSide = null))) else wrong()
             OriginOddJobStage.YARD_BUCKET_RETURN -> giveBack(OriginYardGear.BUCKET, OriginOddJobStage.RETURN)
             OriginOddJobStage.CLEAN_TOOL_RETURN -> giveBack(OriginYardGear.SHOVEL, OriginOddJobStage.RETURN)
             OriginOddJobStage.FORGE_BLANK, OriginOddJobStage.FORGE_INSPECT ->

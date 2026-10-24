@@ -150,6 +150,31 @@ class OriginWorkshopPropTest : FreeSpec({
         }
     }
 
+    "rack scaling changes the rendered cube and hitbox together then carrying restores stable hand size" {
+        val harness=PropDisplayHarness()
+        val piece=workshopPiece(OriginWorkshopPoint(.2,.1,-.3))
+        val prop=OriginWorkshopProp(harness.owner,Location(null,0.0,64.0,0.0),listOf(piece))
+        val display=harness.blocks.single()
+        val transforms=mutableListOf<Transformation>()
+        every { display.transformation=any() } answers { transforms+=firstArg<Transformation>() }
+        prop.place(Location(null,2.0,64.0,3.0),Quaternionf(),1.55f)
+        transforms.last().scale.distance(Vector3f(piece.size.x,piece.size.y,piece.size.z).mul(1.55f)) shouldBeLessThan .00001f
+        prop.hitboxMatrix(prop.pieces.single())!!.transformPosition(Vector3f(.5f))
+            .distance(Vector3f(2f+.2f*1.55f,64f+.1f*1.55f,3f-.3f*1.55f)) shouldBeLessThan .00001f
+        val carrier=mockk<Player>(relaxed=true) {
+            every { uniqueId } returns UUID.randomUUID()
+            every { location } returns Location(null,2.0,64.0,3.0)
+            every { height } returns 1.8
+        }
+        val pose=originYardGearCarryPose(OriginYardGear.BUCKET,0f,false)
+        prop.carry(carrier,pose,interpolationTicks=2)
+        prop.carry(carrier,originYardGearCarryPose(OriginYardGear.BUCKET,5f,false),interpolationTicks=2)
+        transforms.last().scale.distance(Vector3f(piece.size.x,piece.size.y,piece.size.z)) shouldBeLessThan .00001f
+        verify(exactly=2) { display.attachTo(carrier) }
+        verify(exactly=0) { display.remove() }
+        verifyOrder { display.interpolationDuration=0; display.attachTo(carrier); display.interpolationDuration=2 }
+    }
+
     "private placement marker is shown only to its viewer after pose setup" {
         val harness = PropDisplayHarness()
         val viewer = mockk<Player>(relaxed = true)

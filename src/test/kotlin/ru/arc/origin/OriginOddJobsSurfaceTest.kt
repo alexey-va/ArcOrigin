@@ -127,7 +127,7 @@ class OriginOddJobsSurfaceTest : StringSpec({
     "stable guidance uses an ordinary saddle and automatic completion after the ride" {
         val config=oddJobTestConfig()
         val introduction=config.line("mountyard.introduction", "amount" to 20)
-        introduction shouldContain "у каждого конюха свой комплект"
+        introduction.lowercase() shouldContain "у каждого конюха свой комплект"
         introduction shouldContain "поручение завершится автоматически"
         for(key in listOf("mountyard.introduction", "guide.yard-tack", "guide.yard-saddle", "guide.yard-handed")) {
             val line=config.line(key).lowercase()
@@ -151,9 +151,13 @@ class OriginOddJobsSurfaceTest : StringSpec({
             body shouldContain "20 💰"
             body shouldContain "12"
             if (venue.kind == OriginOddJobKind.MOUNTYARD) {
-                body shouldContain "За действие"
-                body shouldContain "12 из 100 действий"
-                body shouldContain "Каждое принятое действие приносит 20"
+                config.line("table.yard-pay") shouldBe "Обычное поручение"
+                body shouldContain "Обычное"
+                body shouldContain "поручение"
+                body shouldContain "12 из 100 поручений"
+                body shouldContain "Обычное принятое поручение приносит 20"
+                body shouldContain "50 💰 за весь заказ"
+                body shouldContain "развязка снимется сама"
             } else body shouldContain "За поручение"
             screen.buttons.map { it.id.value } shouldBe listOf("odd_job_start", "odd_job_later")
             plain(screen.buttons.first().label) shouldBe "Выйти на смену"
@@ -229,7 +233,11 @@ class OriginOddJobsSurfaceTest : StringSpec({
         }
         advance(OriginOddJobAction.TACK, OriginOddJobStage.YARD_LEAD)
         advance(OriginOddJobAction.LEAD, OriginOddJobStage.YARD_LEAD_OUT)
-        advance(OriginOddJobAction.ARRIVE, OriginOddJobStage.YARD_BRUSH)
+        advance(OriginOddJobAction.ARRIVE, OriginOddJobStage.YARD_TIE_FIRST)
+        advance(OriginOddJobAction.TIE, OriginOddJobStage.YARD_TIE_HORSE_FIRST, 0)
+        advance(OriginOddJobAction.TIE, OriginOddJobStage.YARD_TIE_SECOND)
+        advance(OriginOddJobAction.TIE, OriginOddJobStage.YARD_TIE_HORSE_SECOND, 1)
+        advance(OriginOddJobAction.TIE, OriginOddJobStage.YARD_BRUSH)
         advance(OriginOddJobAction.BRUSH, OriginOddJobStage.YARD_GROOM)
         repeat(2) { advance(OriginOddJobAction.GROOM, OriginOddJobStage.YARD_GROOM) }
         advance(OriginOddJobAction.GROOM, OriginOddJobStage.YARD_BRUSH_RETURN)

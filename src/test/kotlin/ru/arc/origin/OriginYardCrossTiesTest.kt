@@ -34,18 +34,15 @@ class OriginYardCrossTiesTest : StringSpec({
             originYardTieTargets(pending) shouldBe emptyList()
             originYardTieTargets(crossTieJob(OriginOddJobStage.YARD_TIE_SECOND, 1 shl first)) shouldBe listOf(second)
             originYardTieMask(crossTieJob(OriginOddJobStage.YARD_TIE_HORSE_SECOND, 1 shl first, second)) shouldBe (1 shl first)
-            originYardTieTargets(crossTieJob(OriginOddJobStage.YARD_UNTIE_FIRST, 3)) shouldBe listOf(0, 1)
-            originYardTieTargets(crossTieJob(OriginOddJobStage.YARD_UNTIE_SECOND, 1 shl second)) shouldBe listOf(second)
+            originYardTieTargets(crossTieJob(OriginOddJobStage.YARD_UNTIE_FIRST, 3)) shouldBe emptyList()
+            originYardTieTargets(crossTieJob(OriginOddJobStage.YARD_UNTIE_SECOND, 1 shl second)) shouldBe emptyList()
             OriginOddJobSupplies().requiresWorkpiece(pending) shouldBe false
         }
     }
 
-    "both cross ties stay attached through physical preparation and release before the route and gear returns" {
+    "both cross ties stay attached through preparation and release before the route" {
         for (stage in listOf(OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_GROOM,
-                OriginOddJobStage.YARD_BRUSH_RETURN, OriginOddJobStage.YARD_PAD_RACK, OriginOddJobStage.YARD_PAD,
-                OriginOddJobStage.YARD_TACK, OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_GIRTH,
-                OriginOddJobStage.YARD_BRIDLE_RACK, OriginOddJobStage.YARD_BRIDLE,
-                OriginOddJobStage.YARD_STIRRUP_LEFT, OriginOddJobStage.YARD_STIRRUP_RIGHT)) {
+                OriginOddJobStage.YARD_BRUSH_RETURN, OriginOddJobStage.YARD_TACK, OriginOddJobStage.YARD_SADDLE)) {
             val job = crossTieJob(stage, mask = 3)
             originYardTieMask(job) shouldBe 3
             originYardTieTargets(job) shouldBe emptyList()
@@ -118,9 +115,49 @@ class OriginYardCrossTiesTest : StringSpec({
                 ties.mask shouldBe 3
                 material.values.count { it == Material.STRIPPED_OAK_WOOD } shouldBe 40
                 displays.count { it !in removed } shouldBe 58
+                displays.forEach { display -> verify { display.isVisibleByDefault = false; display.showTo(player) } }
                 ties.close()
                 removed.size shouldBe displays.size
             }
+        }
+    }
+
+    "two workers have separate private rings and ropes and one cleanup leaves the other intact" {
+        MockBukkitTestRuntime.open().use {
+            val displays = mutableListOf<PacketBlockDisplay>()
+            val shown = mutableMapOf<PacketBlockDisplay,MutableSet<Player>>()
+            val removed = mutableSetOf<PacketBlockDisplay>()
+            val renderer = mockk<PaperPacketDisplays> {
+                every { spawnBlock(any(), any()) } answers {
+                    mockk<PacketBlockDisplay>(relaxed = true).also { display ->
+                        displays += display
+                        every { display.showTo(any<Player>()) } answers { shown.getOrPut(display) { mutableSetOf() } += firstArg<Player>() }
+                        every { display.remove() } answers { removed += display }
+                    }
+                }
+            }
+            val world = mockk<World>(relaxed = true)
+            val horse = ORIGIN_YARD_CARE_PAD.inWorld(world)
+            val first = mockk<Player>(relaxed = true)
+            val second = mockk<Player>(relaxed = true)
+            val anchors = listOf(ORIGIN_YARD_TIE_FIRST.inWorld(world),ORIGIN_YARD_TIE_SECOND.inWorld(world))
+            val firstTies = OriginYardCrossTies(renderer,first,horse,anchors)
+            val secondTies = OriginYardCrossTies(renderer,second,horse,anchors)
+            firstTies.setStage(crossTieJob(OriginOddJobStage.YARD_BRUSH,3),horse,1.6)
+            secondTies.setStage(crossTieJob(OriginOddJobStage.YARD_BRUSH,3),horse,1.6)
+            val firstParts = displays.filter { shown[it] == setOf(first) }
+            val secondParts = displays.filter { shown[it] == setOf(second) }
+            firstParts.size shouldBe 58
+            secondParts.size shouldBe 58
+            displays.all { shown[it]?.size == 1 } shouldBe true
+            displays.forEach { display -> verify { display.isVisibleByDefault = false } }
+            firstTies.close()
+            firstParts.all { it in removed } shouldBe true
+            secondParts.none { it in removed } shouldBe true
+            secondTies.render(horse,1.6)
+            displays.size shouldBe 116
+            secondTies.close()
+            removed.size shouldBe displays.size
         }
     }
 
@@ -158,8 +195,8 @@ class OriginYardCrossTiesTest : StringSpec({
             val horse = ORIGIN_YARD_CARE_PAD.inWorld(world)
             val ties = OriginYardCrossTies(renderer, player, horse,
                 listOf(ORIGIN_YARD_TIE_FIRST.inWorld(world), ORIGIN_YARD_TIE_SECOND.inWorld(world)))
-            ties.setStage(crossTieJob(OriginOddJobStage.YARD_UNTIE_FIRST, 3), horse, 1.6)
-            blocks.size shouldBe 66
+            ties.setStage(crossTieJob(OriginOddJobStage.YARD_GROOM, 3), horse, 1.6)
+            blocks.size shouldBe 58
             var fail = true
             every { blocks.first().remove() } answers { if (fail) error("one transport failure") }
             shouldThrow<IllegalStateException> { ties.close() }

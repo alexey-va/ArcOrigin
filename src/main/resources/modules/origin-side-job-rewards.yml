@@ -5,11 +5,15 @@
 # Shared completed orders per UUID per UTC date. Valid range: 1..10000.
 daily-order-limit: 100
 
-# Vault coins per completed order, equal for all four jobs. Valid range: 1..1000000.
-# daily-order-limit * reward-per-order must not exceed 2147483647.
-# The displayed daily amount is this product at the current rate, not a separate cash counter.
+# Vault coins per ordinary completed order. Valid range: 1..1000000.
+# daily-order-limit * max(reward-per-order, saddling-reward-per-order) must not exceed 2147483647.
+# The displayed daily amount is that theoretical maximum, not a separate cash counter.
 # Changing the rate does not reprice already earned orders.
 reward-per-order: 20
+
+# Completed grooming, saddling and escorted-lesson orders all include saddling.
+# Intermediate actions and cancelled orders earn nothing. Valid range: 1..1000000.
+saddling-reward-per-order: 50
 
 # Completed orders accrue during work. Finishing pays the full shift once, without a cooldown.
 # The former payout-interval-seconds setting is ignored, including in existing runtime files.

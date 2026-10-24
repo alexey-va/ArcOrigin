@@ -20,7 +20,63 @@ import java.util.logging.Level
 import java.util.logging.Logger
 
 class OriginSideJobRewardsTest : StringSpec({
-    "physical-action receipts retain twenty coins each without advancing whole-order quests" {
+    "completed mountyard orders freeze twenty or fifty once and settle the full earned amount" {
+        for (variant in OriginOddJobVariant.entries.filter { it.kind == OriginOddJobKind.MOUNTYARD }) SideJobRewardFixture().use { f ->
+            val order = UUID.randomUUID()
+            val amount = if (variant.isYardPreparation()) 50L else 20L
+            f.mountyard(variant, order); f.ackCredit()
+            f.mountyard(variant, order); f.scheduler.executeImmediate()
+            f.record()!!.count shouldBe 1
+            f.record()!!.earnings!!.orders shouldBe listOf(order.toString())
+            f.record()!!.earnings!!.amount shouldBe amount
+            f.amounts shouldBe emptyList()
+            f.settle(); f.finishPayment()
+            f.amounts shouldBe listOf(amount.toDouble())
+            f.settle(); f.scheduler.executeImmediate()
+            f.amounts shouldBe listOf(amount.toDouble())
+        }
+    }
+    "completed mixed-rate orders share one hundred quota slots and preserve the frozen total" {
+        SideJobRewardFixture().use { f ->
+            repeat(100) { index ->
+                f.mountyard(if (index % 2 == 0) OriginOddJobVariant.YARD_SADDLE else OriginOddJobVariant.YARD_RATIONS)
+                f.ackCredit()
+            }
+            f.mountyard(OriginOddJobVariant.YARD_LESSON); f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.DAILY_LIMIT
+            f.record()!!.count shouldBe 100
+            f.record()!!.earnings!!.amount shouldBe 3500L
+            f.rewards.status(f.playerId, f.shiftId).join().remainingOrders shouldBe 0
+            f.settle(); f.finishPayment()
+            f.amounts shouldBe listOf(3500.0)
+            f.rewards.credit(OriginSideJobKind.FORGE, f.playerId, UUID.randomUUID(), UUID.randomUUID(), 100, f.results::add)
+            f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.DAILY_LIMIT
+        }
+    }
+    "lost fifty-coin acknowledgement retries the same completed order without increasing its frozen total" {
+        SideJobRewardFixture().use { f ->
+            val order = UUID.randomUUID()
+            f.mountyard(OriginOddJobVariant.YARD_SADDLE, order)
+            f.redis.failWrite(applyFirst = true); f.scheduler.executeImmediate()
+            f.results.last().outcome shouldBe SideJobRewardOutcome.RETRY
+            f.mountyard(OriginOddJobVariant.YARD_SADDLE, order); f.scheduler.executeImmediate()
+            f.record()!!.count shouldBe 1
+            f.record()!!.earnings!!.amount shouldBe 50L
+            f.settle(); f.finishPayment()
+            f.amounts shouldBe listOf(50.0)
+        }
+    }
+    "saddling credit rejects a variant belonging to another job before touching storage" {
+        SideJobRewardFixture().use { f ->
+            shouldThrowAny { f.mountyard(OriginOddJobVariant.FORGE_NEW) }
+            shouldThrowAny { f.mountyard(OriginOddJobVariant.AUCTION_DISPATCH) }
+            f.record() shouldBe null
+            f.redis.writes.isEmpty() shouldBe true
+            f.results shouldBe emptyList()
+        }
+    }
+    "historical physical-action receipts retain twenty coins each without advancing whole-order quests" {
         SideJobRewardFixture().use { f ->
             val unit = UUID.randomUUID()
             f.workUnit(unit); f.ackCredit()
@@ -170,6 +226,22 @@ class OriginSideJobRewardsTest : StringSpec({
                 f.record()!!.earnings!!.amount shouldBe 40L
                 f.finishPayment()
                 f.amounts shouldBe listOf(40.0)
+            }
+        }
+    }
+
+    "failed saddling credit survives reload at fifty when the new policy uses another rate" {
+        SideJobRewardFixture().use { f ->
+            f.mountyard(OriginOddJobVariant.YARD_GROOM); f.ackCredit()
+            f.mountyard(OriginOddJobVariant.YARD_LESSON); f.rewards.close()
+            f.owner(policy = OriginSideJobRewardPolicy(100, 20, 75)).use { fresh ->
+                fresh.recover(setOf(OriginSideJobKind.MOUNTYARD)); f.scheduler.executeImmediate()
+                f.redis.failWrite(applyFirst = false); f.scheduler.executeImmediate()
+                f.amounts shouldBe emptyList()
+                f.redis.completeWrite(); f.scheduler.executeImmediate()
+                f.record()!!.earnings!!.amount shouldBe 100L
+                f.finishPayment()
+                f.amounts shouldBe listOf(100.0)
             }
         }
     }
@@ -383,6 +455,8 @@ private class SideJobRewardFixture(val policy: OriginSideJobRewardPolicy = Origi
             CompletableFuture.completedFuture(ExternalProgressResult.APPLIED)
         } }, Logger.getAnonymousLogger()))
     fun credit(requestId: UUID = UUID.randomUUID()) = rewards.credit(OriginSideJobKind.FORGE, playerId, shiftId, requestId, 80, results::add)
+    fun mountyard(variant: OriginOddJobVariant, requestId: UUID = UUID.randomUUID()) =
+        rewards.creditMountyardOrder(variant, playerId, shiftId, requestId, 80, results::add)
     fun workUnit(requestId: UUID = UUID.randomUUID()) = rewards.creditWorkUnit(OriginSideJobKind.MOUNTYARD, playerId, shiftId, requestId, 80, results::add)
     fun settle() = rewards.settle(playerId, shiftId, results::add)
     fun ackCredit() { redis.completeWrite(); scheduler.executeImmediate() }

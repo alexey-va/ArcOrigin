@@ -11,6 +11,13 @@ import kotlin.math.sin
 
 internal data class OriginYardGearPose(val at: Location, val rotation: Quaternionf = Quaternionf(), val scale: Float = 1f)
 
+/** Rack enlargement preserves the authored contact point; held tools always use their normal size. */
+internal fun originYardRackPose(pose: OriginYardGearPose, scale: Float, anchor: Vector3f = Vector3f()): OriginYardGearPose {
+    val offset = pose.rotation.transform(Vector3f(anchor).mul(1f-scale))
+    return OriginYardGearPose(pose.at.clone().add(offset.x.toDouble(),offset.y.toDouble(),offset.z.toDouble()),
+        Quaternionf(pose.rotation),scale)
+}
+
 // Official 26.1.2: AbstractEquineModel body, LayerDefinitions.HORSE scaling(1.1),
 // LivingEntityRenderer's 1.501 ground pivot. This is mesh scale, not Attribute.SCALE.
 internal const val ORIGIN_YARD_HORSE_BACK = (1.501 - (11.0 - 8.0 - .05) / 16.0) * 1.1

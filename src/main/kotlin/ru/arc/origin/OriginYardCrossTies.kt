@@ -24,11 +24,7 @@ internal fun originYardTieMask(job: OriginOddJobSession): Int? = when (job.stage
     OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_HORSE_FIRST,
     OriginOddJobStage.YARD_TIE_SECOND, OriginOddJobStage.YARD_TIE_HORSE_SECOND,
     OriginOddJobStage.YARD_BRUSH, OriginOddJobStage.YARD_GROOM, OriginOddJobStage.YARD_TACK,
-    OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_BRUSH_RETURN, OriginOddJobStage.YARD_PAD_RACK,
-    OriginOddJobStage.YARD_PAD, OriginOddJobStage.YARD_GIRTH, OriginOddJobStage.YARD_BRIDLE_RACK,
-    OriginOddJobStage.YARD_BRIDLE, OriginOddJobStage.YARD_STIRRUP_LEFT, OriginOddJobStage.YARD_STIRRUP_RIGHT,
-    OriginOddJobStage.YARD_UNTIE_FIRST,
-    OriginOddJobStage.YARD_UNTIE_SECOND -> requireNotNull(job.yard).tieMask
+    OriginOddJobStage.YARD_SADDLE, OriginOddJobStage.YARD_BRUSH_RETURN -> requireNotNull(job.yard).tieMask
     else -> null
 }
 
@@ -37,8 +33,21 @@ internal fun originYardTieTargets(job: OriginOddJobSession): List<Int> {
     val mask = originYardTieMask(job) ?: return emptyList()
     return when (job.stage) {
         OriginOddJobStage.YARD_TIE_FIRST, OriginOddJobStage.YARD_TIE_SECOND -> (0..1).filter { mask and (1 shl it) == 0 }
-        OriginOddJobStage.YARD_UNTIE_FIRST, OriginOddJobStage.YARD_UNTIE_SECOND -> (0..1).filter { mask and (1 shl it) != 0 }
         else -> emptyList()
+    }
+}
+
+internal fun originYardTieStateValid(job: OriginOddJobSession): Boolean {
+    val work = job.yard ?: return false
+    val mask = originYardTieMask(job) ?: return false
+    if (mask !in 0..3) return false
+    val pending = work.pendingTieSide
+    return when (job.stage) {
+        OriginOddJobStage.YARD_TIE_FIRST -> mask == 0 && pending == null
+        OriginOddJobStage.YARD_TIE_HORSE_FIRST -> mask == 0 && pending in 0..1
+        OriginOddJobStage.YARD_TIE_SECOND -> Integer.bitCount(mask) == 1 && pending == null
+        OriginOddJobStage.YARD_TIE_HORSE_SECOND -> Integer.bitCount(mask) == 1 && pending in 0..1 && mask and (1 shl requireNotNull(pending)) == 0
+        else -> mask == 3 && pending == null
     }
 }
 
@@ -47,6 +56,14 @@ internal fun originYardTieHand(worker: Location, height: Double): Location {
     val yaw = Math.toRadians(worker.yaw.toDouble())
     return worker.clone().add(-0.28 * cos(yaw) - 0.35 * sin(yaw), height * 0.68,
         -0.28 * sin(yaw) + 0.35 * cos(yaw))
+}
+
+/** The calm horse's real head pivot; shared with the source preview, with no bridle overlay. */
+internal fun originYardTieCheek(horse: Location, height: Double, side: Int): Location {
+    val scale=(height/1.6).toFloat()
+    val pose=originYardGearHorsePose(OriginYardGear.BRIDLE,horse,horse.yaw,scale,horse.yaw,horse.pitch)
+    val cheek=pose.rotation.transform(Vector3f(if(side==0) -.18f else .18f,-.18f,-.425f).mul(scale))
+    return pose.at.add(cheek.x.toDouble(),cheek.y.toDouble(),cheek.z.toDouble())
 }
 
 /** Source geometry shared by packet rendering and the offline cross-tie preview. */
@@ -135,21 +152,15 @@ internal class OriginYardCrossTies(
     fun valid(): Boolean = !closed && anchors.indices.all { station(it) != null }
 
     fun ropesClear(horse: Location, height: Double): Boolean = anchors.indices.all { side ->
-        val head = cheek(horse, height, side)
+        val head = originYardTieCheek(horse, height, side)
         val delta = anchors[side].toVector().subtract(head.toVector())
         val length = delta.length()
         length in 0.5..6.0 && horse.world?.rayTraceBlocks(head, delta.normalize(), length - 0.02,
             FluidCollisionMode.NEVER, true) == null
     }
 
-    private fun cheek(horse: Location, height: Double, side: Int): Location {
-        val scale=(height/1.6).toFloat()
-        val pose=originYardGearHorsePose(OriginYardGear.BRIDLE,horse,horse.yaw,scale,horse.yaw,horse.pitch)
-        val cheek=pose.rotation.transform(Vector3f(if(side==0) -.18f else .18f,-.18f,-.425f).mul(scale))
-        return pose.at.add(cheek.x.toDouble(),cheek.y.toDouble(),cheek.z.toDouble())
-    }
-
     fun setStage(job: OriginOddJobSession, horse: Location, height: Double) {
+        require(originYardTieStateValid(job))
         mask = requireNotNull(originYardTieMask(job))
         activeTargets = originYardTieTargets(job)
         val pending = job.yard?.pendingTieSide
@@ -167,9 +178,9 @@ internal class OriginYardCrossTies(
                 if (pendingSide == side) {
                     val hand = local(originYardTieHand(player.location, player.height))
                     addAll(originYardRopePieces(side, hand, anchor, slack = 0.22f))
-                    addAll(originYardRingPieces(side + 2, local(cheek(horse, height, side)), normal(side).negate(), cue = true))
+                    addAll(originYardRingPieces(side + 2, local(originYardTieCheek(horse, height, side)), normal(side).negate(), cue = true))
                 } else if (mask and (1 shl side) != 0) {
-                    addAll(originYardRopePieces(side, local(cheek(horse, height, side)), anchor))
+                    addAll(originYardRopePieces(side, local(originYardTieCheek(horse, height, side)), anchor))
                 }
                 if (side in activeTargets) addAll(originYardRingPieces(side, anchor, normal(side), cue = true))
             }
@@ -182,14 +193,14 @@ internal class OriginYardCrossTies(
             val display = existing ?: renderer.spawnBlock(origin, piece.material.createBlockData()).also {
                 // Register before configuration so partial creation remains cleanable by this owner.
                 parts[piece.key] = it
-                val private = piece.key.startsWith("cue-")
-                it.isVisibleByDefault = !private
+                val cue = piece.key.startsWith("cue-")
+                it.isVisibleByDefault = false
                 it.billboard = Display.Billboard.FIXED
                 it.viewRange = 0.5f; it.displayWidth = 10f; it.displayHeight = 3f; it.shadowRadius = 0f
                 it.interpolationDelay = -1; it.interpolationDuration = 2; it.teleportDuration = 0
-                if (private) {
+                it.showTo(player)
+                if (cue) {
                     it.isGlowing = true; it.glowColorOverride = Color.AQUA; it.brightness = Display.Brightness(15, 15)
-                    it.showTo(player)
                 }
             }
             val corner = Vector3f(piece.size).mul(-0.5f)

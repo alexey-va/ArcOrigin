@@ -11,6 +11,7 @@ import org.bukkit.block.data.BlockData
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
 import org.bukkit.util.BoundingBox
+import org.bukkit.util.Transformation
 import org.mockbukkit.mockbukkit.entity.PlayerMock
 import org.mockbukkit.mockbukkit.world.WorldMock
 import ru.arc.paper.display.PacketBlockDisplay
@@ -19,6 +20,83 @@ import ru.arc.paper.testing.MockBukkitTestRuntime
 import java.util.UUID
 
 class OriginYardEquipmentTest : StringSpec({
+    "bucket and hay follow view turns while the brush stays at the body palm using stable interpolated handles" {
+        for((gear,stage,stationId) in listOf(
+            Triple(OriginYardGear.BUCKET,OriginOddJobStage.YARD_WELL,OriginOddJobStationId.WELL),
+            Triple(OriginYardGear.HAY,OriginOddJobStage.YARD_FEED,OriginOddJobStationId.HAY),
+            Triple(OriginYardGear.BRUSH,OriginOddJobStage.YARD_GROOM,OriginOddJobStationId.BRUSH))) {
+            MockBukkitTestRuntime.open().use { paper ->
+                paper.loadSimplePlugin(ControlledArcOriginPlugin::class.java)
+                val world=WorldMock().also(paper.server::addWorld)
+                val player=object:PlayerMock(paper.server,"Carrier") {
+                    override fun getBodyYaw()=0f
+                    override fun getHeight()=1.8
+                }.also { paper.server.addPlayer(it); it.teleport(Location(world,.5,70.0,-2.0)) }
+                world.getChunkAt(0,0)
+                val block=world.getBlockAt(0,70,0).also { it.type=Material.BARREL }
+                val station=OriginOddJobStation(block.location,block,setOf(Material.BARREL))
+                val job=OriginOddJobSession(UUID.randomUUID(),OriginOddJobKind.MOUNTYARD,stage,0,240000,0,
+                    OriginOddJobOffer(UUID.randomUUID(),OriginOddJobVariant.YARD_WATER,0,false),
+                    yard=OriginYardWork(422,"Буран",borrowed=setOf(gear)))
+                val harness=YardEquipmentDisplays()
+                val equipment=OriginYardEquipment { harness.owner }
+                equipment.bind({mapOf(stationId to station)},{listOf(player.uniqueId to job)},{null}) { _,_,_ -> }
+                try {
+                    equipment.tick()
+                    val held=harness.privateFor(player).filter { it.parent==player.uniqueId }
+                    held.size shouldBe originYardGearPieces(gear).size
+                    val handles=harness.handles.toList()
+                    val first=held.first()
+                    val normalSize=first.transforms.last().scale
+                    for(yaw in listOf(1f,2f,5f,20f,60f)) {
+                        player.teleport(player.location.apply { this.yaw=yaw })
+                        equipment.tick()
+                        val pose=originYardGearCarryPose(gear,if(gear==OriginYardGear.BRUSH) 0f else yaw,false)
+                        (kotlin.math.abs(first.transforms.last().leftRotation.dot(pose.rotation))>.99999f) shouldBe true
+                        first.transforms.last().scale shouldBe normalSize
+                        first.interpolation.last() shouldBe 2
+                        harness.handles shouldBe handles
+                        held.all { it.valid && it.parent==player.uniqueId } shouldBe true
+                    }
+                    held.forEach { verify(exactly=0) { it.display.remove() } }
+                } finally { equipment.close() }
+            }
+        }
+    }
+    "near and far workers see different bounded rack scales with matching private hint heights" {
+        MockBukkitTestRuntime.open().use { paper ->
+            paper.loadSimplePlugin(ControlledArcOriginPlugin::class.java)
+            val world=WorldMock().also(paper.server::addWorld)
+            fun viewer(name:String,z:Double)=paper.server.addPlayer(name).also { it.teleport(Location(world,.79,70.0,z)) }
+            val near=viewer("Near",-.82); val far=viewer("Far",-6.82)
+            world.getChunkAt(0,0)
+            val block=world.getBlockAt(0,70,0).also { it.type=Material.BARREL }
+            val station=OriginOddJobStation(block.location,block,setOf(Material.BARREL))
+            fun job()=OriginOddJobSession(UUID.randomUUID(),OriginOddJobKind.MOUNTYARD,OriginOddJobStage.YARD_BRUSH,0,240000,0,
+                OriginOddJobOffer(UUID.randomUUID(),OriginOddJobVariant.YARD_GROOM,0,false),yard=OriginYardWork(422,"Буран",tieMask=3))
+            val nearJob=job(); val farJob=job()
+            val harness=YardEquipmentDisplays()
+            val equipment=OriginYardEquipment { harness.owner }
+            equipment.bind({mapOf(OriginOddJobStationId.BRUSH to station)},{listOf(near.uniqueId to nearJob,far.uniqueId to farJob)},{null}) { _,_,_ -> }
+            try {
+                equipment.tick()
+                val small=harness.privateFor(near).filter { it.glowing }
+                val large=harness.privateFor(far).filter { it.glowing }
+                small.size shouldBe originYardGearPieces(OriginYardGear.BRUSH).size
+                small.size shouldBe large.size
+                small.zip(large).all { (a,b) -> kotlin.math.abs(b.transforms.last().scale.x/a.transforms.last().scale.x-1.55f)<.00001f } shouldBe true
+                val high=requireNotNull(equipment.target(far,farJob)).y
+                val low=requireNotNull(equipment.target(near,nearJob)).y
+                (high>low) shouldBe true
+                far.teleport(near.location)
+                equipment.tick()
+                val transition=requireNotNull(equipment.target(far,farJob)).y
+                (transition>low && transition<high) shouldBe true
+                large.all { it.interpolation.last()==2 } shouldBe true
+                small.all { it.valid } shouldBe true
+            } finally { equipment.close() }
+        }
+    }
     "two workers pick up their own shovel and one departure preserves the other's props and glow" {
         MockBukkitTestRuntime.open().use { paper ->
             paper.loadSimplePlugin(ControlledArcOriginPlugin::class.java)
@@ -124,6 +202,8 @@ private class YardEquipmentDisplays {
         var parent:UUID?=null
         val shown=mutableSetOf<UUID>()
         val hidden=mutableSetOf<UUID>()
+        val transforms=mutableListOf<Transformation>()
+        val interpolation=mutableListOf<Int>()
     }
     val owner=mockk<PaperPacketDisplays>(relaxed=true)
     val handles=mutableListOf<Handle>()
@@ -138,6 +218,8 @@ private class YardEquipmentDisplays {
             every { display.remove() } answers { handle.valid=false }
             every { display.isVisibleByDefault=any() } answers { handle.defaultVisible=firstArg() }
             every { display.isGlowing=any() } answers { handle.glowing=firstArg() }
+            every { display.transformation=any() } answers { handle.transforms+=firstArg<Transformation>() }
+            every { display.interpolationDuration=any() } answers { handle.interpolation+=firstArg<Int>() }
             every { display.showTo(any<Player>()) } answers { handle.shown+=firstArg<Player>().uniqueId; handle.hidden-=firstArg<Player>().uniqueId }
             every { display.showTo(any<UUID>()) } answers { handle.shown+=firstArg<UUID>(); handle.hidden-=firstArg<UUID>() }
             every { display.hideFrom(any<UUID>()) } answers { handle.hidden+=firstArg<UUID>(); handle.shown-=firstArg<UUID>() }

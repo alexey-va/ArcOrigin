@@ -14,6 +14,58 @@ import org.mockbukkit.mockbukkit.world.WorldMock
 import java.util.UUID
 
 class OriginYardGearPoseTest : StringSpec({
+    "distance scaling is bounded and continuous and preserves the shelf or hook contact" {
+        originYardGearDistanceScale(0.0) shouldBe 1f
+        originYardGearDistanceScale(2.0) shouldBe 1f
+        originYardGearDistanceScale(4.0).toDouble() shouldBe (1.275 plusOrMinus .000001)
+        originYardGearDistanceScale(6.0) shouldBe 1.55f
+        originYardGearDistanceScale(40.0) shouldBe 1.55f
+        val scales=(0..800).map { originYardGearDistanceScale(it/100.0) }
+        scales.zipWithNext().all { (a,b) -> b>=a && b-a<.003f } shouldBe true
+        var smooth=1f
+        repeat(30) {
+            val next=originYardGearScaleStep(smooth,1.55f)
+            (next in smooth..1.55f && next-smooth<.14f) shouldBe true
+            smooth=next
+        }
+        for(anchor in listOf(Vector3f(),Vector3f(0f,.2f,0f),Vector3f(-.11f,1.04f,0f))) {
+            val base=OriginYardGearPose(Location(WorldMock(),.5,71.0,.5),Quaternionf().rotationY(.8f))
+            val grown=originYardRackPose(base,1.55f,anchor)
+            fun contact(pose:OriginYardGearPose)=pose.rotation.transform(Vector3f(anchor).mul(pose.scale))
+                .add(pose.at.x.toFloat(),pose.at.y.toFloat(),pose.at.z.toFloat())
+            (contact(grown).distance(contact(base))<.00001f) shouldBe true
+        }
+    }
+    "enlarged rack geometry hint and interaction bounds agree for pickups and returns" {
+        for((stage,gear) in listOf(OriginOddJobStage.YARD_BUCKET to OriginYardGear.BUCKET,
+            OriginOddJobStage.YARD_BRUSH to OriginYardGear.BRUSH,
+            OriginOddJobStage.YARD_BUCKET_RETURN to OriginYardGear.BUCKET,
+            OriginOddJobStage.YARD_BRUSH_RETURN to OriginYardGear.BRUSH,
+            OriginOddJobStage.CLEAN_TOOL_RETURN to OriginYardGear.SHOVEL)) {
+            val pose=originYardRackPose(OriginYardGearPose(Location(WorldMock(),.5,71.0,.5)),1.55f)
+            val job=OriginOddJobSession(UUID.randomUUID(),OriginOddJobKind.MOUNTYARD,stage,0,240000,0,
+                OriginOddJobOffer(UUID.randomUUID(),OriginOddJobVariant.YARD_WATER,0,false),yard=OriginYardWork(422,"Буран"))
+            val step=requireNotNull(originYardGearStep(stage))
+            val geometry=originYardGearBounds(originYardGearTargetPieces(stage,gear),pose)
+            val native=requireNotNull(originYardGearControl(job,step,pose).nativeTarget)
+            val at=native.location()
+            (at.x-native.width/2 <= geometry.minX+.00001 && at.x+native.width/2 >= geometry.maxX-.00001) shouldBe true
+            (at.y <= geometry.minY+.00001 && at.y+native.height >= geometry.maxY-.00001) shouldBe true
+            originYardGearHint(stage,step,pose).y shouldBe (geometry.maxY+.22 plusOrMinus .000001)
+        }
+    }
+    "bucket and hay poses follow every small view turn including the yaw wrap" {
+        for(gear in listOf(OriginYardGear.BUCKET,OriginYardGear.HAY)) {
+            val poses=(-185..185).map { originYardGearCarryPose(gear,it.toFloat(),false) }
+            poses.zipWithNext().all { (a,b) ->
+                val delta=Vector3f((b.center.x-a.center.x).toFloat(),(b.center.y-a.center.y).toFloat(),(b.center.z-a.center.z).toFloat())
+                delta.length() in .001f.. .011f && kotlin.math.abs(a.rotation.dot(b.rotation))>.999f
+            } shouldBe true
+            val left=originYardGearCarryPose(gear,179.9f,false)
+            val right=originYardGearCarryPose(gear,-179.9f,false)
+            (kotlin.math.abs(left.rotation.dot(right.rotation))>.999f) shouldBe true
+        }
+    }
     "brush handle stays at native right palm independently of look direction" {
         for(bodyYaw in listOf(0f,90f,180f,270f)) {
             val pose=originYardGearCarryPose(OriginYardGear.BRUSH,bodyYaw,false)

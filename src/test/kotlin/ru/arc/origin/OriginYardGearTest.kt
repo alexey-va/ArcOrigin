@@ -100,7 +100,7 @@ internal object YardGearPreviewExport {
             val yawStates=listOf(0f,90f,270f).map { yaw ->
                 val grip=originYardGearCarryPose(OriginYardGear.BRUSH,yaw,false)
                 val p=OriginYardGearPose(Location(world,grip.center.x,grip.center.y,grip.center.z),grip.rotation)
-                state("brush-yaw-${yaw.toInt()}","Щётка · body yaw ${yaw.toInt()}°",export("BRUSH",originYardGearPieces(OriginYardGear.BRUSH),p),
+                state("brush-yaw-${yaw.toInt()}","Щётка · view yaw ${yaw.toInt()}°",export("BRUSH",originYardGearPieces(OriginYardGear.BRUSH),p),
                     camera(-1.8,1.62,-2.0,0.0,1.0,0.0))+mapOf("nativePlayer" to mapOf("yaw" to yaw,"x" to 0,"z" to 0))
             }
             val text=org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(
@@ -112,6 +112,27 @@ internal object YardGearPreviewExport {
             }
             val pickup=state("pickup-saddle","Седло — текущий предмет",rack.map { p -> if((p["key"] as String).startsWith("saddle-")) p+mapOf("highlight" to true) else p },camera(-1.35,1.62,-2.0))+
                 mapOf("guidance" to cue(OriginOddJobStage.YARD_TACK,slot(OriginYardGear.SADDLE)))
+            val readScales=listOf(2.0,4.0,6.0).map { distance ->
+                val scale=originYardGearDistanceScale(distance)
+                val brushPose=originYardRackPose(pose(.29,1.025,-.32),scale)
+                val bucketPose=originYardRackPose(pose(1.5,1.025,0.0),scale)
+                val support=export("shelves",listOf(box(0.0,.5,0.0,1f,1f,1f,Material.BARREL),
+                    box(1.5,.5,0.0,1f,1f,1f,Material.BARREL),box(0.0,1.5,0.0,1f,1f,1f,Material.LANTERN)))
+                state("distance-${distance.toInt()}","Предметы на полке · ${distance.toInt()} м · ×${"%.2f".format(java.util.Locale.ROOT,scale)}",
+                    support+export("brush",originYardGearPieces(OriginYardGear.BRUSH),brushPose)+export("bucket",originYardGearPieces(OriginYardGear.BUCKET),bucketPose),
+                    camera(.75,1.62,-distance,.75,1.35,0.0))+
+                    mapOf("guidance" to cue(OriginOddJobStage.YARD_BRUSH,brushPose))
+            }
+            val carryTurns=listOf(OriginYardGear.BUCKET,OriginYardGear.HAY).map { gear ->
+                val frames=(0..80).map { frame ->
+                    val yaw=(180.0+45.0*kotlin.math.sin(frame*Math.PI/40.0)).toFloat()
+                    val grip=originYardGearCarryPose(gear,yaw,false)
+                    mapOf("pieces" to export(gear.name,originYardGearPieces(gear),
+                        pose(grip.center.x,grip.center.y,grip.center.z).copy(rotation=grip.rotation)))
+                }
+                state("carry-turn-${gear.name.lowercase()}","${gear.title} · непрерывные позы поворота, 20 Гц",frames.first().getValue("pieces"),
+                    camera(-1.8,1.62,-2.0,0.0,1.05,0.0))+mapOf("frames" to frames,"frameMillis" to 50)
+            }
             val scene=mapOf("states" to listOf(
                 state("rack","Седло и повод на стойке",rack,camera(-1.35,1.62,-2.0)),
                 state("carry","Седло в руке — production carry pose",rest+carried,camera(-2.4,1.62,-3.0,-.4,1.1,-.6)),
@@ -122,7 +143,7 @@ internal object YardGearPreviewExport {
                 state("carry-down-bucket","Ведро: взгляд вниз 30°",carried(OriginYardGear.BUCKET),camera(-1.0,1.62,-1.2,-1.0,1.62-kotlin.math.sqrt(3.0),-4.2)),
                 state("carry-down-shovel","Лопата: взгляд вниз 30°",carried(OriginYardGear.SHOVEL),camera(-1.0,1.62,-1.2,-1.0,1.62-kotlin.math.sqrt(3.0),-4.2)),
                 state("brush-hand","Щётка — правая ладонь native player",carried(OriginYardGear.BRUSH),camera(-2.6,1.62,-2.9,-1.0,1.0,-1.2)),
-                state("empty-stand","Седло взято — опора остаётся",rest,camera(-1.35,1.62,-2.0)))+listOf(transfer,pickup)+yawStates)
+                state("empty-stand","Седло взято — опора остаётся",rest,camera(-1.35,1.62,-2.0)))+listOf(transfer,pickup)+yawStates+readScales+carryTurns)
             Files.createDirectories(output.parent)
             Files.writeString(output,GsonBuilder().setPrettyPrinting().create().toJson(scene))
         }

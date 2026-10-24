@@ -114,6 +114,7 @@ internal class OriginSideJobRewards(
     private val quests: OriginQuestProgress? = null,
 ) : AutoCloseable {
     val amount: Int get() = policy.rewardPerOrder
+    fun amountFor(variant: OriginOddJobVariant): Int = policy.amountFor(variant)
     private val codec = sideJobRewardCodec()
     private val updater = redis?.let { RedisHashUpdater(it, SIDE_JOB_REWARD_KEY, codec, 12) }
     private val tasks = LifecycleTaskScope(scheduler, true)
@@ -180,24 +181,30 @@ internal class OriginSideJobRewards(
 
     /** Only immutable, already-completed work enters this method; leaving must not cancel its write. */
     fun credit(kind: OriginSideJobKind, playerId: UUID, shiftId: UUID, requestId: UUID, quality: Int,
-        callback: (SideJobRewardResult) -> Unit) = credit(kind, playerId, shiftId, requestId, quality, true, callback)
+        callback: (SideJobRewardResult) -> Unit) = credit(kind, playerId, shiftId, requestId, quality, true, callback = callback)
 
-    /** Physical-action receipts share the same quota and journal, without advancing whole-order quests. */
+    fun creditMountyardOrder(variant: OriginOddJobVariant, playerId: UUID, shiftId: UUID, requestId: UUID, quality: Int,
+        callback: (SideJobRewardResult) -> Unit) {
+        require(variant.kind == OriginOddJobKind.MOUNTYARD) { "Mountyard order required" }
+        credit(OriginSideJobKind.MOUNTYARD, playerId, shiftId, requestId, quality, true, amountFor(variant), callback)
+    }
+
+    /** Legacy earned action receipts remain recoverable; new gameplay credits whole orders. */
     fun creditWorkUnit(kind: OriginSideJobKind, playerId: UUID, shiftId: UUID, requestId: UUID, quality: Int,
-        callback: (SideJobRewardResult) -> Unit) = credit(kind, playerId, shiftId, requestId, quality, false, callback)
+        callback: (SideJobRewardResult) -> Unit) = credit(kind, playerId, shiftId, requestId, quality, false, callback = callback)
 
     fun orderCompleted(kind: OriginSideJobKind, playerId: UUID, requestId: UUID) {
         quests?.orderCompleted(kind, playerId, requestId)
     }
 
     private fun credit(kind: OriginSideJobKind, playerId: UUID, shiftId: UUID, requestId: UUID, quality: Int,
-        reportsOrder: Boolean, callback: (SideJobRewardResult) -> Unit) {
+        reportsOrder: Boolean, rewardAmount: Int = amount, callback: (SideJobRewardResult) -> Unit) {
         require(quality in 0..100)
         val store = updater
         if (closed || store == null) { callback(SideJobRewardResult(SideJobRewardOutcome.UNAVAILABLE)); return }
         if (settlements.containsKey(playerId)) { callback(SideJobRewardResult(SideJobRewardOutcome.RETRY)); return }
         val failed = failedCredits[playerId]?.get(requestId)
-        val write = failed?.copy(done = CompletableFuture()) ?: CreditWrite(shiftId, kind, requestId, amount, quality,
+        val write = failed?.copy(done = CompletableFuture()) ?: CreditWrite(shiftId, kind, requestId, rewardAmount, quality,
             clock() / DAY_MILLIS, clock().coerceAtLeast(1), CompletableFuture(), reportsOrder)
         require(write.shiftId == shiftId && write.kind == kind && write.reportsOrder == reportsOrder)
         trackTerminal(write.done)

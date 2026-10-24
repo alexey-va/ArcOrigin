@@ -148,8 +148,7 @@ internal object OddJobsPreviewExport {
                 Frame("second-loose-wall", OriginOddJobStage.YARD_TIE_HORSE_SECOND, 1 shl first, second, clicks = 3),
                 Frame("second-loose-horse", OriginOddJobStage.YARD_TIE_HORSE_SECOND, 1 shl first, second, nearHorse = true, clicks = 3),
                 Frame("both-attached", OriginOddJobStage.YARD_GROOM, 3, clicks = 4),
-                Frame("choose-untie", OriginOddJobStage.YARD_UNTIE_FIRST, 3, clicks = 4),
-                Frame("one-left", OriginOddJobStage.YARD_UNTIE_SECOND, 1 shl first, clicks = 4),
+                Frame("place-saddle", OriginOddJobStage.YARD_SADDLE, 3, clicks = 4),
                 Frame("lead-away", OriginOddJobStage.YARD_DELIVER, 0, clicks = 4),
             )
             frames.map { frame ->
@@ -166,7 +165,8 @@ internal object OddJobsPreviewExport {
                 val pieces = if (frame.stage == OriginOddJobStage.YARD_DELIVER) emptyList() else anchors.flatMapIndexed { side, anchor ->
                     val center = local(anchor)
                     val normal = org.joml.Vector3f(if (side == 0) 1f else -1f, 0f, 0f)
-                    val cheek = org.joml.Vector3f(if (side == 0) -0.2f else 0.2f, 1.312f, -0.8f)
+                    val cheek = originYardTieCheek(org.bukkit.Location(null,pad.x,pad.y,pad.z,pad.yaw,0f),1.6,side).let {
+                        org.joml.Vector3f((it.x-pad.x).toFloat(),(it.y-pad.y).toFloat(),(it.z-pad.z).toFloat()) }
                     originYardRingPieces(side, center, normal) +
                         (when {
                             frame.pending == side -> originYardRopePieces(side, hand, center, slack = 0.22f) +
@@ -180,7 +180,7 @@ internal object OddJobsPreviewExport {
                     "pendingTieSide" to frame.pending, "wallTargets" to targets, "clicks" to frame.clicks,
                     "worker" to listOf(worker.x - pad.x, 0.0, worker.z - pad.z), "workerYaw" to worker.yaw,
                     "hand" to listOf(hand.x, hand.y, hand.z),
-                    "saddled" to (frame.stage in setOf(OriginOddJobStage.YARD_UNTIE_FIRST, OriginOddJobStage.YARD_UNTIE_SECOND, OriginOddJobStage.YARD_DELIVER)),
+                    "saddled" to (frame.stage == OriginOddJobStage.YARD_DELIVER),
                     "pieces" to pieces.map { piece -> mapOf("key" to piece.key, "material" to piece.material.name,
                         "center" to listOf(piece.center.x, piece.center.y, piece.center.z),
                         "size" to listOf(piece.size.x, piece.size.y, piece.size.z),
@@ -190,7 +190,7 @@ internal object OddJobsPreviewExport {
         val scene = mapOf("states" to states, "origin" to listOf(pad.x, pad.y, pad.z), "horseYaw" to pad.yaw,
             "supports" to anchors.mapIndexed { side, anchor -> mapOf("x" to (if (side == 0) 55 else 64), "y" to 71, "z" to -128,
                 "material" to "STONE_BRICKS", "anchor" to listOf(anchor.x, anchor.y, anchor.z)) },
-            "evidence" to "Production rope/ring geometry, right-hand endpoint and four-click state masks in both wall orders. Loose and attached poses share rope keys. Worker movement samples are a storyboard, not observed playback. Wall support cells were verified with read-only live probes. Horse silhouette is approximate context; native hand pose, interpolation, lighting and glow require player verification.")
+            "evidence" to "Production rope/ring geometry, calm-horse cheek endpoint, right-hand endpoint and four-click state masks in both wall orders. Ties release automatically when the native saddle is equipped. Loose and attached poses share rope keys. Worker movement samples are a storyboard, not observed playback. Horse silhouette is approximate context; native hand pose, interpolation, lighting and glow require player verification.")
         Files.writeString(output, GsonBuilder().setPrettyPrinting().create().toJson(scene))
     }
 

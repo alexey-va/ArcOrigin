@@ -98,25 +98,27 @@ internal class OriginWorkshopProp(
     }
 
     /** Moves all visible parts around the same center and rotation pivot. */
-    fun move(center: Location, rotation: Quaternionf) {
-        setPose(center, rotation, interpolationDuration = 2, teleportDuration = 1)
+    fun move(center: Location, rotation: Quaternionf, scale: Float = 1f) {
+        setPose(center, rotation, scale, interpolationDuration = 2, teleportDuration = 1)
     }
 
     /** Places the workpiece at a new manual target without animating across the intervening space. */
-    fun place(center: Location, rotation: Quaternionf) {
-        setPose(center, rotation, interpolationDuration = 0, teleportDuration = 0)
+    fun place(center: Location, rotation: Quaternionf, scale: Float = 1f) {
+        setPose(center, rotation, scale, interpolationDuration = 0, teleportDuration = 0)
     }
 
     private fun setPose(
         center: Location,
         rotation: Quaternionf,
+        scale: Float,
         interpolationDuration: Int,
         teleportDuration: Int,
     ) {
         check(!removed) { "workshop prop has been removed" }
+        require(scale.isFinite() && scale > 0f)
         carrier = null
         entityCarrier = null
-        currentScale = 1f
+        currentScale = scale
         passengerTranslation.zero()
         poseInterpolationDuration = interpolationDuration
         poseTeleportDuration = teleportDuration
@@ -127,9 +129,10 @@ internal class OriginWorkshopProp(
     }
 
     /** The client moves passengers with its player; only the local pose comes from server snapshots. */
-    fun carry(player: Player, pose: OriginWorkshopCarryPose) {
+    fun carry(player: Player, pose: OriginWorkshopCarryPose, interpolationTicks: Int = 1) {
         check(!removed) { "workshop prop has been removed" }
-        poseInterpolationDuration = if (carrier?.uniqueId == player.uniqueId) 1 else 0
+        require(interpolationTicks in 0..59)
+        poseInterpolationDuration = if (carrier?.uniqueId == player.uniqueId) interpolationTicks else 0
         poseTeleportDuration = 0
         carrier = player
         entityCarrier = null
