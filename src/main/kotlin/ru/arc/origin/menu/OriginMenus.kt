@@ -1,6 +1,7 @@
 package ru.arc.origin.menu
 
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
 import org.bukkit.plugin.Plugin
 import ru.arc.origin.OriginServices
@@ -32,7 +33,7 @@ internal object OriginMenus : AutoCloseable {
         val escapeGoesBack = OriginServices.dialogNavigation.escapeGoesBack(player.uniqueId)
         val closeButton = PaperDialogButton(
             id = PaperDialogActionId.of("close_menu"),
-            label = Component.translatable("gui.back"),
+            label = Component.translatable("mco.selectServer.close", NamedTextColor.WHITE),
             width = 200,
             closeDialogBeforeAction = true,
             onClick = {},
@@ -43,7 +44,7 @@ internal object OriginMenus : AutoCloseable {
             adjusted,
             reopen,
             onDismiss,
-            !escapeGoesBack,
+            screen.exitButton?.closeDialogBeforeAction ?: !escapeGoesBack,
         )
     }
 
@@ -59,10 +60,6 @@ internal fun applyEscapeBehavior(
     goesBack: Boolean,
     closeButton: PaperDialogButton,
 ): PaperDialogScreen {
-    if (goesBack) return screen
-    val regularExit = screen.exitButton?.let { it.copy(width = screen.buttons.firstOrNull()?.width ?: it.width) }
-    return screen.copy(
-        buttons = screen.buttons + listOfNotNull(regularExit),
-        exitButton = closeButton,
-    )
+    if (screen.exitButton != null || goesBack) return screen
+    return screen.copy(exitButton = closeButton)
 }
