@@ -22,7 +22,7 @@ Use JDK 25. Unit tests use the shared Paper test kit. Redis integration tests ru
 
 CI runs the pinned `arc-core` consumer verifier, unit and integration tests, deterministic packaging, and JAR ownership checks. A green push or manual CI run on `main` publishes the runtime JAR/POM and API JAR, sources JAR, POM, and Gradle module metadata to the RusCrafting Maven repository. The publisher checks all immutable coordinates before upload and verifies public readback. There is no GitHub Release step.
 
-For composite development, set `arcCoreDir` to a local `arc-core` checkout. CI resolves the immutable `2.7.22` release.
+For composite development, set `arcCoreDir` to a local `arc-core` checkout. CI resolves the immutable `2.7.69` release.
 
 ## Controlled NPC movement
 

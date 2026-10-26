@@ -22,6 +22,7 @@ import ru.arc.paper.api.ArcMetricsScope
 import ru.arc.paper.metrics.PaperArcMetrics
 import ru.arc.paper.redis.PaperRedisClient
 import ru.arc.paper.runtime.PaperPluginRuntime
+import ru.arc.paper.runtime.PaperPluginHotload
 import ru.arc.logging.ArcLogging
 import ru.arc.logging.LoggingConfigSource
 import ru.arc.logging.paper.PaperLoggingPlatform
@@ -59,6 +60,8 @@ open class ArcOriginPlugin : JavaPlugin() {
     private lateinit var nativeWork: BudgetedTaskQueue
     private var commandService: OriginCommandService? = null
     private val redisLeases = ConcurrentHashMap.newKeySet<PaperRedisClient>()
+    // Accessed only by this generation's FIFO storage worker.
+    private var redisRetirementFailure: Throwable? = null
     @Volatile private var runtime: PaperPluginRuntime? = null
     private var metrics: ArcMetricsScope? = null
     @Volatile private var moduleHealth = RuntimeHealthContribution(state = RuntimeHealthState.STARTING)
@@ -67,9 +70,16 @@ open class ArcOriginPlugin : JavaPlugin() {
         instance = this
     }
 
+    private val hotload = PaperPluginHotload(this) {
+        stopRuntime()
+        mapOf("cleanup" to pendingClose)
+    }
+
     override fun onEnable() {
         check(!lifecycleOpen) { "Plugin lifecycle is already open" }
         try {
+            hotload.beginGeneration()
+            hotload.register()
             check(pendingClose.isDone) { "Previous native cleanup is still pending" }
             pendingClose.getNow(Unit)
             lifecycleOpen = true
@@ -138,7 +148,7 @@ open class ArcOriginPlugin : JavaPlugin() {
         server.servicesManager.unregisterAll(this)
         commandService = null
         nativeWork.close()
-        ModuleRegistry.shutdownAll()
+        ModuleRegistry.shutdownAllChecked()
         OriginMenus.close()
         val token = workScope.restart()
         redisClient?.let(::retireRedis)
@@ -232,12 +242,28 @@ open class ArcOriginPlugin : JavaPlugin() {
     private fun retireRedis(client: PaperRedisClient) {
         val durable = OriginSideJobRewards.shutdownDrain()
         io.submit {
-            try { try { durable.join() } finally { client.close() } } finally { redisLeases.remove(client) }
+            try {
+                var failure = runCatching { durable.join() }.exceptionOrNull()
+                try { client.close() } catch (problem: Throwable) {
+                    if (failure == null) failure = problem else if (failure !== problem) failure.addSuppressed(problem)
+                }
+                failure?.let { throw it }
+            } catch (problem: Throwable) {
+                val previous = redisRetirementFailure
+                if (previous == null) redisRetirementFailure = problem
+                else if (previous !== problem) previous.addSuppressed(problem)
+                throw problem
+            } finally { redisLeases.remove(client) }
         }
         // A rejected retirement is owned by the terminal worker finalizer below.
     }
 
     override fun onDisable() {
+        hotload.prepare()
+        hotload.close()
+    }
+
+    private fun stopRuntime() {
         if (!lifecycleOpen) return
         lifecycleOpen = false
         val closing = runCatching { closeGeneration() }.getOrElse { CompletableFuture.failedFuture(it) }
@@ -289,6 +315,8 @@ open class ArcOriginPlugin : JavaPlugin() {
         val retiringRuntime = runtime
         runtime = null
         detach { retiringRuntime?.close() }
+        detach { hotload.retireGameplayRegistrations() }
+        detach { ru.arc.logging.ArcLogging.close() }
         nativeDetachFailed = nativeFailure != null
         val durable = OriginSideJobRewards.shutdownDrain()
         val terminal = closeStorage(durable)
@@ -304,16 +332,23 @@ open class ArcOriginPlugin : JavaPlugin() {
     }
 
     /** Small lifecycle seam for exercising a throwing module detach with the real shutdown ordering. */
-    protected open fun detachModules() { ModuleRegistry.shutdownAll() }
+    protected open fun detachModules() { ModuleRegistry.shutdownAllChecked() }
 
     protected open fun closeStorage(durable: CompletableFuture<Void>): CompletableFuture<Unit> =
-        if (::io.isInitialized) io.closeAsync { closeOriginStorage(durable, redisLeases) }
+        if (::io.isInitialized) io.closeAsync { closeOriginStorage(durable, redisLeases, redisRetirementFailure) }
         else durable.thenApply { Unit }
 }
 
 /** Worker-only; a failed receipt or lease must not prevent the remaining retained clients from closing. */
-internal fun closeOriginStorage(durable: CompletableFuture<Void>, leases: MutableSet<out AutoCloseable>) {
-    var failure: Throwable? = runCatching { durable.join() }.exceptionOrNull()
+internal fun closeOriginStorage(
+    durable: CompletableFuture<Void>,
+    leases: MutableSet<out AutoCloseable>,
+    retirementFailure: Throwable? = null,
+) {
+    var failure: Throwable? = retirementFailure
+    runCatching { durable.join() }.exceptionOrNull()?.let { problem ->
+        if (failure == null) failure = problem else if (failure !== problem) failure.addSuppressed(problem)
+    }
     val pending = leases.iterator()
     while (pending.hasNext()) {
         val resource = pending.next()

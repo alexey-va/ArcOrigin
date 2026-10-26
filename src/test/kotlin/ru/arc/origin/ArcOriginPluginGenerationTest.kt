@@ -1,6 +1,7 @@
 package ru.arc.origin
 
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
@@ -15,6 +16,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 import ru.arc.core.BoundedAsyncExecutor
 
 class ArcOriginPluginGenerationTest : FunSpec({
+    test("a prior Redis retirement failure still fails terminal cleanup after other leases close") {
+        val previous = IllegalStateException("retired Redis release failed")
+        var closed = 0
+        val leases = linkedSetOf<AutoCloseable>(AutoCloseable { closed++ })
+        shouldThrow<IllegalStateException> {
+            closeOriginStorage(CompletableFuture.completedFuture(null), leases, previous)
+        } shouldBe previous
+        closed shouldBe 1
+        leases.isEmpty() shouldBe true
+    }
+
     test("startup is direct and disable finishes IO before the next startup") {
         MockBukkitTestRuntime.open().use { paper ->
             val plugin = paper.loadSimplePlugin(ControlledArcOriginPlugin::class.java)
