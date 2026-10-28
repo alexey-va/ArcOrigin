@@ -896,9 +896,9 @@ internal class OriginPortalTransferTracker(
 }
 
 internal fun shouldBypassOriginPortal(
-    @Suppress("UNUSED_PARAMETER") id: OriginPortalId,
+    id: OriginPortalId,
     hasBypassPermission: Boolean,
-): Boolean = hasBypassPermission
+): Boolean = hasBypassPermission && id != OriginPortalId.SLIMEFUN
 
 internal fun matchesPortalCommand(message: String, configuredCommand: String): Boolean =
     message.trim().removePrefix("/").equals(configuredCommand.trim().removePrefix("/"), ignoreCase = true)

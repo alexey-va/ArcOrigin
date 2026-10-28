@@ -650,9 +650,9 @@ class OriginPortalsModuleTest : FreeSpec({
         }
     }
 
-    "Origin portal bypass covers every configured portal and command" {
+    "Origin portal bypass preserves world portal control while Slimefun remains enterable" {
         OriginPortalId.entries.forEach { id ->
-            shouldBypassOriginPortal(id, hasBypassPermission = true).shouldBeTrue()
+            shouldBypassOriginPortal(id, hasBypassPermission = true) shouldBe (id != OriginPortalId.SLIMEFUN)
             shouldBypassOriginPortal(id, hasBypassPermission = false).shouldBeFalse()
         }
 
