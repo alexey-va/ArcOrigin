@@ -178,6 +178,15 @@ tasks.assemble {
     dependsOn(tasks.shadowJar)
 }
 
+tasks.register<JavaExec>("exportSlimefunWorkshopPreview") {
+    group = "verification"
+    description = "Exports the Slimefun machines' production geometry and sampled motion without a server."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("ru.arc.origin.SlimefunWorkshopPreviewExport")
+    args(providers.gradleProperty("slimefunPreviewOutput").orElse(layout.buildDirectory.file("slimefun-preview/scene.json").map { it.asFile.absolutePath }).get())
+}
+
 publishing {
     repositories {
         maven {

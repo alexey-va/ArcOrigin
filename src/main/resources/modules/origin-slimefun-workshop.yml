@@ -1,0 +1,36 @@
+origin-slimefun-workshop:
+  # Spawn-owned decorative stations; no Slimefun recipe, reward or inventory mutation.
+  enabled: true
+  world: rc_origin_spawn
+  audience-range: 28.0
+  timing:
+    load-ticks: 70
+    clamp-ticks: 30
+    process-ticks: 150
+    terminals-ticks: 40
+    inspect-ticks: 60
+    unload-ticks: 70
+    deposit-ticks: 40
+    reset-ticks: 40
+  station-ids: [press, winder]
+  stations:
+    press:
+      machine: PRESS
+      npc-id: 462
+      x: -10.5
+      floor-y: 71.0
+      z: -45.5
+      yaw: 0.0
+      scale: 1.0
+      operator: {x: -0.65, y: 0.0, z: -1.45}
+      initial-delay-ticks: 20
+    winder:
+      machine: WINDER
+      npc-id: 463
+      x: -10.5
+      floor-y: 71.0
+      z: -59.5
+      yaw: 180.0
+      scale: 1.0
+      operator: {x: -0.65, y: 0.0, z: -1.45}
+      initial-delay-ticks: 170

@@ -11,7 +11,7 @@ import java.util.Locale
 
 /** `/arc originportals move <portal>` is administrative; the explicit enter action is public. */
 object OriginPortalsSubCommand : OriginCommandHandler {
-    const val USAGE = "/arc originportals <enter slimefun|move <survival|mining|vanilla|gallery_exit|slimefun|furniture_entry>>"
+    const val USAGE = "/arc originportals <enter slimefun|move <survival|mining|vanilla|gallery_exit|slimefun|furniture_entry|adventure_guild|casino|farm|mine|lumbermill>>"
 
     override fun execute(sender: CommandSender, args: Array<String>): Boolean {
         val player = sender as? Player ?: run {

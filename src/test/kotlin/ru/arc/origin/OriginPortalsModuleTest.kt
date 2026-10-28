@@ -9,10 +9,12 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
+import io.mockk.verify
 import net.kyori.adventure.text.Component
 import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.entity.Player
+import org.bukkit.event.player.PlayerCommandPreprocessEvent
 import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import ru.arc.config.ConfigManager
@@ -42,7 +44,7 @@ class OriginPortalsModuleTest : FreeSpec({
                 it.entryHeight shouldBe 7.0
                 it.entryDepth shouldBe 0.65
             }
-            config.anchors.filterNot { it.id.central }.forEach {
+            config.anchors.filter { !it.id.central && !it.id.compactService }.forEach {
                 it.entryWidth shouldBe it.width
                 it.entryHeight shouldBe it.height
             }
@@ -146,6 +148,31 @@ class OriginPortalsModuleTest : FreeSpec({
             config.gateSettings(furnitureEntry).radius shouldBe 1.25
             config.gateSettings(furnitureEntry).suctionHeight shouldBe 4.2
             OriginPortalsSubCommand.USAGE.contains("furniture_entry").shouldBeTrue()
+            val compact = config.anchors.filter { it.id.compactService }
+            compact.map { it.command } shouldContainExactly listOf(
+                "ag", "rccasino", "arcfarms travel farm", "arcfarms travel mine", "arcfarms travel lumber",
+            )
+            compact.forEach { portal ->
+                portal.enabled.shouldBeTrue()
+                portal.id.feetAnchored.shouldBeTrue()
+                portal.width shouldBe 3.0
+                portal.height shouldBe 4.2
+                portal.entryWidth shouldBe 1.8
+                portal.entryHeight shouldBe 3.4
+                portal.entryDepth shouldBe 0.45
+                portal.particlesEnabled.shouldBeFalse()
+                portal.pulseAmplitude shouldBe 0f
+                val world = mockk<World>()
+                everyWorldName(world, portal.worldName)
+                val center = originPortalDisplayCenter(portal, world)
+                (kotlin.math.abs(center.y - portal.height / 2.0 +
+                    portal.height * portal.visibleBottomInsetRatio - portal.y) < 1e-9).shouldBeTrue()
+                portal.contains(Location(world, portal.x, portal.y, portal.z)).shouldBeTrue()
+                portal.contains(Location(world, portal.x, portal.y - 0.01, portal.z)).shouldBeFalse()
+                portal.contains(Location(world, portal.x, portal.y + 3.41, portal.z)).shouldBeFalse()
+                portal.labelLocations(world).size shouldBe 2
+                originPortalMoveYaw(portal.id, 170f) shouldBe -10f
+            }
         } finally {
             directory.toFile().deleteRecursively()
         }
@@ -637,6 +664,38 @@ class OriginPortalsModuleTest : FreeSpec({
             "/arc rtp mining --only-if-first",
             "arc rtp survival --only-if-first",
         ).shouldBeFalse()
+    }
+
+    "explicit Slimefun entry stays available to bypassed admins without dispatching twice" {
+        val directory = Files.createTempDirectory("arc-origin-portals-explicit-entry")
+        val player = mockk<Player>()
+        try {
+            OriginPortalsConfig.load(directory)
+            val source = ConfigManager.ofModule(directory, "origin-spawn.yml")
+            source.setBoolean("origin-portals.anchors.slimefun.enabled", true)
+            val config = OriginPortalsConfig.load(directory)
+            val slimefun = config.anchors.first { it.id == OriginPortalId.SLIMEFUN }
+            val world = mockk<World>()
+            everyWorldName(world, slimefun.worldName)
+            every { player.location } returns slimefun.center(world)
+
+            for (bypass in listOf(true, false)) {
+                every { player.hasPermission("arc.origin.portals.bypass") } returns bypass
+                val event = PlayerCommandPreprocessEvent(player, "/ARC originportals enter SLIMEFUN", mutableSetOf())
+                OriginPortalsModule.handlePortalCommand(event, config)
+                event.isCancelled.shouldBeFalse()
+            }
+            verify(exactly = 0) { player.performCommand(any()) }
+
+            every { player.hasPermission("arc.origin.portals.bypass") } returns true
+            val survival = config.anchors.first { it.id == OriginPortalId.SURVIVAL }
+            every { player.location } returns survival.center(world)
+            val automaticCommand = PlayerCommandPreprocessEvent(player, "/${survival.command}", mutableSetOf())
+            OriginPortalsModule.handlePortalCommand(automaticCommand, config)
+            automaticCommand.isCancelled.shouldBeTrue()
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
     }
 
     "public Slimefun entry is narrowly permission-bypassed and transfers are cooldown fenced" {

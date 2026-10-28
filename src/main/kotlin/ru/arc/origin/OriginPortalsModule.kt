@@ -48,20 +48,21 @@ internal enum class OriginPortalId(
     val defaultYaw: Float,
     val defaultWidth: Double,
     val defaultHeight: Double,
+    val compactService: Boolean = false,
     val defaultEnabled: Boolean = true,
     val destinationServer: String? = null,
-    val defaultParticleRadius: Double? = null,
-    val defaultParticleHeight: Double? = null,
-    val defaultPulseAmplitude: Double? = null,
-    val defaultParticlesEnabled: Boolean? = null,
+    val defaultParticleRadius: Double? = if (compactService) 1.25 else null,
+    val defaultParticleHeight: Double? = if (compactService) defaultHeight else null,
+    val defaultPulseAmplitude: Double? = if (compactService) 0.0 else null,
+    val defaultParticlesEnabled: Boolean? = if (compactService) false else null,
     val maxParticleRadius: Double = 8.0,
     val maxParticleHeight: Double = 16.0,
     val maxTransferDistance: Double = 8.0,
-    val liftDisplayByConfiguredOffset: Boolean = false,
-    val defaultVerticalOffset: Double? = null,
-    val feetAnchored: Boolean = false,
+    val liftDisplayByConfiguredOffset: Boolean = compactService,
+    val defaultVerticalOffset: Double? = if (compactService) defaultHeight / 2.0 else null,
+    val feetAnchored: Boolean = compactService,
     // Fraction of the scaled model height that is transparent below its visible alpha bounds.
-    val defaultVisibleBottomInsetRatio: Double = 0.0,
+    val defaultVisibleBottomInsetRatio: Double = if (compactService) 10.0 / 116.0 else 0.0,
 ) {
     SURVIVAL(
         key = "survival",
@@ -170,10 +171,45 @@ internal enum class OriginPortalId(
         // Across all 12 frames the visible alpha reaches y=106 of the 116px crop.
         defaultVisibleBottomInsetRatio = 10.0 / 116.0,
     ),
+    ADVENTURE_GUILD(
+        key = "adventure_guild", central = false, compactService = true,
+        defaultWorld = "rc_origin_spawn", defaultStyle = OriginPortalStyle.ORIGIN,
+        defaultCommand = "ag", defaultLabel = "Гильдия приключений",
+        defaultX = 32.5, defaultY = 67.0, defaultZ = 24.5, defaultYaw = -90f,
+        defaultWidth = 3.0, defaultHeight = 4.2,
+    ),
+    CASINO(
+        key = "casino", central = false, compactService = true,
+        defaultWorld = "rc_origin_spawn", defaultStyle = OriginPortalStyle.ORIGIN,
+        defaultCommand = "rccasino", defaultLabel = "Казино",
+        defaultX = -35.0, defaultY = 68.0, defaultZ = 33.5, defaultYaw = 90f,
+        defaultWidth = 3.0, defaultHeight = 4.2,
+    ),
+    FARM(
+        key = "farm", central = false, compactService = true,
+        defaultWorld = "rc_origin_spawn", defaultStyle = OriginPortalStyle.ORIGIN,
+        defaultCommand = "arcfarms travel farm", defaultLabel = "Ферма",
+        defaultX = 47.5, defaultY = 71.0, defaultZ = 10.5, defaultYaw = 0f,
+        defaultWidth = 3.0, defaultHeight = 4.2,
+    ),
+    MINE(
+        key = "mine", central = false, compactService = true,
+        defaultWorld = "rc_origin_spawn", defaultStyle = OriginPortalStyle.ORIGIN,
+        defaultCommand = "arcfarms travel mine", defaultLabel = "Шахта",
+        defaultX = 57.5, defaultY = 71.0, defaultZ = 10.5, defaultYaw = 0f,
+        defaultWidth = 3.0, defaultHeight = 4.2,
+    ),
+    LUMBERMILL(
+        key = "lumbermill", central = false, compactService = true,
+        defaultWorld = "rc_origin_spawn", defaultStyle = OriginPortalStyle.ORIGIN,
+        defaultCommand = "arcfarms travel lumber", defaultLabel = "Лесопилка · закрытая бета\nДоступ участникам теста",
+        defaultX = 67.5, defaultY = 71.0, defaultZ = 10.5, defaultYaw = 0f,
+        defaultWidth = 3.0, defaultHeight = 4.2,
+    ),
     ;
 
     val usesFixedTwoSidedLabels: Boolean
-        get() = central || this == FURNITURE_ENTRY
+        get() = central || feetAnchored
 
     companion object {
         fun parse(raw: String?): OriginPortalId? =
@@ -422,13 +458,18 @@ internal class OriginPortalsConfig private constructor(
                 yaw = source.real("$path.yaw", id.defaultYaw.toDouble()).finite(id.defaultYaw.toDouble()).toFloat(),
                 width = width,
                 height = height,
-                entryDepth = entryDimension(source, "$path.entry.depth", if (id.central) 0.65 else legacyEntryDepth, 0.1..6.0),
+                entryDepth = entryDimension(source, "$path.entry.depth", when {
+                    id.compactService -> 0.45
+                    id.central -> 0.65
+                    else -> legacyEntryDepth
+                }, 0.1..6.0),
                 command = source.string("$path.command", id.defaultCommand).trim().ifEmpty { id.defaultCommand },
                 label = source.string("$path.hologram.text", source.string("$path.label", id.defaultLabel)).trim(),
                 verticalOffset = source.real("$path.vertical-offset", defaultVerticalOffset).finite(defaultVerticalOffset).coerceIn(0.5, 12.0),
-                labelFrontDistance = source.real("$path.hologram.front-distance", 0.0).finite(0.0).coerceIn(-20.0, 20.0),
+                labelFrontDistance = source.real("$path.hologram.front-distance", if (id.compactService) 0.65 else 0.0)
+                    .finite(0.0).coerceIn(-20.0, 20.0),
                 labelSideOffset = source.real("$path.hologram.side-offset", 0.0).finite(0.0).coerceIn(-20.0, 20.0),
-                labelHeightOffset = source.real("$path.hologram.height-offset", if (id.central) -0.5 else 0.75)
+                labelHeightOffset = source.real("$path.hologram.height-offset", if (id.compactService) 2.35 else if (id.central) -0.5 else 0.75)
                     .finite(if (id.central) -0.5 else 0.75).coerceIn(-20.0, 20.0),
                 labelScale = source.real("$path.hologram.scale", if (id.central) 6.0 else 0.9)
                     .finite(if (id.central) 6.0 else 0.9).toFloat().coerceIn(0.1f, 8.0f),
@@ -450,8 +491,8 @@ internal class OriginPortalsConfig private constructor(
                     "$path.visible-bottom-inset-ratio",
                     id.defaultVisibleBottomInsetRatio,
                 ).finite(id.defaultVisibleBottomInsetRatio).coerceIn(0.0, 0.5),
-                entryWidth = entryDimension(source, "$path.entry.width", if (id.central) 4.0 else width, 0.1..12.0),
-                entryHeight = entryDimension(source, "$path.entry.height", if (id.central) 7.0 else height, 0.1..20.0),
+                entryWidth = entryDimension(source, "$path.entry.width", if (id.compactService) 1.8 else if (id.central) 4.0 else width, 0.1..12.0),
+                entryHeight = entryDimension(source, "$path.entry.height", if (id.compactService) 3.4 else if (id.central) 7.0 else height, 0.1..20.0),
             )
         }
 
@@ -601,7 +642,7 @@ internal fun originPortalDisplayCenter(anchor: OriginPortalAnchor, world: org.bu
     }
 
 internal fun originPortalMoveYaw(id: OriginPortalId, playerYaw: Float): Float {
-    if (id != OriginPortalId.FURNITURE_ENTRY || !playerYaw.isFinite()) return playerYaw
+    if (!id.feetAnchored || !playerYaw.isFinite()) return playerYaw
     var yaw = (playerYaw + 180f) % 360f
     if (yaw < -180f) yaw += 360f
     if (yaw > 180f) yaw -= 360f
@@ -682,13 +723,18 @@ object OriginPortalsModule : PluginModule, Listener {
     }
 
     /**
-     * CMI and other command-based portal integrations can dispatch the same route independently
-     * of [onMove]. Keep the administrator bypass authoritative at the command boundary as well.
+     * CMI and other command-based portal integrations can dispatch automatic routes independently
+     * of [onMove]. Keep their administrator bypass while allowing an explicit Slimefun entry.
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onPortalCommand(event: PlayerCommandPreprocessEvent) {
+        handlePortalCommand(event, config)
+    }
+
+    internal fun handlePortalCommand(event: PlayerCommandPreprocessEvent, settings: OriginPortalsConfig?) {
         if (!event.player.hasPermission(BYPASS_PERMISSION)) return
-        val current = config?.takeIf { it.enabled }?.anchors?.nearestContaining(event.player.location) ?: return
+        if (matchesPortalCommand(event.message, OriginPortalId.SLIMEFUN.defaultCommand)) return
+        val current = settings?.takeIf { it.enabled }?.anchors?.nearestContaining(event.player.location) ?: return
         if (!shouldBypassOriginPortal(current.id, hasBypassPermission = true)) return
         if (matchesPortalCommand(event.message, current.command)) event.isCancelled = true
     }
