@@ -1,6 +1,7 @@
 package ru.arc.origin
 
 import net.citizensnpcs.api.CitizensAPI
+import net.citizensnpcs.api.event.CitizensEnableEvent
 import net.citizensnpcs.api.npc.NPC
 import net.citizensnpcs.trait.LookClose
 import net.citizensnpcs.api.trait.trait.Equipment as CitizensEquipment
@@ -12,6 +13,9 @@ import org.bukkit.Sound
 import org.bukkit.World
 import org.bukkit.entity.Display
 import org.bukkit.entity.LivingEntity
+import org.bukkit.event.EventHandler
+import org.bukkit.event.HandlerList
+import org.bukkit.event.Listener
 import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
 import org.joml.Quaternionf
@@ -110,14 +114,18 @@ internal data class SlimefunWorkshopSettings(
 }
 
 /** Sole runtime owner of the two decorative Slimefun production stations. */
-internal object OriginSlimefunWorkshopModule : PluginModule {
+internal object OriginSlimefunWorkshopModule : PluginModule, Listener {
     override val name = "OriginSlimefunWorkshop"
     override val priority = 28
     private var runtime: SlimefunWorkshopRuntime? = null
+    private var startupTasks: LifecycleTaskScope? = null
+    private var pendingSettings: SlimefunWorkshopSettings? = null
+    private var listenerRegistered = false
 
     override fun init() = reload()
 
     override fun reload() {
+        finishPendingStartup()
         val settings = try {
             SlimefunWorkshopSettings.load(ArcOriginPlugin.instance.legacyDataPath)
         } catch (failure: Exception) {
@@ -128,6 +136,25 @@ internal object OriginSlimefunWorkshopModule : PluginModule {
             shutdown()
             return
         }
+        registerCitizensListenerIfReady()
+        if (!citizensRegistryContainsActors(settings)) {
+            deferUntilCitizensReady(settings)
+            return
+        }
+        prepareAndStart(settings)
+    }
+
+    @EventHandler
+    fun onCitizensEnable(event: CitizensEnableEvent) {
+        val settings = pendingSettings ?: return
+        finishPendingStartup()
+        // The event follows Citizens' save load: a missing configured NPC is now a real error.
+        if (prepareAndStart(settings)) {
+            ArcOriginPlugin.instance.logger.info("ORIGIN_SLIMEFUN_WORKSHOP phase=STARTED source=citizens-enable-event")
+        }
+    }
+
+    private fun prepareAndStart(settings: SlimefunWorkshopSettings): Boolean {
         val replacement = try {
             check(Bukkit.getPluginManager().isPluginEnabled("Citizens")) { "Citizens is unavailable" }
             val world = requireNotNull(Bukkit.getWorld(settings.world)) { "World '${settings.world}' is unavailable" }
@@ -139,7 +166,7 @@ internal object OriginSlimefunWorkshopModule : PluginModule {
             SlimefunWorkshopRuntime(settings, world, actors)
         } catch (failure: Exception) {
             ArcOriginPlugin.instance.logger.log(Level.WARNING, "ORIGIN_SLIMEFUN_WORKSHOP phase=PREPARE_FAILED previous_runtime=retained", failure)
-            return
+            return false
         }
         runtime?.close()
         runtime = replacement
@@ -150,11 +177,60 @@ internal object OriginSlimefunWorkshopModule : PluginModule {
             runtime = null
             ArcOriginPlugin.instance.logger.log(Level.WARNING, "ORIGIN_SLIMEFUN_WORKSHOP phase=START_FAILED cleanup=complete", failure)
         }
+        return runtime === replacement
+    }
+
+    private fun citizensRegistryContainsActors(settings: SlimefunWorkshopSettings): Boolean {
+        if (!Bukkit.getPluginManager().isPluginEnabled("Citizens") || !CitizensAPI.hasImplementation()) return false
+        val registry = CitizensAPI.getNPCRegistry()
+        return settings.stations.all { registry.getById(it.npcId) != null }
+    }
+
+    private fun deferUntilCitizensReady(settings: SlimefunWorkshopSettings) {
+        pendingSettings = settings
+        var checks = 0
+        startupTasks = LifecycleTaskScope().also { tasks ->
+            ArcOriginPlugin.instance.logger.info(
+                "ORIGIN_SLIMEFUN_WORKSHOP phase=WAITING_FOR_CITIZENS check_interval_ticks=20 max_checks=30",
+            )
+            tasks.runTimer(1L, 20L) {
+                if (pendingSettings !== settings) return@runTimer
+                registerCitizensListenerIfReady()
+                checks++
+                if (citizensRegistryContainsActors(settings) || checks >= 30) {
+                    finishPendingStartup()
+                    // A missed event still starts ready actors; timeout reports the exact missing dependency.
+                    if (prepareAndStart(settings)) {
+                        ArcOriginPlugin.instance.logger.info(
+                            "ORIGIN_SLIMEFUN_WORKSHOP phase=STARTED source=registry-readiness-check checks=$checks",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun registerCitizensListenerIfReady() {
+        if (listenerRegistered || !Bukkit.getPluginManager().isPluginEnabled("Citizens")) return
+        Bukkit.getPluginManager().registerEvents(this, ArcOriginPlugin.instance)
+        listenerRegistered = true
+    }
+
+    private fun finishPendingStartup() {
+        startupTasks?.close()
+        startupTasks = null
+        pendingSettings = null
     }
 
     override fun shutdown() {
-        runtime?.close()
-        runtime = null
+        finishPendingStartup()
+        if (listenerRegistered) HandlerList.unregisterAll(this)
+        listenerRegistered = false
+        try {
+            runtime?.close()
+        } finally {
+            runtime = null
+        }
     }
 }
 
