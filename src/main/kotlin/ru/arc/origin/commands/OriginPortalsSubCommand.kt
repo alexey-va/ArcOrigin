@@ -21,20 +21,20 @@ object OriginPortalsSubCommand : OriginCommandHandler {
         if (args.size == 2 && args[0].equals("enter", ignoreCase = true)) {
             val id = OriginPortalId.parse(args[1])
             if (id != OriginPortalId.SLIMEFUN) {
-                sender.sendMessage(TextUtils.mm("<white></white> <red>Доступен только вход в портал Slimefun."))
+                sender.sendMessage(TextUtils.mm("<white></white> <red>Доступен только вход в портал Слаймфан."))
                 return true
             }
             val result = OriginPortalsModule.enter(id, player)
             when (result) {
                 OriginPortalEnterResult.REQUESTED -> Unit
                 OriginPortalEnterResult.PORTAL_DISABLED -> sender.sendMessage(
-                    TextUtils.mm("<white></white> <red>Портал Slimefun пока закрыт."),
+                    TextUtils.mm("<white></white> <red>Портал Слаймфан пока закрыт."),
                 )
                 OriginPortalEnterResult.WRONG_WORLD -> sender.sendMessage(
-                    TextUtils.mm("<white></white> <red>Войти в Slimefun можно только из зала Origin."),
+                    TextUtils.mm("<white></white> <red>Войти в Слаймфан можно только из зала Origin."),
                 )
                 OriginPortalEnterResult.TOO_FAR -> sender.sendMessage(
-                    TextUtils.mm("<white></white> <red>Подойдите ближе к порталу Slimefun."),
+                    TextUtils.mm("<white></white> <red>Подойдите ближе к порталу Слаймфан."),
                 )
                 OriginPortalEnterResult.ALREADY_PENDING -> sender.sendMessage(
                     TextUtils.mm("<white></white> <yellow>Запрос перехода уже выполняется."),

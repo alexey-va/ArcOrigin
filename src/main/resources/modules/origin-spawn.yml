@@ -181,7 +181,7 @@ origin-portals:
       style: origin
       vertical-offset: 1.4
       hologram:
-        text: Сервер Slimefun
+        text: Сервер Слаймфан
         front-distance: 0.65
         side-offset: 0.0
         height-offset: 1.8

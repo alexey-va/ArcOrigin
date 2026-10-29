@@ -19,7 +19,7 @@ origin-slimefun-workshop:
       npc-id: 462
       x: -10.5
       floor-y: 71.0
-      z: -45.5
+      z: -43.55
       yaw: 0.0
       scale: 1.0
       operator: {x: -0.65, y: 0.0, z: -1.45}
@@ -29,7 +29,7 @@ origin-slimefun-workshop:
       npc-id: 463
       x: -10.5
       floor-y: 71.0
-      z: -59.5
+      z: -60.65
       yaw: 180.0
       scale: 1.0
       operator: {x: -0.65, y: 0.0, z: -1.45}

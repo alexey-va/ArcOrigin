@@ -27,6 +27,7 @@ class OriginSlimefunWorkshopConfigTest : FreeSpec({
             val before = SlimefunWorkshopSettings.load(path)
             before.enabled shouldBe true
             before.stations.map { it.npcId } shouldBe listOf(462, 463)
+            before.stations.map { it.z } shouldBe listOf(-43.55, -60.65)
             Files.writeString(file, source.replace("load-ticks: 70", "load-ticks: 90").replace("x: -10.5", "x: -11.5"))
             ConfigManager.reloadAll()
             val after = SlimefunWorkshopSettings.load(path)

@@ -192,6 +192,7 @@ open class ArcOriginPlugin : JavaPlugin() {
         ModuleRegistry.registerAll(
             OriginSpawnModule, OriginPortalsModule, OriginWorkshopTablesModule, OriginDiningModule,
             OriginAmbientScenesModule, OriginFurnitureWorkshopModule, OriginWorkshopGame, OriginSlimefunWorkshopModule,
+            OriginSlimefunTerminalModule,
             OriginTrainingDummyModule, OriginMountYardModule, OriginOddJobsModule,
         )
         ModuleRegistry.initAll()
@@ -232,6 +233,7 @@ open class ArcOriginPlugin : JavaPlugin() {
             "modules/origin-workshop-tables.yml",
             "modules/origin-furniture-workshop.yml",
             "modules/origin-slimefun-workshop.yml",
+            "modules/origin-slimefun-terminal.yml",
         )
         resources.forEach { resource ->
             ConfigManager.of(legacyDataPath, resource).mergeMissingFromBundled(resource)

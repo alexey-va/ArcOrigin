@@ -1,0 +1,17 @@
+origin-slimefun-terminal:
+  world: rc_origin_spawn
+  x: -17.25
+  floor-y: 72.0
+  z: -50.1
+  yaw: 90.0
+  audience-range: 28.0
+  interaction-distance: 3.5
+  text:
+    screen: '<#B7FF8A>СЛАЙМФАН</#B7FF8A>\n<white>ПКМ</white>'
+    title: '<#FFB277>Слаймфан · острова</#FFB277>'
+    introduction: 'Отдельный мир, где всё начинается со своего острова.'
+    island: 'Развивайте остров, собирайте материалы и изучайте технологии Слаймфан.'
+    technology: 'Превращайте простые ресурсы в детали и собирайте из них новые устройства.'
+    transition: 'Портал перенесёт вас на сервер Слаймфан.'
+    enter: '<#B7FF8A>Войти в Слаймфан</#B7FF8A>'
+    unavailable: '<#FFB277>Подойдите к пульту, чтобы открыть портал.</#FFB277>'

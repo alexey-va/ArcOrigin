@@ -126,7 +126,7 @@ internal enum class OriginPortalId(
         defaultWorld = "rc_origin_spawn",
         defaultStyle = OriginPortalStyle.ORIGIN,
         defaultCommand = "arc originportals enter slimefun",
-        defaultLabel = "Slimefun",
+        defaultLabel = "Слаймфан",
         // Disabled by default; the anchor is the floor-level entry point.
         defaultX = -17.5,
         defaultY = 72.0,
@@ -826,7 +826,7 @@ object OriginPortalsModule : PluginModule, Listener {
             transfers.finish(player.uniqueId, attempt.token)
             return OriginPortalEnterResult.TRANSFER_UNAVAILABLE
         }
-        player.sendMessage(TextUtils.mm("<white></white> <green>Запрос на переход на сервер <white>Slimefun<green> отправлен. Проверяю соединение…"))
+        player.sendMessage(TextUtils.mm("<white></white> <green>Запрос на переход на сервер <white>Слаймфан<green> отправлен. Проверяю соединение…"))
         transferTasks.runLater(TRANSFER_TIMEOUT_TICKS) {
             if (!transfers.finish(player.uniqueId, attempt.token)) return@runLater
             val currentPlayer = Bukkit.getPlayer(player.uniqueId) ?: return@runLater

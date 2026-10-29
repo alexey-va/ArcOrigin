@@ -3,6 +3,8 @@ package ru.arc.origin
 import io.kotest.core.spec.style.FreeSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.doubles.plusOrMinus
+import org.joml.Quaterniond
+import org.joml.Vector3d
 import kotlin.math.abs
 
 class OriginSlimefunWorkshopGeometryTest : FreeSpec({
@@ -29,7 +31,9 @@ class OriginSlimefunWorkshopGeometryTest : FreeSpec({
             .parts.associateBy { it.key }
         val carrier = winding.getValue("product-carrier")
         val core = winding.getValue("product-core")
-        (carrier.z - carrier.depth / 2 > core.z + .30) shouldBe true
+        val rotatingBottom = winding.values.filter { it.key.startsWith("product-") && it.key != "product-carrier" &&
+            !it.key.startsWith("product-terminal-") }.minOf { slimefunBounds(it).first.y }
+        (carrier.y + carrier.height / 2 < rotatingBottom) shouldBe true
         (abs(core.rotationX) > 1) shouldBe true
         val assembled = slimefunWorkshopFrame(SlimefunWorkshopMachine.WINDER,
             timing.start(SlimefunWorkshopPhase.INSPECT).toDouble(), timing).parts.associateBy { it.key }
@@ -37,7 +41,7 @@ class OriginSlimefunWorkshopGeometryTest : FreeSpec({
         assembled.getValue("product-carrier").z shouldBe (assembled.getValue("product-core").z plusOrMinus 1e-9)
         val lowered = slimefunWorkshopFrame(SlimefunWorkshopMachine.WINDER,
             timing.start(SlimefunWorkshopPhase.UNLOAD).toDouble(), timing).parts.associateBy { it.key }
-        lowered.getValue("product-core").y shouldBe (1.31 plusOrMinus 1e-9)
+        lowered.getValue("product-core").y shouldBe (1.26 plusOrMinus 1e-9)
     }
 
     "both loops keep bounded stable parts and settle the product inside a real receiving bin before reset" {
@@ -54,23 +58,66 @@ class OriginSlimefunWorkshopGeometryTest : FreeSpec({
             val carrier = last.getValue("product-carrier")
             val receiver = last.getValue("receiver-bottom")
             (carrier.y - carrier.height / 2) shouldBe (receiver.y + receiver.height / 2 plusOrMinus 1e-8)
-            (carrier.x - carrier.width / 2 > last.getValue("receiver-wall-1.04").x + .04) shouldBe true
-            (carrier.x + carrier.width / 2 < last.getValue("receiver-wall-2.18").x - .04) shouldBe true
+            if (machine == SlimefunWorkshopMachine.PRESS) {
+                (carrier.x - carrier.width / 2 > last.getValue("receiver-wall-1.04").x + .04) shouldBe true
+                (carrier.x + carrier.width / 2 < last.getValue("receiver-wall-2.18").x - .04) shouldBe true
+            } else {
+                (carrier.x - carrier.width / 2 > last.getValue("receiver-left-back").x + .04) shouldBe true
+                (carrier.x + carrier.width / 2 < last.getValue("cabinet-side-1").x - .06) shouldBe true
+            }
             slimefunWorkshopFrame(machine, timing.total.toDouble(), timing).parts.none { it.key.startsWith("product-") } shouldBe true
         }
     }
 
+    "the compact rotary winder has no conveyor and its workpiece clears supports throughout the cycle" {
+        val obstacles = setOf("intake-hood", "receiver-roof", "receiver-front-lip", "receiver-left-back",
+            "cabinet-front", "cabinet-back", "cabinet-side--1", "cabinet-side-1")
+        for (age in 0..timing.total step 2) {
+            val parts = slimefunWorkshopFrame(SlimefunWorkshopMachine.WINDER, age.toDouble(), timing).parts
+            parts.none { it.key.startsWith("feed-roller-") || it.key.startsWith("lower-rail-") } shouldBe true
+            val bounds = parts.map(::slimefunBounds)
+            (bounds.maxOf { it.second.x } - bounds.minOf { it.first.x } < 3.0) shouldBe true
+            val supports = parts.filter { it.key in obstacles || it.key.startsWith("spindle-pedestal-") ||
+                it.key.startsWith("spindle-arm-") || it.key.startsWith("spindle-crossarm-") || it.key.startsWith("guide-post-") }
+            val workpiece = parts.filter { it.key.startsWith("product-") && !it.key.startsWith("product-terminal-") }
+            for (part in workpiece) for (support in supports) {
+                slimefunOverlaps(slimefunBounds(part), slimefunBounds(support)) shouldBe false
+            }
+        }
+        val press = slimefunWorkshopFrame(SlimefunWorkshopMachine.PRESS, 0.0, timing).parts.map(::slimefunBounds)
+        (press.maxOf { it.second.x } - press.minOf { it.first.x } > 4.0) shouldBe true
+        press.maxOf { it.second.y } shouldBe (3.0 plusOrMinus 1e-9)
+        val load = slimefunWorkshopFrame(SlimefunWorkshopMachine.WINDER, timing.load / 2.0, timing)
+            .parts.single { it.key == "product-core" }
+        // The stock follows a supported arc around the central pivot, rather than the press's straight feed.
+        (load.x < -.4 && load.z < 0.0) shouldBe true
+    }
+
     "station yaw rotates the machine, operator and contact in the same frame" {
         val north = SlimefunWorkshopStation("press", SlimefunWorkshopMachine.PRESS, 462,
-            -10.5, 71.0, -45.5, 0.0, 1.0, SlimefunWorkshopPoint(-.65, 0.0, -1.45), 20)
+            -10.5, 71.0, -43.55, 0.0, 1.0, SlimefunWorkshopPoint(-.65, 0.0, -1.45), 20)
         val south = north.copy(id = "winder", machine = SlimefunWorkshopMachine.WINDER, npcId = 463,
-            z = -59.5, yaw = 180.0)
+            z = -60.65, yaw = 180.0)
         north.point(north.operator).x shouldBe (-11.15 plusOrMinus 1e-9)
-        north.point(north.operator).z shouldBe (-46.95 plusOrMinus 1e-9)
+        north.point(north.operator).z shouldBe (-45.0 plusOrMinus 1e-9)
         south.point(south.operator).x shouldBe (-9.85 plusOrMinus 1e-9)
-        south.point(south.operator).z shouldBe (-58.05 plusOrMinus 1e-9)
+        south.point(south.operator).z shouldBe (-59.20 plusOrMinus 1e-9)
         val contact = SlimefunWorkshopPoint(.24, 1.47, -.155)
         north.point(contact).x + south.point(contact).x shouldBe (-21.0 plusOrMinus 1e-9)
-        north.point(contact).z + south.point(contact).z shouldBe (-105.0 plusOrMinus 1e-9)
+        north.point(contact).z + south.point(contact).z shouldBe (-104.2 plusOrMinus 1e-9)
     }
 })
+
+private fun slimefunBounds(part: SlimefunWorkshopPart): Pair<SlimefunWorkshopPoint, SlimefunWorkshopPoint> {
+    val rotation = Quaterniond().rotationXYZ(Math.toRadians(part.rotationX), Math.toRadians(part.rotationY), Math.toRadians(part.rotationZ))
+    val axes = listOf(Vector3d(part.width / 2, 0.0, 0.0), Vector3d(0.0, part.height / 2, 0.0),
+        Vector3d(0.0, 0.0, part.depth / 2)).map { it.rotate(rotation) }
+    val x = axes.sumOf { abs(it.x) }; val y = axes.sumOf { abs(it.y) }; val z = axes.sumOf { abs(it.z) }
+    return SlimefunWorkshopPoint(part.x - x, part.y - y, part.z - z) to
+        SlimefunWorkshopPoint(part.x + x, part.y + y, part.z + z)
+}
+
+private fun slimefunOverlaps(a: Pair<SlimefunWorkshopPoint, SlimefunWorkshopPoint>, b: Pair<SlimefunWorkshopPoint, SlimefunWorkshopPoint>): Boolean =
+    minOf(a.second.x, b.second.x) - maxOf(a.first.x, b.first.x) > 1e-7 &&
+        minOf(a.second.y, b.second.y) - maxOf(a.first.y, b.first.y) > 1e-7 &&
+        minOf(a.second.z, b.second.z) - maxOf(a.first.z, b.first.z) > 1e-7

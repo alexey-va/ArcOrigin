@@ -432,7 +432,7 @@ class OriginPortalsModuleTest : FreeSpec({
             val event = PlayerMoveEvent(player, anchor.center(world).add(20.0, 0.0, 0.0), anchor.center(world))
             OriginPortalsModule.handleMove(event, config)
             OriginPortalsModule.handleMove(event, config)
-            effects shouldContainExactly listOf(" Вы вошли в портал «Slimefun».", "transfer")
+            effects shouldContainExactly listOf(" Вы вошли в портал «Слаймфан».", "transfer")
         } finally {
             OriginPortalsModule.onQuit(PlayerQuitEvent(player, Component.empty(), PlayerQuitEvent.QuitReason.DISCONNECTED))
             unmockkObject(OriginServices)
