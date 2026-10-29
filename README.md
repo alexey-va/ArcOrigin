@@ -4,7 +4,7 @@ ArcOrigin is the standalone Paper plugin for RusCrafting's Origin worlds and con
 
 The runtime and its Java API have independent immutable Maven coordinates:
 
-- Runtime plugin: `ru.ruscrafting:ArcOrigin:0.1.50`
+- Runtime plugin: `ru.ruscrafting:ArcOrigin:0.1.77`
 - Java API: `ru.ruscrafting.arc:arc-origin-api:0.1.1`
 
 ARC shades the API once. ArcOrigin consumes it as `compileOnly`; add-ons should do the same and must not embed the API or shared provider implementations. Change `originApiVersion` before publishing a contract change. Runtime releases do not require an API version change.
@@ -22,7 +22,7 @@ Use JDK 25. Unit tests use the shared Paper test kit. Redis integration tests ru
 
 CI runs the pinned `arc-core` consumer verifier, unit and integration tests, deterministic packaging, and JAR ownership checks. A green push or manual CI run on `main` publishes the runtime JAR/POM and API JAR, sources JAR, POM, and Gradle module metadata to the RusCrafting Maven repository. The publisher checks all immutable coordinates before upload and verifies public readback. There is no GitHub Release step.
 
-For composite development, set `arcCoreDir` to a local `arc-core` checkout. CI resolves the immutable `2.7.69` release.
+For composite development, set `arcCoreDir` to a local `arc-core` checkout. CI resolves the immutable `2.7.78` release.
 
 ## Controlled NPC movement
 
