@@ -349,6 +349,22 @@ class OriginPortalsModuleTest : FreeSpec({
             move(center, outside)
             move(outside, center)
             effects shouldContainExactly emptyList()
+
+            config.anchors.filter { it.id.compactService }.forEach { service ->
+                val serviceCenter = service.center(world)
+                val serviceOutside = serviceCenter.clone().add(20.0, 0.0, 0.0)
+                effects.clear()
+                move(serviceOutside, serviceCenter)
+                move(serviceOutside, serviceCenter)
+                move(serviceCenter, serviceCenter.clone().apply { yaw += 20f })
+                effects.size shouldBe 2
+                effects.last() shouldBe service.command
+                verify(exactly = 1) { player.performCommand(service.command) }
+                every { player.location } returns serviceCenter
+                val command = PlayerCommandPreprocessEvent(player, "/${service.command}", mutableSetOf())
+                OriginPortalsModule.handlePortalCommand(command, config)
+                command.isCancelled.shouldBeFalse()
+            }
         } finally {
             OriginPortalsModule.onQuit(PlayerQuitEvent(player, Component.empty(), PlayerQuitEvent.QuitReason.DISCONNECTED))
             directory.toFile().deleteRecursively()
@@ -650,9 +666,9 @@ class OriginPortalsModuleTest : FreeSpec({
         }
     }
 
-    "Origin portal bypass preserves world portal control while Slimefun remains enterable" {
+    "Origin portal bypass preserves world and furniture control while Slimefun and services remain enterable" {
         OriginPortalId.entries.forEach { id ->
-            shouldBypassOriginPortal(id, hasBypassPermission = true) shouldBe (id != OriginPortalId.SLIMEFUN)
+            shouldBypassOriginPortal(id, hasBypassPermission = true) shouldBe (id != OriginPortalId.SLIMEFUN && !id.compactService)
             shouldBypassOriginPortal(id, hasBypassPermission = false).shouldBeFalse()
         }
 
