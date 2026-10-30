@@ -51,10 +51,10 @@ internal enum class OriginPortalId(
     val compactService: Boolean = false,
     val defaultEnabled: Boolean = true,
     val destinationServer: String? = null,
-    val defaultParticleRadius: Double? = if (compactService) 1.25 else null,
+    val defaultParticleRadius: Double? = if (compactService) 2.5 else null,
     val defaultParticleHeight: Double? = if (compactService) defaultHeight else null,
-    val defaultPulseAmplitude: Double? = if (compactService) 0.0 else null,
-    val defaultParticlesEnabled: Boolean? = if (compactService) false else null,
+    val defaultPulseAmplitude: Double? = null,
+    val defaultParticlesEnabled: Boolean? = null,
     val maxParticleRadius: Double = 8.0,
     val maxParticleHeight: Double = 16.0,
     val maxTransferDistance: Double = 8.0,
@@ -62,7 +62,7 @@ internal enum class OriginPortalId(
     val defaultVerticalOffset: Double? = if (compactService) defaultHeight / 2.0 else null,
     val feetAnchored: Boolean = compactService,
     // Fraction of the scaled model height that is transparent below its visible alpha bounds.
-    val defaultVisibleBottomInsetRatio: Double = if (compactService) 10.0 / 116.0 else 0.0,
+    val defaultVisibleBottomInsetRatio: Double = if (compactService) 11.0 / 116.0 else 0.0,
 ) {
     SURVIVAL(
         key = "survival",
@@ -175,36 +175,36 @@ internal enum class OriginPortalId(
         key = "adventure_guild", central = false, compactService = true,
         defaultWorld = "rc_origin_spawn", defaultStyle = OriginPortalStyle.ORIGIN,
         defaultCommand = "ag", defaultLabel = "Гильдия приключений",
-        defaultX = 32.5, defaultY = 67.0, defaultZ = 24.5, defaultYaw = -90f,
-        defaultWidth = 3.0, defaultHeight = 4.2,
+        defaultX = 31.25, defaultY = 67.0, defaultZ = 23.0, defaultYaw = -53.8450934f,
+        defaultWidth = 6.0, defaultHeight = 8.4,
     ),
     CASINO(
         key = "casino", central = false, compactService = true,
         defaultWorld = "rc_origin_spawn", defaultStyle = OriginPortalStyle.ORIGIN,
         defaultCommand = "rccasino", defaultLabel = "Казино",
-        defaultX = -35.0, defaultY = 68.0, defaultZ = 33.5, defaultYaw = 90f,
-        defaultWidth = 3.0, defaultHeight = 4.2,
+        defaultX = -33.15, defaultY = 68.0, defaultZ = 31.75, defaultYaw = 47.26804182f,
+        defaultWidth = 6.0, defaultHeight = 8.4,
     ),
     FARM(
         key = "farm", central = false, compactService = true,
         defaultWorld = "rc_origin_spawn", defaultStyle = OriginPortalStyle.ORIGIN,
         defaultCommand = "arcfarms travel farm", defaultLabel = "Ферма",
-        defaultX = 47.5, defaultY = 71.0, defaultZ = 10.5, defaultYaw = 0f,
-        defaultWidth = 3.0, defaultHeight = 4.2,
+        defaultX = 42.5, defaultY = 71.0, defaultZ = 11.0, defaultYaw = -76.0538391f,
+        defaultWidth = 6.0, defaultHeight = 8.4,
     ),
     MINE(
         key = "mine", central = false, compactService = true,
         defaultWorld = "rc_origin_spawn", defaultStyle = OriginPortalStyle.ORIGIN,
         defaultCommand = "arcfarms travel mine", defaultLabel = "Шахта",
-        defaultX = 57.5, defaultY = 71.0, defaultZ = 10.5, defaultYaw = 0f,
-        defaultWidth = 3.0, defaultHeight = 4.2,
+        defaultX = 44.5, defaultY = 68.0, defaultZ = 4.5, defaultYaw = -84.9126263f,
+        defaultWidth = 6.0, defaultHeight = 8.4,
     ),
     LUMBERMILL(
         key = "lumbermill", central = false, compactService = true,
         defaultWorld = "rc_origin_spawn", defaultStyle = OriginPortalStyle.ORIGIN,
         defaultCommand = "arcfarms travel lumber", defaultLabel = "Лесопилка · закрытая бета\nДоступ участникам теста",
-        defaultX = 67.5, defaultY = 71.0, defaultZ = 10.5, defaultYaw = 0f,
-        defaultWidth = 3.0, defaultHeight = 4.2,
+        defaultX = 46.5, defaultY = 68.0, defaultZ = -2.0, defaultYaw = -93.22820139f,
+        defaultWidth = 6.0, defaultHeight = 8.4,
     ),
     ;
 
@@ -469,9 +469,9 @@ internal class OriginPortalsConfig private constructor(
                 labelFrontDistance = source.real("$path.hologram.front-distance", if (id.compactService) 0.65 else 0.0)
                     .finite(0.0).coerceIn(-20.0, 20.0),
                 labelSideOffset = source.real("$path.hologram.side-offset", 0.0).finite(0.0).coerceIn(-20.0, 20.0),
-                labelHeightOffset = source.real("$path.hologram.height-offset", if (id.compactService) 2.35 else if (id.central) -0.5 else 0.75)
+                labelHeightOffset = source.real("$path.hologram.height-offset", if (id.compactService) 4.7 else if (id.central) -0.5 else 0.75)
                     .finite(if (id.central) -0.5 else 0.75).coerceIn(-20.0, 20.0),
-                labelScale = source.real("$path.hologram.scale", if (id.central) 6.0 else 0.9)
+                labelScale = source.real("$path.hologram.scale", if (id.central) 6.0 else if (id.compactService) 1.2 else 0.9)
                     .finite(if (id.central) 6.0 else 0.9).toFloat().coerceIn(0.1f, 8.0f),
                 labelBackgroundGray = source.integer("$path.hologram.background-gray", if (id.central) 48 else 0)
                     .coerceIn(0, 255),
@@ -491,8 +491,8 @@ internal class OriginPortalsConfig private constructor(
                     "$path.visible-bottom-inset-ratio",
                     id.defaultVisibleBottomInsetRatio,
                 ).finite(id.defaultVisibleBottomInsetRatio).coerceIn(0.0, 0.5),
-                entryWidth = entryDimension(source, "$path.entry.width", if (id.compactService) 1.8 else if (id.central) 4.0 else width, 0.1..12.0),
-                entryHeight = entryDimension(source, "$path.entry.height", if (id.compactService) 3.4 else if (id.central) 7.0 else height, 0.1..20.0),
+                entryWidth = entryDimension(source, "$path.entry.width", if (id.compactService) 3.6 else if (id.central) 4.0 else width, 0.1..12.0),
+                entryHeight = entryDimension(source, "$path.entry.height", if (id.compactService) 6.8 else if (id.central) 7.0 else height, 0.1..20.0),
             )
         }
 
@@ -570,8 +570,12 @@ private class OriginPortalVisual(
         gateSpawned = gate?.gateSpawned() == true
         if (!active) return
         val pulse = 1f + anchor.pulseAmplitude * sin((tick * 2.0 * PI) / config.pulsePeriodTicks).toFloat()
-        // The renderer owns the display transform; ARC only supplies a bounded idle pulse.
-        gate?.updateScale(pulse)
+        // The host owns the display transform; ArcOrigin supplies a bounded, floor-aware idle pulse.
+        if (anchor.id.compactService) {
+            gate?.updateScale(pulse, originPortalPulseTranslation(anchor, pulse))
+        } else {
+            gate?.updateScale(pulse)
+        }
         renderParticles(world, tick)
     }
 
@@ -639,6 +643,14 @@ internal fun originPortalDisplayCenter(anchor: OriginPortalAnchor, world: org.bu
         if (anchor.id.liftDisplayByConfiguredOffset) {
             y += anchor.verticalOffset - (anchor.height * anchor.visibleBottomInsetRatio)
         }
+    }
+
+/** Keep the visible model's lower envelope at its floor while the gate breathes. */
+internal fun originPortalPulseTranslation(anchor: OriginPortalAnchor, scale: Float): Double =
+    if (anchor.id.compactService) {
+        anchor.height * (0.5 - anchor.visibleBottomInsetRatio) * (scale.toDouble() - 1.0)
+    } else {
+        0.0
     }
 
 internal fun originPortalMoveYaw(id: OriginPortalId, playerYaw: Float): Float {

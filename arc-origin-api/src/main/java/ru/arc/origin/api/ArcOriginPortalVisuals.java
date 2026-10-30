@@ -45,6 +45,9 @@ public interface ArcOriginPortalVisuals {
 
         void updateScale(float scale);
 
+        /** Applies scale and local Y translation together, keeping a floor-anchored gate grounded. */
+        void updateScale(float scale, double verticalTranslation);
+
         void renderSuction(int tick, List<Player> full, List<Player> reduced);
 
         @Override

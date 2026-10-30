@@ -155,13 +155,13 @@ class OriginPortalsModuleTest : FreeSpec({
             compact.forEach { portal ->
                 portal.enabled.shouldBeTrue()
                 portal.id.feetAnchored.shouldBeTrue()
-                portal.width shouldBe 3.0
-                portal.height shouldBe 4.2
-                portal.entryWidth shouldBe 1.8
-                portal.entryHeight shouldBe 3.4
+                portal.width shouldBe 6.0
+                portal.height shouldBe 8.4
+                portal.entryWidth shouldBe 3.6
+                portal.entryHeight shouldBe 6.8
                 portal.entryDepth shouldBe 0.45
-                portal.particlesEnabled.shouldBeFalse()
-                portal.pulseAmplitude shouldBe 0f
+                portal.particlesEnabled.shouldBeTrue()
+                portal.pulseAmplitude shouldBe 0.035f
                 val world = mockk<World>()
                 everyWorldName(world, portal.worldName)
                 val center = originPortalDisplayCenter(portal, world)
@@ -169,9 +169,39 @@ class OriginPortalsModuleTest : FreeSpec({
                     portal.height * portal.visibleBottomInsetRatio - portal.y) < 1e-9).shouldBeTrue()
                 portal.contains(Location(world, portal.x, portal.y, portal.z)).shouldBeTrue()
                 portal.contains(Location(world, portal.x, portal.y - 0.01, portal.z)).shouldBeFalse()
-                portal.contains(Location(world, portal.x, portal.y + 3.41, portal.z)).shouldBeFalse()
+                portal.contains(Location(world, portal.x, portal.y + 6.81, portal.z)).shouldBeFalse()
                 portal.labelLocations(world).size shouldBe 2
                 originPortalMoveYaw(portal.id, 170f) shouldBe -10f
+            }
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    "service portal pulse keeps the visible bottom envelope grounded and faces the exact spawn" {
+        val directory = Files.createTempDirectory("arc-origin-grounded-pulse")
+        try {
+            val config = OriginPortalsConfig.load(directory)
+            config.anchors.filter { it.id.compactService }.forEach { portal ->
+                val world = mockk<World>()
+                val center = originPortalDisplayCenter(portal, world)
+                val visibleBottom = -portal.height * (0.5 - portal.visibleBottomInsetRatio)
+                for (tick in 0..config.pulsePeriodTicks) {
+                    val scale = 1f + portal.pulseAmplitude * kotlin.math.sin(
+                        tick * 2.0 * kotlin.math.PI / config.pulsePeriodTicks,
+                    ).toFloat()
+                    val actualBottom = center.y + originPortalPulseTranslation(portal, scale) + visibleBottom * scale
+                    (kotlin.math.abs(actualBottom - portal.y) < 1e-6).shouldBeTrue()
+                }
+                val angle = portal.yaw * kotlin.math.PI / 180.0
+                val toSpawnX = 0.58 - portal.x
+                val toSpawnZ = 0.59 - portal.z
+                val distance = kotlin.math.hypot(toSpawnX, toSpawnZ)
+                (kotlin.math.abs(kotlin.math.sin(angle) - toSpawnX / distance) < 1e-6).shouldBeTrue()
+                (kotlin.math.abs(-kotlin.math.cos(angle) - toSpawnZ / distance) < 1e-6).shouldBeTrue()
+            }
+            config.anchors.filterNot { it.id.compactService }.forEach {
+                originPortalPulseTranslation(it, 1.035f) shouldBe 0.0
             }
         } finally {
             directory.toFile().deleteRecursively()
