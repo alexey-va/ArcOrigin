@@ -381,7 +381,7 @@ auction-showcase:
     listing: |-
       <#f2b84b><name>
       <#969696>Продавец: <seller>
-      <#ffacd5>Цена: <price> <white><bold:false>💰</bold></white>
+      <#ffacd5>Цена: <price><white><bold:false>💰</bold></white>
 
   messages:
     stale: '<#ff9f0f>Лот уже недоступен — витрина обновлена'

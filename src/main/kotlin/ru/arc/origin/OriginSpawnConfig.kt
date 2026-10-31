@@ -51,7 +51,7 @@ internal class OriginSpawnConfig private constructor(
             "seller" to Component.text(seller),
             "price" to Component.text(price),
         )
-        val fallback = "<#f2b84b><name>\n<#969696>Продавец: <seller>\n<#ffacd5>Цена: <price> <white><bold:false>💰</bold></white>"
+        val fallback = "<#f2b84b><name>\n<#969696>Продавец: <seller>\n<#ffacd5>Цена: <price><white><bold:false>💰</bold></white>"
         val rendered = if (source.stringOrNull(path) == null) {
             source.component(path, fallback) {
                 tag("name", placeholders.getValue("name"))

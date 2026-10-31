@@ -34,7 +34,7 @@ class OriginWaiterSurfaceTest : StringSpec({
         screen.buttons.all { it.closeDialogBeforeAction } shouldBe true
         val text = screen.body.joinToString("\n") { plain(it.text) }
         text shouldContain "10 минут"
-        text shouldContain "20 💰"
+        text shouldContain "20💰"
         text shouldContain "Принимай заказы"
         screen.body.flatMap { components(it.text) }.filter { plain(it) == "💰" }
             .forEach { it.color() shouldBe NamedTextColor.WHITE }
@@ -58,9 +58,9 @@ class OriginWaiterSurfaceTest : StringSpec({
         val config = waiterTestConfig()
         val shift = OriginWorkShift.begin(0).record(java.util.UUID.randomUUID(), 20, 85)
         val receipt = OriginWaiterReceipt(shift, 600_000, 0)
-        waiterReceiptLines(config, receipt) shouldBe listOf("Смена завершена · 10:00", "Заказов: 1 · Получено 20 💰")
+        waiterReceiptLines(config, receipt) shouldBe listOf("Смена завершена · 10:00", "Заказов: 1 · Получено 20💰")
         val message = waiterReceipt(config, receipt)
-        plain(message) shouldBe "\n  Смена завершена · 10:00\n  Заказов: 1 · Получено 20 💰\n"
+        plain(message) shouldBe "\n  Смена завершена · 10:00\n  Заказов: 1 · Получено 20💰\n"
         components(message).filter { plain(it) == "💰" }.single().color() shouldBe NamedTextColor.WHITE
         components(message).any { it.color() == TextColor.color(0xFFB277) } shouldBe true
         components(message).any { it.color() == TextColor.color(0x9BD48D) } shouldBe true
@@ -88,7 +88,7 @@ class OriginWaiterSurfaceTest : StringSpec({
         ready.body.joinToString(" ") { plain(it.text) }.contains("через 20") shouldBe false
         val shift = OriginWorkShift.begin(0).record(java.util.UUID.randomUUID(), 20, 100)
         val receipt = waiterReceipt(config, OriginWaiterReceipt(shift, 1000, 0, paid = false))
-        plain(receipt) shouldContain "Заработано 20 💰"
+        plain(receipt) shouldContain "Заработано 20💰"
         plain(receipt).contains("Получено") shouldBe false
         components(receipt).filter { plain(it) == "💰" }.single().color() shouldBe NamedTextColor.WHITE
     }

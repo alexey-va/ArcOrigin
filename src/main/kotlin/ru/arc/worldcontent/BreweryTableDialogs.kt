@@ -151,7 +151,7 @@ object BreweryTableDialogs {
         Component.text(text, color).decoration(TextDecoration.ITALIC, false)
 
     private fun priceLabel(dish: Dish): Component =
-        styled("${dish.label} · ${dish.price} ", dish.color)
+        styled("${dish.label} · ${dish.price}", dish.color)
             .append(
                 Component.text("💰", coinColor)
                     .decoration(TextDecoration.BOLD, false)

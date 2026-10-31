@@ -138,7 +138,7 @@ class OriginOddJobsSurfaceTest : StringSpec({
     "all employers share a readable shift confirmation with only the explicit accept action" {
         val config = oddJobTestConfig()
         val receipt = waiterText(config.line("shift.receipt-score", "done" to 3, "amount" to 60), TextColor.color(0x9BD48D))
-        plain(receipt) shouldBe "Получено: 60 💰"
+        plain(receipt) shouldBe "Получено: 60💰"
         components(receipt).filter { plain(it) == "💰" }.all { it.color() == NamedTextColor.WHITE } shouldBe true
         config.venues.map { it.npcId } shouldBe listOf(440, 349, 351, 354, 365)
         config.shiftMillis shouldBe 600_000
@@ -148,7 +148,7 @@ class OriginOddJobsSurfaceTest : StringSpec({
             plain(screen.title).startsWith("Смена · ") shouldBe true
             val body = screen.body.joinToString("\n") { plain(it.text) }
             body shouldContain "100"
-            body shouldContain "20 💰"
+            body shouldContain "20💰"
             body shouldContain "12"
             if (venue.kind == OriginOddJobKind.MOUNTYARD) {
                 config.line("table.yard-pay") shouldBe "Обычное поручение"
@@ -156,7 +156,7 @@ class OriginOddJobsSurfaceTest : StringSpec({
                 body shouldContain "поручение"
                 body shouldContain "12 из 100 поручений"
                 body shouldContain "Обычное принятое поручение приносит 20"
-                body shouldContain "50 💰 за весь заказ"
+                body shouldContain "50💰 за весь заказ"
                 body shouldContain "развязка снимется сама"
             } else body shouldContain "За поручение"
             screen.buttons.map { it.id.value } shouldBe listOf("odd_job_start", "odd_job_later")

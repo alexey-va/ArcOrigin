@@ -404,12 +404,12 @@ object OriginTrainingDummyModule : PluginModule, Listener {
         }
         when {
             challenge.hits >= settings.challengeHits -> {
-                player.showTitleMM("<green>Испытание пройдено", "<yellow>${challenge.hits}/${settings.challengeHits} <gray>• награда <yellow>$reward <white>💰", 10, 60, 20)
-                player.sendMessage(Component.text("Бран » Чистая серия. Держи $reward 💰.", NamedTextColor.GRAY))
+                player.showTitleMM("<green>Испытание пройдено", "<yellow>${challenge.hits}/${settings.challengeHits} <gray>• награда <yellow>$reward<white>💰", 10, 60, 20)
+                player.sendMessage(Component.text("Бран » Чистая серия. Держи $reward💰.", NamedTextColor.GRAY))
             }
             reward > 0 -> {
-                player.showTitleMM("<yellow>Почти", "<yellow>${challenge.hits}/${settings.challengeHits} <gray>• награда <yellow>$reward <white>💰", 10, 60, 20)
-                player.sendMessage(Component.text("Бран » Ритм почти удержал. За попытку — $reward 💰.", NamedTextColor.GRAY))
+                player.showTitleMM("<yellow>Почти", "<yellow>${challenge.hits}/${settings.challengeHits} <gray>• награда <yellow>$reward<white>💰", 10, 60, 20)
+                player.sendMessage(Component.text("Бран » Ритм почти удержал. За попытку — $reward💰.", NamedTextColor.GRAY))
             }
             else -> {
                 player.showTitleMM("<red>Испытание не пройдено", "<yellow>${challenge.hits}/${settings.challengeHits} <gray>• серия оборвалась", 10, 60, 20)

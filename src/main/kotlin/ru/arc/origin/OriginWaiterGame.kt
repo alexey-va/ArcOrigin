@@ -821,7 +821,7 @@ internal class OriginWaiterGame(
             "action" to config.line("wash-${job?.washing?.getOrNull(job.washed)?.name?.lowercase()}"))
         val remaining = waiterTime((if (session.shift.acceptsOrders(now)) session.shift.closesAt else session.shift.hardStopAt) - now)
         session.bossBar.name(waiterText(next, TextColor.color(0xFFB277))
-            .append(waiterText("  ·  $remaining  ·  ${session.shift.earnedAmount} 💰", TextColor.color(0xE8DFD2))))
+            .append(waiterText("  ·  $remaining  ·  ${session.shift.earnedAmount}💰", TextColor.color(0xE8DFD2))))
         session.bossBar.progress(if (action != null) ((now - action.startedAt).toFloat() / (action.endsAt - action.startedAt)).coerceIn(0f, 1f)
             else if (dispute == null) waiterJobProgress(job) else dispute.stage.ordinal.toFloat() / OriginWaiterDisputeStage.entries.size)
         session.bossBar.color(if (job?.carries == true) BossBar.Color.GREEN else BossBar.Color.YELLOW)

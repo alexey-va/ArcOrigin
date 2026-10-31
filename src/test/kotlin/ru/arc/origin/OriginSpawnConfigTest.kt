@@ -116,7 +116,7 @@ class OriginSpawnConfigTest :
                 val rendered = config.listingText("<red>Меч", "<bold>Игрок", "<click:run_command:/op>10")
 
                 PlainTextComponentSerializer.plainText().serialize(rendered) shouldBe
-                    "<red>Меч\nПродавец: <bold>Игрок\nЦена: <click:run_command:/op>10 💰"
+                    "<red>Меч\nПродавец: <bold>Игрок\nЦена: <click:run_command:/op>10💰"
             } finally {
                 directory.toFile().deleteRecursively()
             }

@@ -30,7 +30,7 @@ class OriginSideJobRewardPolicyTest : StringSpec({
                     .map { originOddJobsScreen(oddJobs, it, null, after.rewardPerOrder, status, 0) }
             for (screen in screens) {
                 val text = screen.body.joinToString("\n") { PlainTextComponentSerializer.plainText().serialize(it.text) }
-                text shouldContain "35 💰"
+                text shouldContain "35💰"
                 text shouldContain "51"
                 text shouldContain "60"
                 text.contains("{daily-") shouldBe false
@@ -39,7 +39,7 @@ class OriginSideJobRewardPolicyTest : StringSpec({
             after.limits("{daily-orders} / {daily-amount} / {saddling-amount}") shouldBe "60 / 4500 / 75"
             waiter.line("daily-limit") shouldContain "60"
             // The in-world forge receipt uses the same policy as its employer dialog.
-            oddJobs.line("table.pay-value", "amount" to after.rewardPerOrder) shouldContain "35 💰"
+            oddJobs.line("table.pay-value", "amount" to after.rewardPerOrder) shouldContain "35💰"
         } finally { directory.toFile().deleteRecursively() }
     }
 

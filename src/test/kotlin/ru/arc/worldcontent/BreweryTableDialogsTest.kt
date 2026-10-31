@@ -47,7 +47,7 @@ class BreweryTableDialogsTest : FreeSpec({
         body shouldContain "блюдо"
         screen.buttons.map { it.id.value } shouldContainExactly listOf("food_egg", "food_fish", "food_steak")
         screen.buttons.map { PlainTextComponentSerializer.plainText().serialize(it.label) } shouldContainExactly
-            listOf("Яичница с травами · 300 💰", "Запечённая рыба · 450 💰", "Стейк с перцем · 650 💰")
+            listOf("Яичница с травами · 300💰", "Запечённая рыба · 450💰", "Стейк с перцем · 650💰")
         screen.buttons.map { it.label.children().single().color() }.all { it == TextColor.color(0xFFFFFF) } shouldBe true
         screen.buttons.all { it.closeDialogBeforeAction } shouldBe true
     }
@@ -58,7 +58,7 @@ class BreweryTableDialogsTest : FreeSpec({
         screen.buttons.map { it.id.value } shouldContainExactly
             listOf("drinks_herbal_tea", "drinks_berry_kvass", "drinks_spiced_mead")
         screen.buttons.map { PlainTextComponentSerializer.plainText().serialize(it.label) } shouldContainExactly
-            listOf("Пиво · 250 💰", "Красное вино · 400 💰", "Медовуха · 600 💰")
+            listOf("Пиво · 250💰", "Красное вино · 400💰", "Медовуха · 600💰")
     }
 
     "restaurant includes meals and one drink" {

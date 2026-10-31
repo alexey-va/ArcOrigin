@@ -1580,7 +1580,7 @@ private class OriginDiningService : AutoCloseable {
         }
         if (!economy.has(player, dish.price.toDouble())) {
             player.sendActionBar(
-                Component.text("Для заказа нужно ${dish.price} ", NamedTextColor.RED)
+                Component.text("Для заказа нужно ${dish.price}", NamedTextColor.RED)
                     .append(Component.text("💰", NamedTextColor.WHITE))
                     .append(Component.text(".", NamedTextColor.RED)),
             )

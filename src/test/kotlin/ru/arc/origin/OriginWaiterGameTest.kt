@@ -245,7 +245,7 @@ class OriginWaiterGameTest : StringSpec({
             f.game.isWorking(f.player.uniqueId) shouldBe true
             f.game.reserves(434) shouldBe true
             f.openStaff()
-            f.screenText() shouldContain "1 · 20 💰"
+            f.screenText() shouldContain "1 · 20💰"
             f.screens.last().buttons.map { it.id.value } shouldBe listOf("waiter_continue", "waiter_finish")
         }
     }
@@ -279,11 +279,11 @@ class OriginWaiterGameTest : StringSpec({
             (f.payments[0].id != f.payments[1].id) shouldBe true
             f.payments[1].callback(SideJobRewardResult(SideJobRewardOutcome.CREDITED))
             f.openStaff()
-            f.screenText() shouldContain "2 · 40 💰"
+            f.screenText() shouldContain "2 · 40💰"
             f.settlements shouldBe emptyList()
             f.press("waiter_finish")
             f.settlements.size shouldBe 1
-            f.messages() shouldContain "Заказов: 2 · Получено 40 💰"
+            f.messages() shouldContain "Заказов: 2 · Получено 40💰"
         }
     }
 
@@ -300,7 +300,7 @@ class OriginWaiterGameTest : StringSpec({
             f.payments.single().callback(SideJobRewardResult(SideJobRewardOutcome.CREDITED))
             f.reservations shouldBe 1
             f.game.isWorking(f.player.uniqueId) shouldBe false
-            f.messages() shouldContain "Заказов: 1 · Получено 20 💰"
+            f.messages() shouldContain "Заказов: 1 · Получено 20💰"
         }
     }
 
@@ -327,7 +327,7 @@ class OriginWaiterGameTest : StringSpec({
             f.payments[1].callback(SideJobRewardResult(SideJobRewardOutcome.CREDITED))
             f.released.count { it.lease.token == first.id } shouldBe 1
             f.openStaff()
-            f.screenText() shouldContain "1 · 20 💰"
+            f.screenText() shouldContain "1 · 20💰"
         }
     }
 
@@ -350,7 +350,7 @@ class OriginWaiterGameTest : StringSpec({
             payment.callback(SideJobRewardResult(SideJobRewardOutcome.CREDITED))
             f.game.isWorking(f.player.uniqueId) shouldBe false
             f.game.reserves(433) shouldBe false
-            f.messages() shouldContain "Заказов: 1 · Получено 20 💰"
+            f.messages() shouldContain "Заказов: 1 · Получено 20💰"
             f.currentVenue = "restaurant"
         }
     }
@@ -387,7 +387,7 @@ class OriginWaiterGameTest : StringSpec({
             payment.callback(SideJobRewardResult(SideJobRewardOutcome.CREDITED))
             f.released.count { it.lease.token == payment.id } shouldBe 1
             f.openStaff()
-            f.screenText() shouldContain "1 · 20 💰"
+            f.screenText() shouldContain "1 · 20💰"
             f.game.isWorking(f.player.uniqueId) shouldBe true
         }
     }
