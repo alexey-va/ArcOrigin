@@ -5,8 +5,6 @@ import net.citizensnpcs.api.CitizensAPI
 import net.citizensnpcs.api.event.CitizensEnableEvent
 import net.citizensnpcs.api.npc.NPC
 import net.citizensnpcs.trait.LookClose
-import net.citizensnpcs.trait.SleepTrait
-import net.citizensnpcs.trait.EntityPoseTrait
 import net.citizensnpcs.api.trait.trait.Equipment as CitizensEquipment
 import org.bukkit.Bukkit
 import org.bukkit.Location
@@ -17,7 +15,6 @@ import org.bukkit.World
 import org.bukkit.entity.Display
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.LivingEntity
-import org.bukkit.entity.Pose
 import org.bukkit.event.EventHandler
 import org.bukkit.event.HandlerList
 import org.bukkit.event.Listener
@@ -777,6 +774,7 @@ private class OriginFurnitureWorkshopRuntime private constructor(
     private val sleepingNameplateSnapshots = linkedMapOf<Int, Pair<Boolean, Boolean>>()
     private val nextDueTick = settings.workers.associate { it.role to it.initialDelayTicks }.toMutableMap()
     private val active = linkedMapOf<OriginFurnitureWorkshopRole, ActiveWorkshopCycle>()
+    private val sleepPose = OriginWorkshopSleepPose()
     private val sleepShift = OriginWorkshopSleepShift(settings.workers.map { it.tableId }, settings.sleepDurationTicks)
     private var incomingSleeper: WorkshopSleepJourney? = null
     private val returningWorkers = linkedMapOf<Int, WorkshopSleepJourney>()
@@ -816,7 +814,7 @@ private class OriginFurnitureWorkshopRuntime private constructor(
             if (actor.isSpawned && actor.entity.world == world) {
                 check(!actor.navigator.isNavigating) { "Workshop NPC ${actor.id} is navigating outside this runtime" }
                 resumeWorkshopNavigation(actor)
-                wakeOriginWorkshopNpc(actor)
+                sleepPose.wake(actor)
                 check(actor.entity.teleport(worker.home.inWorld(world))) { "Workshop NPC ${actor.id} rejected home reset" }
                 faceOriginScenePoint(actor, worker.restFocus.inWorld(world))
             }
@@ -1027,7 +1025,7 @@ private class OriginFurnitureWorkshopRuntime private constructor(
         if (!journey.started) {
             // Leave the sofa by its front anchor; floor travel remains normal Citizens navigation.
             if (phase == "HOME" && journey.retryAt == 0L && journey.leaveBed) {
-                wakeOriginWorkshopNpc(actor)
+                sleepPose.wake(actor)
                 check(actor.entity.teleport(settings.sleepApproach.inWorld(world))) { "Workshop NPC ${actor.id} rejected sleep exit" }
             }
             OriginWorkshopTablesModule.resetWork(worker.tableId)
@@ -1054,7 +1052,7 @@ private class OriginFurnitureWorkshopRuntime private constructor(
 
     private fun isAvailable(actor: NPC): Boolean = actor.isSpawned && actor.entity.world == world
 
-    private fun isSleeping(actor: NPC): Boolean = isAvailable(actor) && actor.entity.pose == Pose.SLEEPING
+    private fun isSleeping(actor: NPC): Boolean = isAvailable(actor) && sleepPose.isSeated(actor)
 
     private fun resumeWorkshopNavigation(actor: NPC) {
         navigationPauseSnapshots.putIfAbsent(actor.id, actor.navigator.isPaused)
@@ -1071,15 +1069,10 @@ private class OriginFurnitureWorkshopRuntime private constructor(
         sleepingNameplateSnapshots.getOrPut(actor.id) {
             npcData.has(NPC.Metadata.NAMEPLATE_VISIBLE) to npcData.get(NPC.Metadata.NAMEPLATE_VISIBLE, true)
         }
-        check(actor.entity.teleport(settings.sleepAt.inWorld(world))) { "Workshop NPC ${actor.id} rejected sleep seat" }
         OriginNpcHolograms.setNameHiddenTemporarily(actor.id, WORKSHOP_SLEEP_NAME_OWNER, true)
         npcData.set(NPC.Metadata.NAMEPLATE_VISIBLE, false)
         setEquipment(actor, null, null)
-        actor.getOrAddTrait(SleepTrait::class.java).apply {
-            setSleeping(settings.sleepAt.inWorld(world))
-            run()
-        }
-        actor.getOrAddTrait(EntityPoseTrait::class.java).run()
+        sleepPose.seat(actor, settings.sleepAt.inWorld(world))
         if (isSleeping(actor)) return true
         restoreSleepingWorker(worker)
         ArcOriginPlugin.instance.logger.warning("ORIGIN_WORKSHOP phase=SLEEP_POSE_FAILED actor=${actor.id}")
@@ -1129,7 +1122,7 @@ private class OriginFurnitureWorkshopRuntime private constructor(
                 )
             }
         }
-        runCatching { wakeOriginWorkshopNpc(actor) }.onFailure { failure ->
+        runCatching { sleepPose.wake(actor) }.onFailure { failure ->
             ArcOriginPlugin.instance.logger.log(Level.WARNING,
                 "ORIGIN_WORKSHOP phase=SLEEP_RESTORE_FAILED actor=${actor.id} role=${worker.role.key} part=sleep-trait", failure)
         }

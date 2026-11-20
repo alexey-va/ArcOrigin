@@ -140,6 +140,7 @@ class OriginPortalsModuleTest : FreeSpec({
             furnitureEntry.style shouldBe OriginPortalStyle.ORIGIN
             furnitureEntry.command shouldBe "rcfurniturevisit room_01"
             furnitureEntry.label shouldBe "Галерея мебели"
+            furnitureEntry.labelHeightOffset shouldBe 0.75
             furnitureEntry.particlesEnabled.shouldBeFalse()
             furnitureEntry.particleRadius shouldBe 1.25
             furnitureEntry.particleHeight shouldBe 4.2
@@ -152,6 +153,17 @@ class OriginPortalsModuleTest : FreeSpec({
             compact.map { it.command } shouldContainExactly listOf(
                 "ag", "rccasino", "arcfarms travel farm", "arcfarms travel mine", "arcfarms travel lumber",
             )
+            compact.map { it.labelHeightOffset } shouldContainExactly listOf(1.7, 1.7, 4.7, 4.7, 4.7)
+            val litLabels = config.anchors.filter { it.id.labelBrightness != null }
+            litLabels.map { it.id } shouldContainExactly listOf(
+                OriginPortalId.FURNITURE_ENTRY, OriginPortalId.ADVENTURE_GUILD, OriginPortalId.CASINO,
+            )
+            litLabels.forEach { portal ->
+                val brightness = requireNotNull(portal.id.labelBrightness)
+                brightness.blockLight shouldBe 15
+                brightness.skyLight shouldBe 15
+                portal.labelLocations(mockk()).size shouldBe 2
+            }
             compact.forEach { portal ->
                 portal.enabled.shouldBeTrue()
                 portal.id.feetAnchored.shouldBeTrue()

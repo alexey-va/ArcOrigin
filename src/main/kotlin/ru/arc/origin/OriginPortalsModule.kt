@@ -60,6 +60,7 @@ internal enum class OriginPortalId(
     val maxTransferDistance: Double = 8.0,
     val liftDisplayByConfiguredOffset: Boolean = compactService,
     val defaultVerticalOffset: Double? = if (compactService) defaultHeight / 2.0 else null,
+    val defaultLabelHeightOffset: Double = if (compactService) 4.7 else if (central) -0.5 else 0.75,
     val feetAnchored: Boolean = compactService,
     // Fraction of the scaled model height that is transparent below its visible alpha bounds.
     val defaultVisibleBottomInsetRatio: Double = if (compactService) 11.0 / 116.0 else 0.0,
@@ -177,6 +178,7 @@ internal enum class OriginPortalId(
         defaultCommand = "ag", defaultLabel = "Гильдия приключений",
         defaultX = 31.25, defaultY = 67.0, defaultZ = 23.0, defaultYaw = -53.8450934f,
         defaultWidth = 6.0, defaultHeight = 8.4,
+        defaultLabelHeightOffset = 1.7,
     ),
     CASINO(
         key = "casino", central = false, compactService = true,
@@ -184,6 +186,7 @@ internal enum class OriginPortalId(
         defaultCommand = "rccasino", defaultLabel = "Казино",
         defaultX = -33.15, defaultY = 68.0, defaultZ = 31.75, defaultYaw = 47.26804182f,
         defaultWidth = 6.0, defaultHeight = 8.4,
+        defaultLabelHeightOffset = 1.7,
     ),
     FARM(
         key = "farm", central = false, compactService = true,
@@ -210,6 +213,12 @@ internal enum class OriginPortalId(
 
     val usesFixedTwoSidedLabels: Boolean
         get() = central || feetAnchored
+
+    val labelBrightness: Display.Brightness?
+        get() = when (this) {
+            ADVENTURE_GUILD, CASINO, FURNITURE_ENTRY -> Display.Brightness(15, 15)
+            else -> null
+        }
 
     companion object {
         fun parse(raw: String?): OriginPortalId? =
@@ -469,7 +478,7 @@ internal class OriginPortalsConfig private constructor(
                 labelFrontDistance = source.real("$path.hologram.front-distance", if (id.compactService) 0.65 else 0.0)
                     .finite(0.0).coerceIn(-20.0, 20.0),
                 labelSideOffset = source.real("$path.hologram.side-offset", 0.0).finite(0.0).coerceIn(-20.0, 20.0),
-                labelHeightOffset = source.real("$path.hologram.height-offset", if (id.compactService) 4.7 else if (id.central) -0.5 else 0.75)
+                labelHeightOffset = source.real("$path.hologram.height-offset", id.defaultLabelHeightOffset)
                     .finite(if (id.central) -0.5 else 0.75).coerceIn(-20.0, 20.0),
                 labelScale = source.real("$path.hologram.scale", if (id.central) 6.0 else if (id.compactService) 1.2 else 0.9)
                     .finite(if (id.central) 6.0 else 0.9).toFloat().coerceIn(0.1f, 8.0f),
@@ -588,6 +597,7 @@ private class OriginPortalVisual(
             )
             it.billboard =
                 if (anchor.id.usesFixedTwoSidedLabels) Display.Billboard.FIXED else Display.Billboard.CENTER
+            it.brightness = anchor.id.labelBrightness
             it.isSeeThrough = false
             it.isShadowed = true
             it.backgroundColor = Color.fromARGB(
