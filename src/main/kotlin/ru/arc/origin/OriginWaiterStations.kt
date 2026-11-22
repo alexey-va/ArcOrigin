@@ -3,6 +3,7 @@ package ru.arc.origin
 import org.bukkit.Color
 import org.bukkit.Bukkit
 import org.bukkit.FluidCollisionMode
+import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.Particle
 import org.bukkit.entity.Display
@@ -18,6 +19,7 @@ import ru.arc.paper.display.PacketItemDisplay
 import ru.arc.paper.display.PacketBlockDisplay
 import ru.arc.paper.display.PacketTextDisplay
 import ru.arc.paper.display.PacketDisplay
+import ru.arc.paper.display.PacketDisplayAudienceGroup
 import ru.arc.paper.display.PaperPacketDisplays
 import java.util.UUID
 import kotlin.math.cos
@@ -86,11 +88,21 @@ internal fun waiterStationChoices(config: OriginWaiterConfig, venue: OriginWaite
     }
 }
 
-/** Personal props on permanent furniture. One plate handle survives preparation, washing and stacking. */
+private const val STATION_VIEW_RANGE = 0.4f
+
+/** Station work is physical; each worker owns the controls and guidance for their own order. */
 internal class OriginWaiterStations(
     private val createOwner: () -> PaperPacketDisplays = { PaperPacketDisplays(ArcOriginPlugin.instance, "dining-waiter-stations") },
 ) : AutoCloseable {
-    private data class Prop(var choice: OriginWaiterStationChoice, val display: PacketItemDisplay)
+    private class Prop(var choice: OriginWaiterStationChoice, val display: PacketItemDisplay) {
+        var shared = false
+        var highlight: PacketItemDisplay? = null
+
+        fun remove() {
+            highlight?.remove()
+            display.remove()
+        }
+    }
     private data class Action(val job: OriginWaiterJob, val action: String, val layout: OriginWaiterStationsLayout,
         val startedAt: Long, val durationMillis: Long, val plateStart: OriginDiningPoint,
         val toolStart: OriginDiningPoint, val ingredientStart: OriginDiningPoint?, val stackHeight: Double,
@@ -98,7 +110,7 @@ internal class OriginWaiterStations(
     private data class Cooking(val job: OriginWaiterJob, val layout: OriginWaiterStationsLayout,
         val preparationMillis: Long, val label: String, val readyLabel: String,
         val item: (OriginWaiterStationChoice) -> ItemStack?)
-    private data class Scene(var requestId: UUID, var stepIndex: Int,
+    private data class Scene(var requestId: UUID, var stepIndex: Int, val audience: PacketDisplayAudienceGroup,
         val props: MutableMap<String, Prop> = linkedMapOf(), var action: Action? = null,
         var cooking: Cooking? = null, var label: PacketTextDisplay? = null,
         var labelText: String? = null, var pot: PacketBlockDisplay? = null,
@@ -111,13 +123,15 @@ internal class OriginWaiterStations(
     fun show(player: Player, requestId: UUID, choices: List<OriginWaiterStationChoice>, layout: OriginWaiterStationsLayout?,
         stepIndex: Int, job: OriginWaiterJob? = null, now: Long = 0L, preparationMillis: Long = 6_000L,
         cookingLabel: String = "", readyLabel: String = "", item: (OriginWaiterStationChoice) -> ItemStack?) {
-        val scene = scenes.getOrPut(player.uniqueId) { Scene(requestId, stepIndex) }
         try {
+            val scene = scenes.getOrPut(player.uniqueId) {
+                Scene(requestId, stepIndex, renderer().createAudienceGroup { it.canSee(player) })
+            }
             val action = scene.action
             // Guide refreshes must not reset or replace an in-flight workpiece before its domain commit.
             if (action != null && action.job.id == requestId && job != null &&
                 action.job.stage == job.stage && action.job.assembled == job.assembled && action.job.washed == job.washed) return
-            if (action != null) finishAction(scene)
+            if (action != null) finishAction(player, scene)
             if (scene.requestId != requestId) clearTransient(scene)
             scene.requestId = requestId
             scene.stepIndex = stepIndex
@@ -141,10 +155,10 @@ internal class OriginWaiterStations(
             val desiredKeys = desired.map(::key).toSet()
             scene.props.keys.filter { !it.startsWith("clean-plate") && it !in desiredKeys &&
                 !(job?.stage == OriginWaiterStage.ASSEMBLE && it.startsWith("assembled-ingredient-")) &&
-                !(cooking && it.startsWith("cooking-")) }.toList().forEach { scene.props.remove(it)?.display?.remove() }
+                !(cooking && it.startsWith("cooking-")) }.toList().forEach { scene.props.remove(it)?.remove() }
             for (choice in desired) {
                 if (choice.id == "clean-plate") {
-                    if (scene.props["dish"] != null) settlePlate(scene, choice.point)
+                    if (scene.props["dish"] != null) settlePlate(player, scene, choice.point)
                     else if (scene.props.keys.none { it.startsWith("clean-plate") }) put(player, scene, key(choice), choice, item)
                 } else put(player, scene, key(choice), choice, item)
             }
@@ -171,6 +185,8 @@ internal class OriginWaiterStations(
         val platePoint = if (action.startsWith("ingredient:")) waiterStationPlatePoint(layout) else plateStart
         val plate = OriginWaiterStationChoice("plate", platePoint, Material.BOWL, false, jobBefore.dish.id, true, null)
         if (put(player, scene, "dish", plate, item) == null) return false
+        // Staged choices stay private until the worker actually picks up the tool or ingredient.
+        audience(player, tool, shared = true, next = tool.choice.next)
         if (action == "wash:DRY" && (scene.props.keys.count { it.startsWith("clean-plate") } >= 3 ||
                 waiterStationPlateHeight(jobBefore.dish.id) == 0.0)) clearStack(scene)
         val stackHeight = scene.props.filterKeys { it.startsWith("clean-plate") }.values
@@ -212,11 +228,11 @@ internal class OriginWaiterStations(
         if (progress > 0.15 && progress < 0.9 && effectDue(scene, now)) {
             val point = frame.contact.inWorld(player.world)
             when (action.action) {
-                "wash:SOAP" -> player.spawnParticle(Particle.CLOUD, point, 1, 0.06, 0.01, 0.06, 0.002)
-                "wash:RINSE", "wash:SOAK" -> player.spawnParticle(Particle.SPLASH, point, 2, 0.09, 0.03, 0.09, 0.03)
-                "wash:SCRAPE" -> player.spawnParticle(Particle.ITEM, point, 1, 0.04, 0.01, 0.04, 0.025, ItemStack(Material.BREAD))
+                "wash:SOAP" -> particles(player, point, Particle.CLOUD, 1, 0.06, 0.01, 0.06, 0.002)
+                "wash:RINSE", "wash:SOAK" -> particles(player, point, Particle.SPLASH, 2, 0.09, 0.03, 0.09, 0.03)
+                "wash:SCRAPE" -> particles(player, point, Particle.ITEM, 1, 0.04, 0.01, 0.04, 0.025, ItemStack(Material.BREAD))
                 "wash:DRY" -> Unit
-                else -> player.spawnParticle(Particle.COMPOSTER, point, 1, 0.025, 0.02, 0.025, 0.0)
+                else -> particles(player, point, Particle.COMPOSTER, 1, 0.025, 0.02, 0.025, 0.0)
             }
         }
     }
@@ -233,7 +249,8 @@ internal class OriginWaiterStations(
             if (scene.pot == null) {
                 scene.pot = renderer().spawnBlock(waiterStationLocal(cook, right = -0.22).inWorld(player.world),
                     Material.CAULDRON.createBlockData()).also { pot ->
-                    configure(pot, player)
+                    configure(pot)
+                    pot.audienceGroup = scene.audience
                     pot.transformation = Transformation(Vector3f(-0.21f, 0f, -0.21f), Quaternionf(), Vector3f(0.42f, 0.32f, 0.42f), Quaternionf())
                 }
             }
@@ -243,36 +260,36 @@ internal class OriginWaiterStations(
                 val material = when (state.job.dish.id) { "fish" -> Material.COOKED_COD; "steak" -> Material.COOKED_BEEF; else -> Material.EGG }
                 val ingredient = OriginWaiterStationChoice("cooking-ingredient", checkNotNull(frame.ingredient), material, false, action = null)
                 put(player, scene, ingredient.id, ingredient, state.item, moving = true)
-            } else scene.props.remove("cooking-ingredient")?.display?.remove()
-            if (effectDue(scene, now)) player.spawnParticle(Particle.CLOUD,
-                frame.contact.inWorld(player.world), 1, 0.035, 0.025, 0.035, 0.012)
+            } else scene.props.remove("cooking-ingredient")?.remove()
+            if (effectDue(scene, now)) particles(player, frame.contact.inWorld(player.world),
+                Particle.CLOUD, 1, 0.035, 0.025, 0.035, 0.012)
         } else {
-            scene.props.keys.filter { it.startsWith("cooking-") }.toList().forEach { scene.props.remove(it)?.display?.remove() }
+            scene.props.keys.filter { it.startsWith("cooking-") }.toList().forEach { scene.props.remove(it)?.remove() }
             scene.pot?.remove(); scene.pot = null
         }
         label(player, scene, frame.plate, state.job.dish.name, if (ready) state.readyLabel else state.label,
             if (ready) null else progress)
     }
 
-    private fun finishAction(scene: Scene) {
+    private fun finishAction(player: Player, scene: Scene) {
         val action = scene.action ?: return
-        if (action.action == "wash:DRY") settlePlate(scene,
+        if (action.action == "wash:DRY") settlePlate(player, scene,
             action.layout.surface(action.layout.rack).let { it.copy(y = it.y + action.stackHeight) })
         if (action.action.startsWith("ingredient:")) scene.props.remove(action.action)?.let { ingredient ->
             val key = "assembled-ingredient-${action.job.assembled}"
             ingredient.choice = ingredient.choice.copy(id = key, next = false, action = null)
-            ingredient.display.isGlowing = false
+            audience(player, ingredient, shared = true, next = false)
             scene.props[key] = ingredient
         }
         scene.action = null
         clearLabel(scene)
     }
 
-    private fun settlePlate(scene: Scene, point: OriginDiningPoint) {
+    private fun settlePlate(player: Player, scene: Scene, point: OriginDiningPoint) {
         val plate = scene.props.remove("dish") ?: return
         val key = "clean-plate-${scene.props.keys.count { it.startsWith("clean-plate") }}"
         plate.choice = plate.choice.copy(id = key, point = point, next = false, action = null)
-        plate.display.isGlowing = false
+        audience(player, plate, shared = true, next = false)
         scene.props[key] = plate
     }
 
@@ -285,37 +302,66 @@ internal class OriginWaiterStations(
             val stack = if (choice.dishId == null) ItemStack(choice.material) else item(choice) ?: return null
             if (prop == null) {
                 val display = renderer().spawnItem(choice.point.inWorld(player.world).apply { yaw = 0f }, stack)
-                configure(display, player)
+                configure(display)
+                display.audienceGroup = scene.audience
                 prop = Prop(choice, display).also { scene.props[key] = it }
-            } else prop.display.itemStack = stack
+            } else {
+                prop.display.itemStack = stack
+                prop.highlight?.itemStack = stack
+            }
         }
         val current = checkNotNull(prop)
-        if (changedModel || current.choice.point != choice.point || moving) pose(player, current, choice.point, choice, moving)
-        if (changedModel || current.choice.next != choice.next) {
-            current.display.isGlowing = choice.next
-            current.display.glowColorOverride = Color.fromRGB(0x9BD48D)
-        }
+        val shared = choice.dishId != null || choice.action == null
+        val changedAudience = changedModel || current.shared != shared || current.choice.next != choice.next
+        if (changedAudience) audience(player, current, shared, choice.next)
+        if (changedAudience || current.choice.point != choice.point || moving) pose(player, current, choice.point, choice, moving)
         current.choice = choice
         return current
     }
 
+    private fun audience(player: Player, prop: Prop, shared: Boolean, next: Boolean) {
+        prop.shared = shared
+        val display = prop.display
+        display.isVisibleByDefault = shared
+        display.isGlowing = !shared && next
+        if (!shared && next) display.glowColorOverride = Color.fromRGB(0x9BD48D)
+        if (shared && next) {
+            // One model per client: the worker sees the highlighted twin instead of the public model.
+            display.hideFrom(player)
+            if (prop.highlight == null) renderer().spawnItem(display.location, display.itemStack).also {
+                prop.highlight = it
+                configure(it, player)
+                it.isGlowing = true
+                it.glowColorOverride = Color.fromRGB(0x9BD48D)
+            }
+        } else {
+            prop.highlight?.remove()
+            prop.highlight = null
+            display.showTo(player)
+        }
+    }
+
     private fun pose(player: Player, prop: Prop, point: OriginDiningPoint,
         choice: OriginWaiterStationChoice = prop.choice, moving: Boolean = false, itemScale: Float = 0.48f) {
-        val display = prop.display
-        display.teleportDuration = if (moving) 1 else 0
-        display.interpolationDuration = if (moving) 1 else 0
-        display.teleport(point.inWorld(player.world).apply { yaw = 0f })
+        val location = point.inWorld(player.world).apply { yaw = 0f }
         val rotation = Quaternionf().rotateY(-Math.toRadians(point.yaw.toDouble()).toFloat())
-        if (choice.dishId != null) {
+        val transform = if (choice.dishId != null) {
             val empty = OriginDiningLayout.lifeConfig.let { it.emptyPlates[choice.dishId] ?: it.emptyPlate }
             val scale = if (choice.emptyPlate) empty.scale else OriginDiningLayout.displayScale(choice.dishId)
             val lift = if (choice.emptyPlate) empty.lift else OriginDiningLayout.displayLift(choice.dishId)
-            display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.GROUND
-            display.transformation = Transformation(Vector3f(0f, lift, 0f), rotation, Vector3f(scale), Quaternionf())
+            Transformation(Vector3f(0f, lift, 0f), rotation, Vector3f(scale), Quaternionf())
         } else {
-            display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.NONE
-            display.transformation = Transformation(Vector3f(), rotation.rotateX((-Math.PI / 2).toFloat()), Vector3f(itemScale), Quaternionf())
+            Transformation(Vector3f(), rotation.rotateX((-Math.PI / 2).toFloat()), Vector3f(itemScale), Quaternionf())
         }
+        fun apply(display: PacketItemDisplay) {
+            display.teleportDuration = if (moving) 1 else 0
+            display.interpolationDuration = if (moving) 1 else 0
+            display.teleport(location)
+            display.itemDisplayTransform = if (choice.dishId != null) ItemDisplay.ItemDisplayTransform.GROUND else ItemDisplay.ItemDisplayTransform.NONE
+            display.transformation = transform
+        }
+        apply(prop.display)
+        prop.highlight?.let(::apply)
     }
 
     private fun label(player: Player, scene: Scene, point: OriginDiningPoint, dish: String, caption: String, progress: Double?) {
@@ -341,10 +387,21 @@ internal class OriginWaiterStations(
         return true
     }
 
-    private fun configure(display: PacketDisplay, player: Player) {
-        display.isVisibleByDefault = false
-        display.showTo(player)
-        display.viewRange = 0.4f
+    private fun particles(worker: Player, point: Location, particle: Particle, count: Int,
+        x: Double, y: Double, z: Double, speed: Double, data: ItemStack? = null) {
+        val range = STATION_VIEW_RANGE * 64.0
+        val viewers = worker.world.getNearbyPlayers(point, range) {
+            it.canSee(worker) && it.location.distanceSquared(point) <= range * range
+        }
+        for (viewer in viewers) viewer.spawnParticle(particle, point, count, x, y, z, speed, data)
+    }
+
+    private fun configure(display: PacketDisplay, privateViewer: Player? = null) {
+        if (privateViewer != null) {
+            display.isVisibleByDefault = false
+            display.showTo(privateViewer)
+        }
+        display.viewRange = STATION_VIEW_RANGE
         display.displayWidth = 3f
         display.displayHeight = 2f
         display.shadowRadius = 0f
@@ -367,16 +424,16 @@ internal class OriginWaiterStations(
 
     private fun clearLabel(scene: Scene) { scene.label?.remove(); scene.label = null; scene.labelText = null }
     private fun clearStack(scene: Scene) {
-        scene.props.keys.filter { it.startsWith("clean-plate") }.toList().forEach { scene.props.remove(it)?.display?.remove() }
+        scene.props.keys.filter { it.startsWith("clean-plate") }.toList().forEach { scene.props.remove(it)?.remove() }
     }
     private fun clearTransient(scene: Scene) {
-        scene.props.keys.filter { !it.startsWith("clean-plate") }.toList().forEach { scene.props.remove(it)?.display?.remove() }
+        scene.props.keys.filter { !it.startsWith("clean-plate") }.toList().forEach { scene.props.remove(it)?.remove() }
         scene.cooking = null
         scene.pot?.remove(); scene.pot = null
         clearLabel(scene)
     }
     fun remove(playerId: UUID) {
-        scenes.remove(playerId)?.let { scene -> clearTransient(scene); clearStack(scene) }
+        scenes.remove(playerId)?.let { scene -> clearTransient(scene); clearStack(scene); scene.audience.close() }
     }
     override fun close() {
         scenes.keys.toList().forEach(::remove)

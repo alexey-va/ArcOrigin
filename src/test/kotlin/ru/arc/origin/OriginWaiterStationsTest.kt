@@ -14,6 +14,7 @@ import org.bukkit.util.Transformation
 import org.joml.Matrix4f
 import org.joml.Vector3f
 import ru.arc.paper.display.PacketItemDisplay
+import ru.arc.paper.display.PacketTextDisplay
 import ru.arc.paper.display.PaperPacketDisplays
 import ru.arc.paper.testing.MockBukkitTestRuntime
 import java.nio.file.Files
@@ -86,6 +87,54 @@ class OriginWaiterStationsTest : StringSpec({
             stations.close()
             items.forEach { display -> verify(exactly = 1) { display.remove() } }
             verify(exactly = 1) { renderer.close() }
+        } finally { paper.close() }
+    }
+
+    "washing shares the moving tool and dish while the worker alone sees its outline and progress" {
+        val paper = MockBukkitTestRuntime.open()
+        try {
+            val world = paper.addSimpleWorld(OriginDiningLayout.WORLD)
+            val worker = paper.addPlayer("Worker")
+            val observer = paper.addPlayer("Observer")
+            val config = waiterTestConfig()
+            val venue = config.venues.first()
+            val layout = config.stations.getValue(venue.id)
+            val location = layout.sink.inWorld(world).add(0.0, 0.0, 2.0)
+            worker.teleport(location)
+            observer.teleport(location)
+            val renderer = mockk<PaperPacketDisplays>(relaxed = true)
+            val items = mutableListOf<PacketItemDisplay>()
+            every { renderer.spawnItem(any(), any()) } answers {
+                val anchor = firstArg<Location>()
+                val stack = secondArg<ItemStack>()
+                mockk<PacketItemDisplay>(relaxed = true).also { display ->
+                    every { display.location } returns anchor
+                    every { display.itemStack } returns stack
+                    items += display
+                }
+            }
+            val label = mockk<PacketTextDisplay>(relaxed = true)
+            every { renderer.spawnText(any(), any()) } returns label
+            val stations = OriginWaiterStations { renderer }
+            val job = OriginWaiterJob(waiterTarget(venue.id), 0, 180_000, stage = OriginWaiterStage.WASH,
+                washing = listOf(OriginWaiterWash.RINSE))
+            stations.show(worker, job.id, waiterStationChoices(config, venue, job), layout, 0, job) { ItemStack(Material.BOWL) }
+            val (tool, plate) = items
+            verify { tool.isVisibleByDefault = false; tool.showTo(worker); plate.isVisibleByDefault = true }
+            stations.begin(worker, job, "wash:RINSE", layout, 1600, 0, "Ополаскивание") { ItemStack(Material.BOWL) } shouldBe true
+            val highlight = items[2]
+            stations.tick(600)
+            verify { tool.isVisibleByDefault = true; tool.hideFrom(worker); tool.isGlowing = false }
+            verify { highlight.isVisibleByDefault = false; highlight.showTo(worker); highlight.isGlowing = true }
+            verify { label.isVisibleByDefault = false; label.showTo(worker) }
+            verify(exactly = 0) { highlight.showTo(observer); label.showTo(observer) }
+            val poses = mutableListOf<Location>()
+            verify { tool.teleport(capture(poses)) }
+            verify { highlight.teleport(poses.last()) }
+            stations.aimed(observer, 5.0) shouldBe null
+            stations.close()
+            items.forEach { verify(exactly = 1) { it.remove() } }
+            verify(exactly = 1) { label.remove() }
         } finally { paper.close() }
     }
 
@@ -171,6 +220,9 @@ class OriginWaiterStationsTest : StringSpec({
                     val item = WaiterCapturedItem(firstArg<Location>().clone(), secondArg())
                     captured += item
                     mockk<PacketItemDisplay>(relaxed = true).also { display ->
+                        every { display.location } answers { item.location }
+                        every { display.itemStack } returns item.stack
+                        every { display.isVisibleByDefault = any() } answers { item.shared = firstArg() }
                         every { display.teleport(any()) } answers { item.location = firstArg<Location>().clone() }
                         every { display.transformation = any() } answers { item.transform = firstArg() }
                         every { display.itemDisplayTransform = any() } answers { item.context = firstArg() }
@@ -199,7 +251,7 @@ class OriginWaiterStationsTest : StringSpec({
                     if (progress in 0.12..if (action == OriginWaiterWash.DRY) 0.47 else 0.86) {
                         abs(tool.minimumY() - (plate.location.y + height)).let { it < 1e-6 } shouldBe true
                     }
-                    mapOf("timeMillis" to time, "items" to captured.filter { !it.removed }.map { it.export(dish) })
+                    mapOf("timeMillis" to time, "items" to captured.filter { it.shared && !it.removed }.map { it.export(dish) })
                 }
                 tool.location.distance(dock).let { it < 1e-8 } shouldBe true
                 if (action == OriginWaiterWash.DRY) {
@@ -213,7 +265,7 @@ class OriginWaiterStationsTest : StringSpec({
             Files.createDirectories(output.parent)
             Files.writeString(output, GsonBuilder().setPrettyPrinting().create().toJson(mapOf(
                 "source" to "OriginWaiterStations.show/begin/tick captured PacketItemDisplay setters",
-                "boundary" to "Actual runtime metadata in MockBukkit; not native client playback",
+                "boundary" to "Public station models captured in MockBukkit; not native client playback",
                 "layout" to layout, "floorY" to 70.0, "clips" to clips)))
             clips.size shouldBe 10
         } finally { paper.close() }
@@ -224,6 +276,7 @@ private class WaiterCapturedItem(var location: Location, val stack: ItemStack) {
     lateinit var transform: Transformation
     var context = ItemDisplay.ItemDisplayTransform.NONE
     var removed = false
+    var shared = true
 
     fun minimumY(): Double {
         val matrix = Matrix4f().translation(transform.translation).rotate(transform.leftRotation)
